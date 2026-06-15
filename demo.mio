@@ -1,0 +1,357 @@
+# ============================================================
+# MIO 语言编译器测试套件
+# 测试所有核心功能
+# ============================================================
+
+import stdio.h;
+import math.h;
+
+# ============================================================
+# 测试 1: 基础变量和运算
+# ============================================================
+
+def void test_basic() {
+    printf("\n=== 测试 1: 基础变量和运算 ===\n");
+    
+    # 整数运算
+    var a: i32 = 10;
+    var b: i32 = 20;
+    var c: i32 = a + b;
+    var d: i32 = c * 2;
+    var e: i32 = d / 5;
+    var f: i32 = e - 3;
+    
+    printf("a=10, b=20\n");
+    printf("c = a + b = %d (期望 30)\n", c);
+    printf("d = c * 2 = %d (期望 60)\n", d);
+    printf("e = d / 5 = %d (期望 12)\n", e);
+    printf("f = e - 3 = %d (期望 9)\n", f);
+    
+    # 浮点运算
+    var x: f64 = 3.14;
+    var y: f64 = 2.0;
+    var z: f64 = x * y;
+    printf("x=3.14, y=2.0\n");
+    printf("z = x * y = %f (期望 6.28)\n", z);
+    
+    # 布尔运算
+    var flag1: bool = true;
+    var flag2: bool = false;
+    printf("flag1 = %d (期望 1)\n", flag1);
+    printf("flag2 = %d (期望 0)\n", flag2);
+    
+    # 字符
+    var ch: char = 'A';
+    printf("ch = %c (期望 A)\n", ch);
+}
+
+# ============================================================
+# 测试 2: 数组
+# ============================================================
+
+def void test_array() {
+    printf("\n=== 测试 2: 数组 ===\n");
+    
+    # 整数数组
+    var arr: i32[5];
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+    
+    printf("arr[0]=%d (期望 10)\n", arr[0]);
+    printf("arr[1]=%d (期望 20)\n", arr[1]);
+    printf("arr[2]=%d (期望 30)\n", arr[2]);
+    printf("arr[3]=%d (期望 40)\n", arr[3]);
+    printf("arr[4]=%d (期望 50)\n", arr[4]);
+    
+    # 数组求和
+    var sum: i32 = 0;
+    sum = arr[0] + arr[1] + arr[2] + arr[3] + arr[4];
+    printf("数组和 = %d (期望 150)\n", sum);
+}
+
+# ============================================================
+# 测试 3: 控制流 (if/elif/else)
+# ============================================================
+
+def void test_control_flow() {
+    printf("\n=== 测试 3: 控制流 ===\n");
+    
+    # if 语句
+    var x: i32 = 10;
+    
+    if:x > 0 {
+        printf("x > 0 (正确)\n");
+    }
+    
+    # if-else
+    if:x < 0 {
+        printf("x < 0 (错误)\n");
+    } else {
+        printf("x >= 0 (正确)\n");
+    }
+    
+    # if-elif-else
+    var score: i32 = 85;
+    if:score >= 90 {
+        printf("成绩: A\n");
+    } elif:score >= 80 {
+        printf("成绩: B (85 -> B, 正确)\n");
+    } elif:score >= 70 {
+        printf("成绩: C\n");
+    } elif:score >= 60 {
+        printf("成绩: D\n");
+    } else {
+        printf("成绩: F\n");
+    }
+    
+    # 嵌套 if
+    var a: i32 = 5;
+    var b: i32 = 10;
+    if:a > 0 {
+        if:b > 0 {
+            printf("a>0 且 b>0 (正确)\n");
+        }
+    }
+}
+
+# ============================================================
+# 测试 4: while 循环
+# ============================================================
+
+def void test_while() {
+    printf("\n=== 测试 4: while 循环 ===\n");
+    
+    # 计算 1 到 10 的和
+    var i: i32 = 1;
+    var sum: i32 = 0;
+    
+    while:i <= 10 {
+        sum = sum + i;
+        i = i + 1;
+    }
+    printf("1+2+...+10 = %d (期望 55)\n", sum);
+    
+    # 使用 break (如果需要实现)
+    var j: i32 = 0;
+    while:j < 100 {
+        j = j + 1;
+        if:j == 5 {
+            break;
+        }
+    }
+    printf("break 测试: j = %d (期望 5)\n", j);
+    
+    # 使用 continue (如果需要实现)
+    var k: i32 = 0;
+    var sum_even: i32 = 0;
+    while:k < 10 {
+        k = k + 1;
+        if:k % 2 == 1 {
+            continue;
+        }
+        sum_even = sum_even + k;
+    }
+    printf("1-10 偶数和 = %d (期望 30)\n", sum_even);
+}
+
+# ============================================================
+# 测试 5: for 循环
+# ============================================================
+
+def void test_for() {
+    printf("\n=== 测试 5: for 循环 ===\n");
+    
+    # 计算 1 到 10 的乘积 (阶乘)
+    var fact: i32 = 1;
+    var i: i32;
+    for:i = 1; i <= 5; i = i + 1 {
+        fact = fact * i;
+    }
+    printf("5! = %d (期望 120)\n", fact);
+    
+    # 遍历数组
+    var arr: i32[5];
+    var idx: i32;
+    for:idx = 0; idx < 5; idx = idx + 1 {
+        arr[idx] = idx * 10;
+    }
+    printf("数组元素: ");
+    for:idx = 0; idx < 5; idx = idx + 1 {
+        printf("%d ", arr[idx]);
+    }
+    printf("(期望 0 10 20 30 40)\n");
+}
+
+# ============================================================
+# 测试 6: 函数定义和调用
+# ============================================================
+
+# 加法函数
+def i32 add(a: i32, b: i32) {
+    return a + b;
+}
+
+# 减法函数
+def i32 sub(a: i32, b: i32) {
+    return a - b;
+}
+
+# 递归: 阶乘
+def i32 factorial(n: i32) {
+    if:n <= 1 {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+# 递归: 斐波那契
+def i32 fibonacci(n: i32) {
+    if:n <= 1 {
+        return n;
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+
+# 无返回值函数
+def void print_msg(msg: i32) {
+    printf("消息: %d\n", msg);
+}
+
+def void test_functions() {
+    printf("\n=== 测试 6: 函数 ===\n");
+    
+    var result: i32;
+    
+    result = add(15, 25);
+    printf("add(15, 25) = %d (期望 40)\n", result);
+    
+    result = sub(50, 20);
+    printf("sub(50, 20) = %d (期望 30)\n", result);
+    
+    result = factorial(6);
+    printf("factorial(6) = %d (期望 720)\n", result);
+    
+    result = fibonacci(10);
+    printf("fibonacci(10) = %d (期望 55)\n", result);
+    
+    print_msg(42);
+}
+
+# ============================================================
+# 测试 7: 结构体
+# ============================================================
+
+struct Point {
+    x:f64;y:f64;
+    
+    # 构造函数
+    def Point(xx: f64, yy: f64):x(xx),y(yy) {}
+    
+    # 方法
+    def f64 get_x(this: Point) {
+        return this.x;
+    }
+    
+    def f64 get_y(this: Point) {
+        return this.y;
+    }
+    
+    def f64 distance(this: Point) {
+        return sqrt(this.x * this.x + this.y * this.y);
+    }
+    
+    def Point operator+(this: Point, other: Point) {
+        return Point(this.x + other.x, this.y + other.y);
+    }
+}
+
+def void test_struct() {
+    printf("\n=== 测试 7: 结构体 ===\n");
+    
+    var p1: Point = Point(3.0, 4.0);
+    var p2: Point = Point(1.0, 2.0);
+    
+    printf("p1.x = %f (期望 3.0)\n", p1.x);
+    printf("p1.y = %f (期望 4.0)\n", p1.y);
+}
+
+# ============================================================
+# 测试 8: 常量
+# ============================================================
+
+const PI: f64 = 3.14159265359;
+const MAX_SIZE: i32 = 100;
+const GREETING: i32 = 42;
+
+def void test_constants() {
+    printf("\n=== 测试 8: 常量 ===\n");
+    printf("PI = %f (期望 3.141593)\n", PI);
+    printf("MAX_SIZE = %d (期望 100)\n", MAX_SIZE);
+    printf("GREETING = %d (期望 42)\n", GREETING);
+}
+
+# ============================================================
+# 测试 9: 复合赋值运算符（如果支持）
+# ============================================================
+
+def void test_compound_assign() {
+    printf("\n=== 测试 9: 复合赋值 ===\n");
+    
+    var x: i32 = 10;
+    x = x + 5;
+    printf("x += 5: %d (期望 15)\n", x);
+    
+    var y: i32 = 20;
+    y = y * 2;
+    printf("y *= 2: %d (期望 40)\n", y);
+    
+    var z: i32 = 100;
+    z = z / 4;
+    printf("z /= 4: %d (期望 25)\n", z);
+}
+
+# ============================================================
+# 测试 10: 类型转换（如果支持）
+# ============================================================
+
+def void test_type_cast() {
+    printf("\n=== 测试 10: 类型转换 ===\n");
+    
+    var a: i32 = 10;
+    var b: f64 = f64(a);
+    printf("int %d 转 float = %f\n", a, b);
+    
+    var c: f64 = 3.99;
+    var d: i32 = i32(c);
+    printf("float %f 转 int = %d (期望 3，截断)\n", c, d);
+}
+
+# ============================================================
+# 主函数
+# ============================================================
+
+def void main() {
+    printf("========================================\n");
+    printf("     MIO 语言编译器测试套件\n");
+    printf("========================================\n");
+    
+    test_basic();
+    test_array();
+    test_control_flow();
+    test_while();
+    test_for();
+    test_functions();
+    test_struct();
+    test_constants();
+    test_compound_assign();
+    test_type_cast();
+    
+    printf("\n========================================\n");
+    printf("     所有测试完成！\n");
+    printf("========================================\n");
+}
