@@ -38,12 +38,12 @@ int main(int argc, char **argv) {
     }
 
     if (argc == 2 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("mioc version 0.5.4\n");
+        printf("mio version 2.0.5\n");
         printf("License: MIT License\n");
         printf("\n");
         printf("MIT License\n");
         printf("\n");
-        printf("Copyright (c) 2026 mioLang\n");
+        printf("Copyright (c) 2026 mioLanguage\n");
         printf("\n");
         printf("Permission is hereby granted, free of charge, to any person obtaining a copy\n");
         printf("of this software and associated documentation files (the \"Software\"), to deal\n");
