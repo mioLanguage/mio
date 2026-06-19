@@ -164,6 +164,10 @@ static AstNode *parse_primary(Parser *p) {
             parser_advance(p);
             return ast_new_bool_lit(false, t->line, t->col);
         }
+        case TOK_THIS: {
+            parser_advance(p);
+            return ast_new_ident("this", t->line, t->col);
+        }
         case TOK_IDENT: {
             parser_advance(p);
             return ast_new_ident(t->lexeme, t->line, t->col);
@@ -415,6 +419,27 @@ static AstNode *parse_var_items(Parser *p, bool is_const, bool is_static) {
     if (parser_match(p, TOK_ASSIGN))
         init = parse_expr(p);
 
+    if (init && init->kind == AST_ARRAY_LIT) {
+        if (type && type->kind == TYPE_ARRAY && type->array_size == 0) {
+            type->array_size = init->array_lit.count;
+        } else if (!type) {
+            MioType *base = NULL;
+            if (init->array_lit.count > 0) {
+                AstNode *first = init->array_lit.elements[0];
+                switch (first->kind) {
+                    case AST_INT_LIT:   base = mio_type_new(TYPE_I32); break;
+                    case AST_FLOAT_LIT: base = mio_type_new(TYPE_F64); break;
+                    case AST_BOOL_LIT:  base = mio_type_new(TYPE_BOOL); break;
+                    case AST_CHAR_LIT:  base = mio_type_new(TYPE_CHAR); break;
+                    case AST_STRING_LIT:base = mio_type_new(TYPE_CHAR); break;
+                    default:            base = mio_type_new(TYPE_I32); break;
+                }
+            }
+            if (!base) base = mio_type_new(TYPE_I32);
+            type = mio_type_new_array(base, init->array_lit.count);
+        }
+    }
+
     if (is_const)
         return ast_new_const_decl(name, type, init, is_static, line, col);
     else
@@ -495,8 +520,7 @@ static AstNode *parse_return_stmt(Parser *p) {
     if (!parser_check(p, TOK_SEMICOLON) && !parser_check(p, TOK_RBRACE))
         value = parse_expr(p);
 
-    if (parser_check(p, TOK_SEMICOLON))
-        parser_advance(p);
+    parser_expect(p, TOK_SEMICOLON);
 
     return ast_new_return(value, line, col);
 }

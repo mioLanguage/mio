@@ -35,6 +35,7 @@ typedef enum {
     TOK_OPERATOR,
     TOK_TRUE,
     TOK_FALSE,
+    TOK_THIS,
 
     TOK_I32,
     TOK_I64,
@@ -128,6 +129,7 @@ const char *tok_name(TokenKind kind) {
         case TOK_OPERATOR: return "operator";
         case TOK_TRUE: return "true";
         case TOK_FALSE: return "false";
+        case TOK_THIS: return "this";
         case TOK_I32: return "i32";
         case TOK_I64: return "i64";
         case TOK_U32: return "u32";

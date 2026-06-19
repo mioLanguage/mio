@@ -33,6 +33,103 @@ static void add_struct_name(const char *name) {
         struct_names[struct_count++] = name;
 }
 
+#define MAX_ENUMS 256
+static const char *enum_names[MAX_ENUMS];
+static int enum_count = 0;
+
+static bool is_enum_name(const char *name) {
+    for (int i = 0; i < enum_count; i++) {
+        if (strcmp(enum_names[i], name) == 0) return true;
+    }
+    return false;
+}
+
+static void add_enum_name(const char *name) {
+    if (enum_count < MAX_ENUMS && !is_enum_name(name))
+        enum_names[enum_count++] = name;
+}
+
+#define MAX_VARIANTS 1024
+typedef struct {
+    const char *name;
+    const char *enum_name;
+} EnumVariant;
+
+static EnumVariant enum_variants[MAX_VARIANTS];
+static int enum_variant_count = 0;
+
+static void add_enum_variant(const char *enum_name, const char *variant_name) {
+    if (enum_variant_count < MAX_VARIANTS) {
+        enum_variants[enum_variant_count].name = variant_name;
+        enum_variants[enum_variant_count].enum_name = enum_name;
+        enum_variant_count++;
+    }
+}
+
+static const char *lookup_enum_variant(const char *name) {
+    const char *found = NULL;
+    for (int i = 0; i < enum_variant_count; i++) {
+        if (strcmp(enum_variants[i].name, name) == 0) {
+            if (found && strcmp(found, enum_variants[i].enum_name) != 0) {
+                fprintf(stderr, "error: ambiguous enum variant '%s' (found in '%s' and '%s')\n",
+                    name, found, enum_variants[i].enum_name);
+                return NULL;
+            }
+            found = enum_variants[i].enum_name;
+        }
+    }
+    return found;
+}
+
+#define MAX_VARS 1024
+typedef struct {
+    const char *name;
+    MioType *type;
+} VarEntry;
+
+static VarEntry var_table[MAX_VARS];
+static int var_count = 0;
+
+static void register_var(const char *name, MioType *type) {
+    if (!type || !type->name) return;
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(var_table[i].name, name) == 0) {
+            var_table[i].type = type;
+            return;
+        }
+    }
+    if (var_count < MAX_VARS) {
+        var_table[var_count].name = name;
+        var_table[var_count].type = type;
+        var_count++;
+    }
+}
+
+static const char *lookup_var_type_name(const char *name) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(var_table[i].name, name) == 0 && var_table[i].type)
+            return var_table[i].type->name;
+    }
+    return NULL;
+}
+
+static bool is_var_name(const char *name) {
+    return lookup_var_type_name(name) != NULL;
+}
+
+static void clear_var_table(void) {
+    var_count = 0;
+}
+
+static const char *resolve_struct_name(AstNode *base_expr) {
+    if (current_struct) return current_struct;
+    if (base_expr && base_expr->kind == AST_IDENT_EXPR) {
+        const char *tn = lookup_var_type_name(base_expr->ident.name);
+        if (tn) return tn;
+    }
+    return "unknown";
+}
+
 static void emit_indent(void) {
     for (int i = 0; i < indent_level; i++)
         fprintf(out, "    ");
@@ -148,9 +245,18 @@ static void gen_expr(AstNode *node) {
         case AST_BOOL_LIT:
             fprintf(out, "%s", node->bool_lit.value ? "true" : "false");
             break;
-        case AST_IDENT_EXPR:
-            fprintf(out, "%s", node->ident.name);
+        case AST_IDENT_EXPR: {
+            const char *name = node->ident.name;
+            if (!is_var_name(name)) {
+                const char *enum_name = lookup_enum_variant(name);
+                if (enum_name) {
+                    fprintf(out, "%s_%s", enum_name, name);
+                    break;
+                }
+            }
+            fprintf(out, "%s", name);
             break;
+        }
         case AST_BINARY_EXPR:
             fprintf(out, "(");
             gen_expr(node->binary.left);
@@ -189,8 +295,7 @@ static void gen_expr(AstNode *node) {
             if (node->call.callee->kind == AST_MEMBER_EXPR &&
                 node->call.callee->member.arrow) {
                 AstNode *member = node->call.callee;
-                const char *struct_name = current_struct;
-                if (!struct_name) struct_name = "unknown";
+                const char *struct_name = resolve_struct_name(member->member.base);
                 fprintf(out, "_mio_%s_", struct_name);
                 fprintf(out, "%s(", member->member.member);
                 gen_expr(member->member.base);
@@ -201,8 +306,7 @@ static void gen_expr(AstNode *node) {
                 fprintf(out, ")");
             } else if (node->call.callee->kind == AST_MEMBER_EXPR) {
                 AstNode *member = node->call.callee;
-                const char *struct_name = current_struct;
-                if (!struct_name) struct_name = "unknown";
+                const char *struct_name = resolve_struct_name(member->member.base);
                 fprintf(out, "_mio_%s_", struct_name);
                 fprintf(out, "%s(&", member->member.member);
                 gen_expr(member->member.base);
@@ -236,8 +340,11 @@ static void gen_expr(AstNode *node) {
             fprintf(out, "]");
             break;
         case AST_MEMBER_EXPR:
-            gen_expr(node->member.base);
-            {
+            if (node->member.base->kind == AST_IDENT_EXPR &&
+                is_enum_name(node->member.base->ident.name)) {
+                fprintf(out, "%s_%s", node->member.base->ident.name, node->member.member);
+            } else {
+                gen_expr(node->member.base);
                 bool use_arrow = node->member.arrow;
                 if (!use_arrow && !in_constructor &&
                     node->member.base->kind == AST_IDENT_EXPR &&
@@ -388,6 +495,7 @@ static void gen_stmt(AstNode *node) {
                 gen_expr(node->var_decl.init);
             }
             fprintf(out, ";\n");
+            register_var(node->var_decl.name, node->var_decl.var_type);
             break;
         }
         case AST_CONST_DECL: {
@@ -445,6 +553,7 @@ static void gen_block(AstNode *node) {
 static void gen_func_def(AstNode *node, const char *struct_name) {
     const char *prev_struct = current_struct;
     current_struct = struct_name;
+    clear_var_table();
 
     fprintf(out, "\n");
     if (node->func_def.is_static)
@@ -549,8 +658,10 @@ static void gen_type_decl(AstNode *node) {
             break;
         }
         case AST_ENUM_DEF: {
+            add_enum_name(node->enum_def.name);
             fprintf(out, "typedef enum {\n");
             for (int i = 0; i < node->enum_def.variant_count; i++) {
+                add_enum_variant(node->enum_def.name, node->enum_def.variants[i].name);
                 fprintf(out, "    %s_%s",
                     node->enum_def.name, node->enum_def.variants[i].name);
                 if (node->enum_def.variants[i].init) {
@@ -625,6 +736,14 @@ void codegen_generate(AstNode *program, const char *input_file, FILE *output) {
     for (int i = 0; i < program->program.count; i++) {
         AstNode *node = program->program.nodes[i];
         if (node->kind == AST_BLOCK) {
+            bool all_imports = true;
+            for (int j = 0; j < node->block.count; j++) {
+                if (node->block.stmts[j]->kind != AST_IMPORT) {
+                    all_imports = false;
+                    break;
+                }
+            }
+            if (all_imports) continue;
             gen_block(node);
             fprintf(out, "\n");
         }

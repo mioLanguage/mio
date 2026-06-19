@@ -95,6 +95,7 @@ static KeywordEntry keywords[] = {
     {"return", TOK_RETURN}, {"struct", TOK_STRUCT}, {"enum", TOK_ENUM},
     {"union", TOK_UNION}, {"static", TOK_STATIC}, {"operator", TOK_OPERATOR},
     {"true", TOK_TRUE}, {"false", TOK_FALSE},
+    {"this", TOK_THIS},
     {"i32", TOK_I32}, {"i64", TOK_I64}, {"u32", TOK_U32},
     {"u64", TOK_U64}, {"f32", TOK_F32}, {"f64", TOK_F64},
     {"bool", TOK_BOOL}, {"char", TOK_CHAR},
