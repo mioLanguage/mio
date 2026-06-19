@@ -1,11 +1,6 @@
 # mio 编程语言
-
 mio 是一种编译型编程语言，采用自举方式开发，首个编译版本使用 C 语言实现。编译器将 `.mio` 源文件翻译为 C 代码，再由 C 编译器生成可执行文件。
-
----
-
 ## 获取
-
 ### 下载预编译二进制文件
 访问 [Releases](https://github.com/mioLanguage/mio/releases) 页面下载对应平台的二进制文件。
 >[!NOTE]
