@@ -38,8 +38,7 @@ int main(int argc, char **argv) {
     }
 
     if (argc == 2 && (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("mio version 2.0.5\n");
-        printf("License: MIT License\n");
+		printf("License: MIT License\n");
         printf("\n");
         printf("MIT License\n");
         printf("\n");
@@ -62,14 +61,15 @@ int main(int argc, char **argv) {
         printf("LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n");
         printf("OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n");
         printf("SOFTWARE.\n");
+		printf("mio version 2.0.6\n");
         return 0;
     }
-
+	
     const char *input_file = NULL;
     const char *output_file = NULL;
-
+	
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+		if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
         } else if (!input_file) {
             input_file = argv[i];
