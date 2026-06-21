@@ -17,9 +17,9 @@ static int indent_level = 0;
 static const char *current_struct = NULL;
 static bool in_constructor = false;
 
-#define MAX_STRUCTS 256
-static const char *struct_names[MAX_STRUCTS];
+static const char **struct_names = NULL;
 static int struct_count = 0;
+static int struct_capacity = 0;
 
 static bool is_struct_name(const char *name) {
     for (int i = 0; i < struct_count; i++) {
@@ -29,13 +29,23 @@ static bool is_struct_name(const char *name) {
 }
 
 static void add_struct_name(const char *name) {
-    if (struct_count < MAX_STRUCTS && !is_struct_name(name))
-        struct_names[struct_count++] = name;
+    if (is_struct_name(name)) return;
+    if (struct_count >= struct_capacity) {
+        int new_cap = struct_capacity ? struct_capacity * 2 : 16;
+        const char **new_names = realloc(struct_names, sizeof(const char*) * new_cap);
+        if (!new_names) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        struct_names = new_names;
+        struct_capacity = new_cap;
+    }
+    struct_names[struct_count++] = name;
 }
 
-#define MAX_ENUMS 256
-static const char *enum_names[MAX_ENUMS];
+static const char **enum_names = NULL;
 static int enum_count = 0;
+static int enum_capacity = 0;
 
 static bool is_enum_name(const char *name) {
     for (int i = 0; i < enum_count; i++) {
@@ -45,25 +55,43 @@ static bool is_enum_name(const char *name) {
 }
 
 static void add_enum_name(const char *name) {
-    if (enum_count < MAX_ENUMS && !is_enum_name(name))
-        enum_names[enum_count++] = name;
+    if (is_enum_name(name)) return;
+    if (enum_count >= enum_capacity) {
+        int new_cap = enum_capacity ? enum_capacity * 2 : 16;
+        const char **new_names = realloc(enum_names, sizeof(const char*) * new_cap);
+        if (!new_names) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        enum_names = new_names;
+        enum_capacity = new_cap;
+    }
+    enum_names[enum_count++] = name;
 }
 
-#define MAX_VARIANTS 1024
 typedef struct {
     const char *name;
     const char *enum_name;
 } EnumVariant;
 
-static EnumVariant enum_variants[MAX_VARIANTS];
+static EnumVariant *enum_variants = NULL;
 static int enum_variant_count = 0;
+static int enum_variant_capacity = 0;
 
 static void add_enum_variant(const char *enum_name, const char *variant_name) {
-    if (enum_variant_count < MAX_VARIANTS) {
-        enum_variants[enum_variant_count].name = variant_name;
-        enum_variants[enum_variant_count].enum_name = enum_name;
-        enum_variant_count++;
+    if (enum_variant_count >= enum_variant_capacity) {
+        int new_cap = enum_variant_capacity ? enum_variant_capacity * 2 : 32;
+        EnumVariant *new_variants = realloc(enum_variants, sizeof(EnumVariant) * new_cap);
+        if (!new_variants) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        enum_variants = new_variants;
+        enum_variant_capacity = new_cap;
     }
+    enum_variants[enum_variant_count].name = variant_name;
+    enum_variants[enum_variant_count].enum_name = enum_name;
+    enum_variant_count++;
 }
 
 static const char *lookup_enum_variant(const char *name) {
@@ -81,14 +109,14 @@ static const char *lookup_enum_variant(const char *name) {
     return found;
 }
 
-#define MAX_VARS 1024
 typedef struct {
     const char *name;
     MioType *type;
 } VarEntry;
 
-static VarEntry var_table[MAX_VARS];
+static VarEntry *var_table = NULL;
 static int var_count = 0;
+static int var_capacity = 0;
 
 static void register_var(const char *name, MioType *type) {
     if (!type || !type->name) return;
@@ -98,11 +126,19 @@ static void register_var(const char *name, MioType *type) {
             return;
         }
     }
-    if (var_count < MAX_VARS) {
-        var_table[var_count].name = name;
-        var_table[var_count].type = type;
-        var_count++;
+    if (var_count >= var_capacity) {
+        int new_cap = var_capacity ? var_capacity * 2 : 32;
+        VarEntry *new_table = realloc(var_table, sizeof(VarEntry) * new_cap);
+        if (!new_table) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        var_table = new_table;
+        var_capacity = new_cap;
     }
+    var_table[var_count].name = name;
+    var_table[var_count].type = type;
+    var_count++;
 }
 
 static const char *lookup_var_type_name(const char *name) {
@@ -148,6 +184,22 @@ static void emit_raw(const char *fmt, ...) {
     va_start(args, fmt);
     vfprintf(out, fmt, args);
     va_end(args);
+}
+
+static void emit_escaped_string(const char *str) {
+    fprintf(out, "\"");
+    for (const char *p = str; *p; p++) {
+        switch (*p) {
+            case '\n': fprintf(out, "\\n"); break;
+            case '\t': fprintf(out, "\\t"); break;
+            case '\r': fprintf(out, "\\r"); break;
+            case '\\': fprintf(out, "\\\\"); break;
+            case '"':  fprintf(out, "\\\""); break;
+            case '\0': fprintf(out, "\\0"); break;
+            default:   fprintf(out, "%c", *p); break;
+        }
+    }
+    fprintf(out, "\"");
 }
 
 static const char *type_to_c(MioType *type) {
@@ -237,10 +289,20 @@ static void gen_expr(AstNode *node) {
             fprintf(out, "%g", node->float_lit.value);
             break;
         case AST_STRING_LIT:
-            fprintf(out, "\"%s\"", node->string_lit.value);
+            emit_escaped_string(node->string_lit.value);
             break;
         case AST_CHAR_LIT:
-            fprintf(out, "'%c'", node->char_lit.value);
+            fprintf(out, "'");
+            switch (node->char_lit.value) {
+                case '\n': fprintf(out, "\\n"); break;
+                case '\t': fprintf(out, "\\t"); break;
+                case '\r': fprintf(out, "\\r"); break;
+                case '\\': fprintf(out, "\\\\"); break;
+                case '\'': fprintf(out, "\\'"); break;
+                case '\0': fprintf(out, "\\0"); break;
+                default:   fprintf(out, "%c", node->char_lit.value); break;
+            }
+            fprintf(out, "'");
             break;
         case AST_BOOL_LIT:
             fprintf(out, "%s", node->bool_lit.value ? "true" : "false");
@@ -596,7 +658,9 @@ static void gen_func_def(AstNode *node, const char *struct_name) {
             param_start = 0;
         }
     } else if (struct_name && !node->func_def.is_static) {
-        if (node->func_def.param_count > 0 &&
+        if (node->func_def.is_operator && node->func_def.param_count >= 2) {
+            param_start = 0;
+        } else if (node->func_def.param_count > 0 &&
             strcmp(node->func_def.params[0].name, "this") == 0) {
             fprintf(out, "%s* this", struct_name);
             param_start = 1;

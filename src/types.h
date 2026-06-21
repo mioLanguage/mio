@@ -44,6 +44,10 @@ const char *mio_type_c_name(MioType *type);
 
 MioType *mio_type_new(MioTypeKind kind) {
     MioType *t = calloc(1, sizeof(MioType));
+    if (!t) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     t->kind = kind;
     t->array_size = 0;
     return t;
@@ -51,7 +55,15 @@ MioType *mio_type_new(MioTypeKind kind) {
 
 MioType *mio_type_new_named(MioTypeKind kind, const char *name) {
     MioType *t = mio_type_new(kind);
-    t->name = name ? strdup(name) : NULL;
+    if (name) {
+        t->name = strdup(name);
+        if (!t->name) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+    } else {
+        t->name = NULL;
+    }
     return t;
 }
 
@@ -65,8 +77,20 @@ MioType *mio_type_new_array(MioType *base, int size) {
 MioType *mio_type_clone(MioType *type) {
     if (!type) return NULL;
     MioType *t = calloc(1, sizeof(MioType));
+    if (!t) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     t->kind = type->kind;
-    t->name = type->name ? strdup(type->name) : NULL;
+    if (type->name) {
+        t->name = strdup(type->name);
+        if (!t->name) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+    } else {
+        t->name = NULL;
+    }
     t->array_size = type->array_size;
     if (type->base_type) t->base_type = mio_type_clone(type->base_type);
     return t;

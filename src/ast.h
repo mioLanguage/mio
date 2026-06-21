@@ -185,6 +185,10 @@ void ast_if_add_elif(AstNode *if_stmt, AstNode *cond, AstNode *body);
 
 AstNode *ast_new(AstNodeKind kind, int line, int col) {
     AstNode *n = calloc(1, sizeof(AstNode));
+    if (!n) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     n->kind = kind;
     n->line = line;
     n->col = col;
@@ -343,18 +347,36 @@ void ast_free(AstNode *node) {
 
 void ast_program_add(AstNode *program, AstNode *node) {
     if (program->program.count >= program->program.cap) {
-        program->program.cap = program->program.cap ? program->program.cap * 2 : 8;
-        program->program.nodes = realloc(program->program.nodes,
-            sizeof(AstNode*) * program->program.cap);
+        int new_cap = program->program.cap ? program->program.cap * 2 : 8;
+        if (new_cap < program->program.cap || new_cap > INT_MAX / (int)sizeof(AstNode*)) {
+            fprintf(stderr, "fatal: program too large\n");
+            exit(1);
+        }
+        AstNode **new_nodes = realloc(program->program.nodes, sizeof(AstNode*) * new_cap);
+        if (!new_nodes) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        program->program.nodes = new_nodes;
+        program->program.cap = new_cap;
     }
     program->program.nodes[program->program.count++] = node;
 }
 
 void ast_block_add(AstNode *block, AstNode *stmt) {
     if (block->block.count >= block->block.cap) {
-        block->block.cap = block->block.cap ? block->block.cap * 2 : 8;
-        block->block.stmts = realloc(block->block.stmts,
-            sizeof(AstNode*) * block->block.cap);
+        int new_cap = block->block.cap ? block->block.cap * 2 : 8;
+        if (new_cap < block->block.cap || new_cap > INT_MAX / (int)sizeof(AstNode*)) {
+            fprintf(stderr, "fatal: block too large\n");
+            exit(1);
+        }
+        AstNode **new_stmts = realloc(block->block.stmts, sizeof(AstNode*) * new_cap);
+        if (!new_stmts) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        block->block.stmts = new_stmts;
+        block->block.cap = new_cap;
     }
     block->block.stmts[block->block.count++] = stmt;
 }
@@ -562,68 +584,133 @@ AstNode *ast_new_assign(AstNode *left, AstNode *right, int line, int col) {
 }
 
 void ast_call_add_arg(AstNode *call, AstNode *arg) {
-    call->call.args = realloc(call->call.args, sizeof(AstNode*) * (call->call.arg_count + 1));
+    AstNode **new_args = realloc(call->call.args, sizeof(AstNode*) * (call->call.arg_count + 1));
+    if (!new_args) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    call->call.args = new_args;
     call->call.args[call->call.arg_count++] = arg;
 }
 
 void ast_array_add(AstNode *array, AstNode *elem) {
-    array->array_lit.elements = realloc(array->array_lit.elements,
+    AstNode **new_elements = realloc(array->array_lit.elements,
         sizeof(AstNode*) * (array->array_lit.count + 1));
+    if (!new_elements) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    array->array_lit.elements = new_elements;
     array->array_lit.elements[array->array_lit.count++] = elem;
 }
 
 void ast_struct_add_field(AstNode *s, const char *name, MioType *type, AstNode *init) {
     int i = s->struct_def.field_count++;
-    s->struct_def.fields = realloc(s->struct_def.fields,
+    void *new_fields = realloc(s->struct_def.fields,
         sizeof(s->struct_def.fields[0]) * s->struct_def.field_count);
+    if (!new_fields) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    s->struct_def.fields = new_fields;
     s->struct_def.fields[i].name = strdup(name);
+    if (!s->struct_def.fields[i].name) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     s->struct_def.fields[i].type = type;
     s->struct_def.fields[i].init = init;
 }
 
 void ast_struct_add_method(AstNode *s, AstNode *method) {
     int i = s->struct_def.method_count++;
-    s->struct_def.methods = realloc(s->struct_def.methods,
+    AstNode **new_methods = realloc(s->struct_def.methods,
         sizeof(AstNode*) * s->struct_def.method_count);
+    if (!new_methods) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    s->struct_def.methods = new_methods;
     s->struct_def.methods[i] = method;
 }
 
 void ast_enum_add_variant(AstNode *e, const char *name, AstNode *init) {
     int i = e->enum_def.variant_count++;
-    e->enum_def.variants = realloc(e->enum_def.variants,
+    void *new_variants = realloc(e->enum_def.variants,
         sizeof(e->enum_def.variants[0]) * e->enum_def.variant_count);
+    if (!new_variants) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    e->enum_def.variants = new_variants;
     e->enum_def.variants[i].name = strdup(name);
+    if (!e->enum_def.variants[i].name) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     e->enum_def.variants[i].init = init;
 }
 
 void ast_union_add_field(AstNode *u, const char *name, MioType *type) {
     int i = u->union_def.field_count++;
-    u->union_def.fields = realloc(u->union_def.fields,
+    void *new_fields = realloc(u->union_def.fields,
         sizeof(u->union_def.fields[0]) * u->union_def.field_count);
+    if (!new_fields) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    u->union_def.fields = new_fields;
     u->union_def.fields[i].name = strdup(name);
+    if (!u->union_def.fields[i].name) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     u->union_def.fields[i].type = type;
 }
 
 void ast_func_add_param(AstNode *func, const char *name, MioType *type) {
     int i = func->func_def.param_count++;
-    func->func_def.params = realloc(func->func_def.params,
+    void *new_params = realloc(func->func_def.params,
         sizeof(func->func_def.params[0]) * func->func_def.param_count);
+    if (!new_params) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    func->func_def.params = new_params;
     func->func_def.params[i].name = strdup(name);
+    if (!func->func_def.params[i].name) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     func->func_def.params[i].type = type;
 }
 
 void ast_func_add_init(AstNode *func, const char *field_name, AstNode *expr) {
     int i = func->func_def.init_count++;
-    func->func_def.init_list = realloc(func->func_def.init_list,
+    void *new_init_list = realloc(func->func_def.init_list,
         sizeof(func->func_def.init_list[0]) * func->func_def.init_count);
+    if (!new_init_list) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    func->func_def.init_list = new_init_list;
     func->func_def.init_list[i].name = strdup(field_name);
+    if (!func->func_def.init_list[i].name) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     func->func_def.init_list[i].expr = expr;
 }
 
 void ast_if_add_elif(AstNode *if_stmt, AstNode *cond, AstNode *body) {
     int i = if_stmt->if_stmt.elif_count++;
-    if_stmt->if_stmt.elif_list = realloc(if_stmt->if_stmt.elif_list,
+    AstNode **new_elif_list = realloc(if_stmt->if_stmt.elif_list,
         sizeof(AstNode*) * if_stmt->if_stmt.elif_count * 2);
+    if (!new_elif_list) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
+    if_stmt->if_stmt.elif_list = new_elif_list;
     if_stmt->if_stmt.elif_list[i * 2] = cond;
     if_stmt->if_stmt.elif_list[i * 2 + 1] = body;
 }

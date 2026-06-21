@@ -18,9 +18,16 @@ static char *read_file(const char *path) {
     char *buf = malloc(size + 1);
     if (!buf) {
         fclose(f);
+        fprintf(stderr, "fatal: out of memory\n");
         return NULL;
     }
-    fread(buf, 1, size, f);
+    size_t read = fread(buf, 1, size, f);
+    if (read != (size_t)size) {
+        fprintf(stderr, "error: failed to read file '%s'\n", path);
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
     buf[size] = '\0';
     fclose(f);
     return buf;
@@ -61,13 +68,14 @@ int main(int argc, char **argv) {
         printf("LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n");
         printf("OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n");
         printf("SOFTWARE.\n");
-		printf("mio version 2.0.6\n");
+		printf("mio version 2.0.7\n");
         return 0;
     }
-	
+
     const char *input_file = NULL;
     const char *output_file = NULL;
-	
+    bool output_file_allocated = false;
+
     for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
@@ -102,9 +110,18 @@ int main(int argc, char **argv) {
         if (dot && strcmp(dot, ".mio") == 0) {
             int len = dot - input_file;
             char *buf = malloc(len + 3);
+            if (!buf) {
+                fprintf(stderr, "fatal: out of memory\n");
+                ast_free(program);
+                parser_free(parser);
+                lexer_free(lexer);
+                free(source);
+                return 1;
+            }
             memcpy(buf, input_file, len);
             strcpy(buf + len, ".c");
             output_file = buf;
+            output_file_allocated = true;
         } else {
             output_file = "out.c";
         }
@@ -130,7 +147,7 @@ int main(int argc, char **argv) {
     lexer_free(lexer);
     free(source);
 
-    if (output_file != argv[argc - 1] && output_file != input_file) {
+    if (output_file_allocated) {
         free((void*)output_file);
     }
 

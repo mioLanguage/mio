@@ -28,7 +28,10 @@ void lexer_free(Lexer *l);
 
 static char *mio_strndup(const char *s, int n) {
     char *buf = malloc(n + 1);
-    if (!buf) return NULL;
+    if (!buf) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     memcpy(buf, s, n);
     buf[n] = '\0';
     return buf;
@@ -163,24 +166,76 @@ static Token *lexer_number(Lexer *l) {
 static Token *lexer_string(Lexer *l) {
     int start_col = l->col;
     lexer_advance(l);
-    int start = l->pos;
-    while (lexer_cur(l) != '"' && lexer_cur(l) != '\0') {
-        if (lexer_cur(l) == '\\') lexer_advance(l);
-        lexer_advance(l);
+
+    char *buffer = malloc(256);
+    if (!buffer) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
     }
-    int end = l->pos;
+    int capacity = 256;
+    int length = 0;
+
+    while (lexer_cur(l) != '"' && lexer_cur(l) != '\0') {
+        if (length >= capacity - 1) {
+            capacity *= 2;
+            char *new_buffer = realloc(buffer, capacity);
+            if (!new_buffer) {
+                free(buffer);
+                fprintf(stderr, "fatal: out of memory\n");
+                exit(1);
+            }
+            buffer = new_buffer;
+        }
+
+        if (lexer_cur(l) == '\\') {
+            lexer_advance(l);
+            char next = lexer_cur(l);
+            switch (next) {
+                case 'n':  buffer[length++] = '\n'; break;
+                case 't':  buffer[length++] = '\t'; break;
+                case 'r':  buffer[length++] = '\r'; break;
+                case '\\': buffer[length++] = '\\'; break;
+                case '"':  buffer[length++] = '"'; break;
+                case '0':  buffer[length++] = '\0'; break;
+                default:   buffer[length++] = next; break;
+            }
+            lexer_advance(l);
+        } else {
+            buffer[length++] = lexer_cur(l);
+            lexer_advance(l);
+        }
+    }
+
     if (lexer_cur(l) == '"') lexer_advance(l);
-    int len = end - start;
-    char *text = mio_strndup(l->source + start, len);
-    Token *t = tok_new(TOK_STRING_LIT, text, l->line, start_col);
-    free(text);
+    buffer[length] = '\0';
+
+    Token *t = tok_new(TOK_STRING_LIT, buffer, l->line, start_col);
+    free(buffer);
     return t;
 }
 
 static Token *lexer_char(Lexer *l) {
     int start_col = l->col;
     lexer_advance(l);
-    char c = lexer_advance(l);
+    char c = lexer_cur(l);
+
+    if (c == '\\') {
+        lexer_advance(l);
+        char next = lexer_cur(l);
+        switch (next) {
+            case 'n':  c = '\n'; break;
+            case 't':  c = '\t'; break;
+            case 'r':  c = '\r'; break;
+            case '\\': c = '\\'; break;
+            case '\'': c = '\''; break;
+            case '0':  c = '\0'; break;
+            default:   c = next; break;
+        }
+        lexer_advance(l);
+    } else {
+        lexer_advance(l);
+    }
+
     if (lexer_cur(l) == '\'') lexer_advance(l);
     Token *t = tok_new(TOK_CHAR_LIT, NULL, l->line, start_col);
     t->char_val = c;
@@ -259,6 +314,10 @@ static Token *lexer_token(Lexer *l) {
 
 Lexer *lexer_new(const char *source, const char *filename) {
     Lexer *l = calloc(1, sizeof(Lexer));
+    if (!l) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     l->source = source;
     l->filename = filename;
     l->line = 1;

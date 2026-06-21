@@ -810,6 +810,10 @@ static AstNode *parse_decl(Parser *p) {
 
 Parser *parser_new(Lexer *lexer, const char *filename) {
     Parser *p = calloc(1, sizeof(Parser));
+    if (!p) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     p->lexer = lexer;
     p->filename = filename;
     p->cur = lexer->current;

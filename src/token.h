@@ -176,8 +176,20 @@ const char *tok_name(TokenKind kind) {
 
 Token *tok_new(TokenKind kind, const char *lexeme, int line, int col) {
     Token *t = calloc(1, sizeof(Token));
+    if (!t) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     t->kind = kind;
-    t->lexeme = lexeme ? strdup(lexeme) : NULL;
+    if (lexeme) {
+        t->lexeme = strdup(lexeme);
+        if (!t->lexeme) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+    } else {
+        t->lexeme = NULL;
+    }
     t->line = line;
     t->col = col;
     return t;
