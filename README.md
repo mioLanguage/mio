@@ -24,7 +24,12 @@ gcc output.c -o hello
 ./hello
 ```
 # 鸣谢
-[HZY](https://hzy.us.kg)、blvmwd、lindan5563、dFszheng、CHE_CHI
+- [HZY1618yzh](https://hzy1618yzh.github.io)
+- [lindan5563](https://lindan5563.github.io/)
+- [blvmwd](https://blvmwd.us.kg/)
+- ZHANG_CHI
+- [dFszheng](https://github.com/dFszheng)
+排名按照加入 mio 团队的顺序排列。
 # Wiki
 ## 注释
 `#` 后面的内容为注释，直到行尾：
