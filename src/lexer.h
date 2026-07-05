@@ -98,7 +98,7 @@ static KeywordEntry keywords[] = {
     {"return", TOK_RETURN}, {"struct", TOK_STRUCT}, {"enum", TOK_ENUM},
     {"union", TOK_UNION}, {"static", TOK_STATIC}, {"operator", TOK_OPERATOR},
     {"true", TOK_TRUE}, {"false", TOK_FALSE},
-    {"this", TOK_THIS},
+    {"this", TOK_THIS}, {"macro", TOK_MACRO},
     {"i32", TOK_I32}, {"i64", TOK_I64}, {"u32", TOK_U32},
     {"u64", TOK_U64}, {"f32", TOK_F32}, {"f64", TOK_F64},
     {"bool", TOK_BOOL}, {"char", TOK_CHAR},
@@ -303,6 +303,22 @@ static Token *lexer_token(Lexer *l) {
             return tok_new(TOK_BIT_OR, NULL, line, col);
         case '^': return tok_new(TOK_BIT_XOR, NULL, line, col);
         case '~': return tok_new(TOK_BIT_NOT, NULL, line, col);
+        case '@': {
+            int start = l->pos;
+            int start_col = l->col;
+            while (isalnum(lexer_cur(l)) || lexer_cur(l) == '_')
+                lexer_advance(l);
+            int len = l->pos - start;
+            char *text = mio_strndup(l->source + start, len);
+            if (strcmp(text, "if") == 0) { free(text); return tok_new(TOK_AT_IF, NULL, line, start_col); }
+            if (strcmp(text, "elif") == 0) { free(text); return tok_new(TOK_AT_ELIF, NULL, line, start_col); }
+            if (strcmp(text, "else") == 0) { free(text); return tok_new(TOK_AT_ELSE, NULL, line, start_col); }
+            if (strcmp(text, "end") == 0) { free(text); return tok_new(TOK_AT_END, NULL, line, start_col); }
+            char buf[64];
+            snprintf(buf, sizeof(buf), "unknown directive '@%s'", text);
+            free(text);
+            return tok_new(TOK_ERROR, buf, line, col);
+        }
         default: {
             char buf[64];
             snprintf(buf, sizeof(buf), "unexpected character '%c'", c);

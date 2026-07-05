@@ -41,6 +41,7 @@ typedef enum {
     AST_ARRAY_LIT,
     AST_CAST_EXPR,
     AST_ASSIGN_EXPR,
+    AST_MACRO_DEF,
 } AstNodeKind;
 
 typedef struct AstNode AstNode;
@@ -131,6 +132,7 @@ struct AstNode {
         struct { AstNode **elements; int count; } array_lit;
         struct { MioType *target_type; AstNode *expr; } cast_expr;
         struct { AstNode *left; AstNode *right; } assign;
+        struct { char *name; char *value; } macro_def;
     };
 };
 
@@ -170,6 +172,7 @@ AstNode *ast_new_char_lit(char value, int line, int col);
 AstNode *ast_new_array_lit(int line, int col);
 AstNode *ast_new_cast(MioType *type, AstNode *expr, int line, int col);
 AstNode *ast_new_assign(AstNode *left, AstNode *right, int line, int col);
+AstNode *ast_new_macro_def(const char *name, const char *value, int line, int col);
 
 void ast_call_add_arg(AstNode *call, AstNode *arg);
 void ast_array_add(AstNode *array, AstNode *elem);
@@ -337,6 +340,10 @@ void ast_free(AstNode *node) {
         case AST_ASSIGN_EXPR:
             ast_free(node->assign.left);
             ast_free(node->assign.right);
+            break;
+        case AST_MACRO_DEF:
+            free(node->macro_def.name);
+            free(node->macro_def.value);
             break;
         default:
             break;
@@ -580,6 +587,17 @@ AstNode *ast_new_assign(AstNode *left, AstNode *right, int line, int col) {
     AstNode *n = ast_new(AST_ASSIGN_EXPR, line, col);
     n->assign.left = left;
     n->assign.right = right;
+    return n;
+}
+
+AstNode *ast_new_macro_def(const char *name, const char *value, int line, int col) {
+    AstNode *n = ast_new(AST_MACRO_DEF, line, col);
+    n->macro_def.name = strdup(name);
+    n->macro_def.value = value ? strdup(value) : strdup("1");
+    if (!n->macro_def.name || !n->macro_def.value) {
+        fprintf(stderr, "fatal: out of memory\n");
+        exit(1);
+    }
     return n;
 }
 

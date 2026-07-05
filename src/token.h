@@ -36,6 +36,12 @@ typedef enum {
     TOK_TRUE,
     TOK_FALSE,
     TOK_THIS,
+    TOK_MACRO,
+
+    TOK_AT_IF,
+    TOK_AT_ELIF,
+    TOK_AT_ELSE,
+    TOK_AT_END,
 
     TOK_I32,
     TOK_I64,
@@ -130,6 +136,11 @@ const char *tok_name(TokenKind kind) {
         case TOK_TRUE: return "true";
         case TOK_FALSE: return "false";
         case TOK_THIS: return "this";
+        case TOK_MACRO: return "macro";
+        case TOK_AT_IF: return "@if";
+        case TOK_AT_ELIF: return "@elif";
+        case TOK_AT_ELSE: return "@else";
+        case TOK_AT_END: return "@end";
         case TOK_I32: return "i32";
         case TOK_I64: return "i64";
         case TOK_U32: return "u32";

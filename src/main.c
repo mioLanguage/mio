@@ -34,8 +34,11 @@ static char *read_file(const char *path) {
 }
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s <input.mio> [-o <output.c>]\n", prog);
+    fprintf(stderr, "Usage: %s <input.mio> [-o <output.c>] [-I <include_path>] [-D <macro>[=<value>]]\n", prog);
     fprintf(stderr, "  Mio compiler - compiles Mio source to C code\n");
+    fprintf(stderr, "  -o <file>   specify output C file\n");
+    fprintf(stderr, "  -I <path>   add include path for .mio file resolution\n");
+    fprintf(stderr, "  -D <macro>  define a macro (e.g. -D DEBUG or -D VERSION=2)\n");
 }
 
 int main(int argc, char **argv) {
@@ -68,17 +71,48 @@ int main(int argc, char **argv) {
         printf("LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n");
         printf("OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n");
         printf("SOFTWARE.\n");
-		printf("mio version 2.0.7\n");
+		printf("mio version 2.1.2\n");
         return 0;
     }
 
     const char *input_file = NULL;
     const char *output_file = NULL;
     bool output_file_allocated = false;
+    char **include_paths = NULL;
+    int include_path_count = 0;
+    int include_path_cap = 0;
+    char **defines = NULL;
+    int define_count = 0;
+    int define_cap = 0;
 
     for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
+        } else if (strcmp(argv[i], "-I") == 0 && i + 1 < argc) {
+            if (include_path_count >= include_path_cap) {
+                include_path_cap = include_path_cap ? include_path_cap * 2 : 4;
+                char **new_paths = realloc(include_paths, sizeof(char*) * include_path_cap);
+                if (!new_paths) {
+                    fprintf(stderr, "fatal: out of memory\n");
+                    free(include_paths);
+                    return 1;
+                }
+                include_paths = new_paths;
+            }
+            include_paths[include_path_count++] = strdup(argv[++i]);
+        } else if (strcmp(argv[i], "-D") == 0 && i + 1 < argc) {
+            if (define_count >= define_cap) {
+                define_cap = define_cap ? define_cap * 2 : 4;
+                char **new_defs = realloc(defines, sizeof(char*) * define_cap);
+                if (!new_defs) {
+                    fprintf(stderr, "fatal: out of memory\n");
+                    free(include_paths);
+                    free(defines);
+                    return 1;
+                }
+                defines = new_defs;
+            }
+            defines[define_count++] = strdup(argv[++i]);
         } else if (!input_file) {
             input_file = argv[i];
         }
@@ -86,14 +120,56 @@ int main(int argc, char **argv) {
 
     if (!input_file) {
         usage(argv[0]);
+        for (int i = 0; i < include_path_count; i++) free(include_paths[i]);
+        free(include_paths);
         return 1;
+    }
+
+    {
+        const char *last_sep = NULL;
+        for (const char *p = argv[0]; *p; p++) {
+            if (*p == '/' || *p == '\\') last_sep = p;
+        }
+        if (last_sep) {
+            int dir_len = (int)(last_sep - argv[0]);
+            char *default_include = malloc(dir_len + 12);
+            if (default_include) {
+                memcpy(default_include, argv[0], dir_len);
+                memcpy(default_include + dir_len, "/../include", 11);
+                default_include[dir_len + 11] = '\0';
+                if (include_path_count >= include_path_cap) {
+                    include_path_cap = include_path_cap ? include_path_cap * 2 : 4;
+                    char **new_paths = realloc(include_paths, sizeof(char*) * include_path_cap);
+                    if (!new_paths) {
+                        fprintf(stderr, "fatal: out of memory\n");
+                        free(default_include);
+                        for (int i = 0; i < include_path_count; i++) free(include_paths[i]);
+                        free(include_paths);
+                        return 1;
+                    }
+                    include_paths = new_paths;
+                }
+                include_paths[include_path_count++] = default_include;
+            }
+        }
     }
 
     char *source = read_file(input_file);
     if (!source) return 1;
 
     Lexer *lexer = lexer_new(source, input_file);
-    Parser *parser = parser_new(lexer, input_file);
+    Parser *parser = parser_new(lexer, input_file, include_paths, include_path_count);
+
+    for (int i = 0; i < define_count; i++) {
+        char *eq = strchr(defines[i], '=');
+        if (eq) {
+            *eq = '\0';
+            parser_add_macro(parser, defines[i], eq + 1);
+        } else {
+            parser_add_macro(parser, defines[i], "1");
+        }
+    }
+
     AstNode *program = parser_parse(parser);
 
     if (parser_error_count(parser) > 0) {
@@ -150,6 +226,12 @@ int main(int argc, char **argv) {
     if (output_file_allocated) {
         free((void*)output_file);
     }
+
+    for (int i = 0; i < include_path_count; i++) free(include_paths[i]);
+    free(include_paths);
+
+    for (int i = 0; i < define_count; i++) free(defines[i]);
+    free(defines);
 
     return 0;
 }

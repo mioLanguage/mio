@@ -13,12 +13,21 @@ typedef struct {
     Token *peek;
     int error_count;
     const char *filename;
+    char **include_paths;
+    int include_path_count;
+    char **imported_files;
+    int imported_count;
+    int imported_capacity;
+    struct { char *name; char *value; } *macros;
+    int macro_count;
+    int macro_cap;
 } Parser;
 
-Parser *parser_new(Lexer *lexer, const char *filename);
+Parser *parser_new(Lexer *lexer, const char *filename, char **include_paths, int include_path_count);
 AstNode *parser_parse(Parser *p);
 void parser_free(Parser *p);
 int parser_error_count(Parser *p);
+void parser_add_macro(Parser *p, const char *name, const char *value);
 
 // ===== Implementation =====
 
@@ -66,6 +75,191 @@ static AstNode *parse_expr(Parser *p);
 static AstNode *parse_stmt(Parser *p);
 static AstNode *parse_block(Parser *p);
 static AstNode *parse_decl(Parser *p);
+static char *parse_import_path(Parser *p);
+
+static bool has_mio_extension(const char *path) {
+    int len = (int)strlen(path);
+    return len > 4 && strcmp(path + len - 4, ".mio") == 0;
+}
+
+static char *get_directory(const char *path) {
+    const char *last_sep = NULL;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') last_sep = p;
+    }
+    if (!last_sep) return strdup(".");
+    int len = (int)(last_sep - path);
+    char *dir = malloc(len + 1);
+    if (!dir) return NULL;
+    memcpy(dir, path, len);
+    dir[len] = '\0';
+    return dir;
+}
+
+static char *join_path(const char *dir, const char *file) {
+    int dir_len = (int)strlen(dir);
+    int file_len = (int)strlen(file);
+    char *result = malloc(dir_len + 1 + file_len + 1);
+    if (!result) return NULL;
+    memcpy(result, dir, dir_len);
+    result[dir_len] = '/';
+    memcpy(result + dir_len + 1, file, file_len + 1);
+    return result;
+}
+
+static bool file_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+        return true;
+    }
+    return false;
+}
+
+static char *read_file_content(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *buf = malloc(size + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    size_t read_bytes = fread(buf, 1, size, f);
+    if (read_bytes != (size_t)size) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+    buf[size] = '\0';
+    fclose(f);
+    return buf;
+}
+
+static bool is_imported(Parser *p, const char *path) {
+    for (int i = 0; i < p->imported_count; i++) {
+        if (strcmp(p->imported_files[i], path) == 0) return true;
+    }
+    return false;
+}
+
+static void mark_imported(Parser *p, const char *path) {
+    if (p->imported_count >= p->imported_capacity) {
+        p->imported_capacity = p->imported_capacity ? p->imported_capacity * 2 : 8;
+        char **new_files = realloc(p->imported_files, sizeof(char*) * p->imported_capacity);
+        if (!new_files) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        p->imported_files = new_files;
+    }
+    p->imported_files[p->imported_count++] = strdup(path);
+}
+
+static char *resolve_mio_file(Parser *p, const char *import_path) {
+    char *dir = get_directory(p->filename);
+    if (dir) {
+        char *candidate = join_path(dir, import_path);
+        free(dir);
+        if (candidate && file_exists(candidate)) return candidate;
+        free(candidate);
+    }
+
+    for (int i = 0; i < p->include_path_count; i++) {
+        char *candidate = join_path(p->include_paths[i], import_path);
+        if (candidate && file_exists(candidate)) return candidate;
+        free(candidate);
+    }
+
+    return NULL;
+}
+
+static void add_import_to_block(AstNode *block, AstNode *node) {
+    if (!node) return;
+    if (node->kind == AST_BLOCK) {
+        for (int i = 0; i < node->block.count; i++) {
+            ast_block_add(block, node->block.stmts[i]);
+        }
+        free(node->block.stmts);
+        free(node);
+    } else {
+        ast_block_add(block, node);
+    }
+}
+
+static AstNode *parse_single_import(Parser *p, int line, int col) {
+    if (p->cur->kind == TOK_STRING_LIT) {
+        char *path = strdup(p->cur->lexeme);
+        parser_advance(p);
+
+        if (has_mio_extension(path)) {
+            char *resolved = resolve_mio_file(p, path);
+            if (!resolved) {
+                char buf[512];
+                snprintf(buf, sizeof(buf), "imported file '%s' not found", path);
+                parser_error(p, buf);
+                free(path);
+                return NULL;
+            }
+
+            if (is_imported(p, resolved)) {
+                free(path);
+                free(resolved);
+                return NULL;
+            }
+            mark_imported(p, resolved);
+
+            char *source = read_file_content(resolved);
+            if (!source) {
+                char buf[512];
+                snprintf(buf, sizeof(buf), "cannot read imported file '%s'", path);
+                parser_error(p, buf);
+                free(path);
+                free(resolved);
+                return NULL;
+            }
+
+            Lexer *old_lexer = p->lexer;
+            Token *old_cur = p->cur;
+            Token *old_peek = p->peek;
+            const char *old_filename = p->filename;
+
+            Lexer *new_lexer = lexer_new(source, resolved);
+            p->lexer = new_lexer;
+            p->filename = resolved;
+            p->cur = new_lexer->current;
+            p->peek = new_lexer->peek;
+
+            AstNode *block = ast_new_block(line, col);
+            while (!parser_check(p, TOK_EOF)) {
+                AstNode *decl = parse_decl(p);
+                if (decl) add_import_to_block(block, decl);
+            }
+
+            lexer_free(new_lexer);
+            p->lexer = old_lexer;
+            p->cur = old_cur;
+            p->peek = old_peek;
+            p->filename = old_filename;
+
+            free(source);
+            free(path);
+            free(resolved);
+            return block;
+        } else {
+            AstNode *node = ast_new_import(path, line, col);
+            free(path);
+            return node;
+        }
+    } else {
+        char *path = parse_import_path(p);
+        AstNode *node = ast_new_import(path, line, col);
+        free(path);
+        return node;
+    }
+}
 
 static char *parse_import_path(Parser *p) {
     if (p->cur->kind == TOK_STRING_LIT) {
@@ -751,6 +945,120 @@ static AstNode *parse_union_def(Parser *p) {
     return u;
 }
 
+void parser_add_macro(Parser *p, const char *name, const char *value) {
+    for (int i = 0; i < p->macro_count; i++) {
+        if (strcmp(p->macros[i].name, name) == 0) {
+            free(p->macros[i].value);
+            p->macros[i].value = strdup(value);
+            return;
+        }
+    }
+    if (p->macro_count >= p->macro_cap) {
+        p->macro_cap = p->macro_cap ? p->macro_cap * 2 : 8;
+        void *new_macros = realloc(p->macros, sizeof(p->macros[0]) * p->macro_cap);
+        if (!new_macros) {
+            fprintf(stderr, "fatal: out of memory\n");
+            exit(1);
+        }
+        p->macros = new_macros;
+    }
+    p->macros[p->macro_count].name = strdup(name);
+    p->macros[p->macro_count].value = strdup(value);
+    p->macro_count++;
+}
+
+static bool parser_is_macro_defined(Parser *p, const char *name) {
+    for (int i = 0; i < p->macro_count; i++) {
+        if (strcmp(p->macros[i].name, name) == 0) return true;
+    }
+    return false;
+}
+
+static void parser_skip_cond_block(Parser *p) {
+    while (!parser_check(p, TOK_EOF) &&
+           !parser_check(p, TOK_AT_ELIF) &&
+           !parser_check(p, TOK_AT_ELSE) &&
+           !parser_check(p, TOK_AT_END)) {
+        parser_advance(p);
+    }
+}
+
+static void parser_skip_cond_to_end(Parser *p) {
+    int depth = 0;
+    while (!parser_check(p, TOK_EOF)) {
+        if (parser_check(p, TOK_AT_IF)) depth++;
+        if (parser_check(p, TOK_AT_ELIF) && depth == 0) return;
+        if (parser_check(p, TOK_AT_ELSE) && depth == 0) return;
+        if (parser_check(p, TOK_AT_END)) {
+            if (depth == 0) return;
+            depth--;
+        }
+        parser_advance(p);
+    }
+}
+
+static AstNode *parse_cond_comp(Parser *p, int line, int col) {
+    parser_advance(p);
+    bool negate = false;
+    if (parser_check(p, TOK_NOT)) {
+        parser_advance(p);
+        negate = true;
+    }
+    if (parser_check(p, TOK_IDENT)) {
+        bool defined = parser_is_macro_defined(p, p->cur->lexeme);
+        parser_advance(p);
+        bool result = negate ? !defined : defined;
+
+        if (result) {
+            AstNode *block = ast_new_block(line, col);
+            while (!parser_check(p, TOK_EOF) &&
+                   !parser_check(p, TOK_AT_ELIF) &&
+                   !parser_check(p, TOK_AT_ELSE) &&
+                   !parser_check(p, TOK_AT_END)) {
+                AstNode *decl = parse_decl(p);
+                if (decl) {
+                    ast_block_add(block, decl);
+                }
+            }
+            parser_skip_cond_to_end(p);
+            if (parser_check(p, TOK_AT_ELIF)) parse_cond_comp(p, p->cur->line, p->cur->col);
+            if (parser_check(p, TOK_AT_ELSE)) {
+                parser_advance(p);
+                parser_skip_cond_block(p);
+            }
+            if (parser_check(p, TOK_AT_END)) parser_advance(p);
+            return block;
+        } else {
+            parser_skip_cond_block(p);
+            if (parser_check(p, TOK_AT_ELIF)) {
+                return parse_cond_comp(p, p->cur->line, p->cur->col);
+            }
+            if (parser_check(p, TOK_AT_ELSE)) {
+                parser_advance(p);
+                AstNode *block = ast_new_block(line, col);
+                while (!parser_check(p, TOK_EOF) &&
+                       !parser_check(p, TOK_AT_ELIF) &&
+                       !parser_check(p, TOK_AT_ELSE) &&
+                       !parser_check(p, TOK_AT_END)) {
+                    AstNode *decl = parse_decl(p);
+                    if (decl) {
+                        ast_block_add(block, decl);
+                    }
+                }
+                if (parser_check(p, TOK_AT_END)) parser_advance(p);
+                return block;
+            }
+            if (parser_check(p, TOK_AT_END)) parser_advance(p);
+            return NULL;
+        }
+    } else {
+        parser_error(p, "expected identifier in @if condition");
+        parser_skip_cond_to_end(p);
+        if (parser_check(p, TOK_AT_END)) parser_advance(p);
+        return NULL;
+    }
+}
+
 static AstNode *parse_decl(Parser *p) {
     while (parser_match(p, TOK_SEMICOLON));
 
@@ -758,18 +1066,24 @@ static AstNode *parse_decl(Parser *p) {
         case TOK_IMPORT: {
             parser_advance(p);
             int line = p->cur->line, col = p->cur->col;
-            AstNode *first = ast_new_import(parse_import_path(p), line, col);
-            AstNode *block = NULL;
-            if (parser_match(p, TOK_COMMA)) {
-                block = ast_new_block(line, col);
-                ast_block_add(block, first);
-                do {
-                    ast_block_add(block,
-                        ast_new_import(parse_import_path(p), line, col));
-                } while (parser_match(p, TOK_COMMA));
+
+            AstNode *first = parse_single_import(p, line, col);
+
+            if (!parser_match(p, TOK_COMMA)) {
+                parser_expect(p, TOK_SEMICOLON);
+                return first;
             }
+
+            AstNode *block = ast_new_block(line, col);
+            add_import_to_block(block, first);
+
+            do {
+                AstNode *import = parse_single_import(p, line, col);
+                if (import) add_import_to_block(block, import);
+            } while (parser_match(p, TOK_COMMA));
+
             parser_expect(p, TOK_SEMICOLON);
-            return block ? block : first;
+            return block->block.count > 0 ? block : (ast_free(block), NULL);
         }
         case TOK_VAR:
             return parse_var_decl(p, false, false);
@@ -795,6 +1109,54 @@ static AstNode *parse_decl(Parser *p) {
             return parse_enum_def(p);
         case TOK_UNION:
             return parse_union_def(p);
+        case TOK_MACRO: {
+            parser_advance(p);
+            if (!parser_check(p, TOK_IDENT)) {
+                parser_error(p, "expected macro name");
+                return NULL;
+            }
+            char *name = strdup(p->cur->lexeme);
+            int line = p->cur->line, col = p->cur->col;
+            parser_advance(p);
+
+            char *value = NULL;
+            if (!parser_check(p, TOK_SEMICOLON)) {
+                if (parser_check(p, TOK_STRING_LIT)) {
+                    value = strdup(p->cur->lexeme);
+                    parser_advance(p);
+                } else if (parser_check(p, TOK_INT_LIT) || parser_check(p, TOK_FLOAT_LIT)) {
+                    value = strdup(p->cur->lexeme);
+                    parser_advance(p);
+                } else if (parser_check(p, TOK_TRUE)) {
+                    value = strdup("1");
+                    parser_advance(p);
+                } else if (parser_check(p, TOK_FALSE)) {
+                    value = strdup("0");
+                    parser_advance(p);
+                } else if (parser_check(p, TOK_IDENT)) {
+                    value = strdup(p->cur->lexeme);
+                    parser_advance(p);
+                } else {
+                    parser_error(p, "expected macro value or ';'");
+                    free(name);
+                    return NULL;
+                }
+            }
+
+            if (parser_is_macro_defined(p, name)) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "macro '%s' is already defined", name);
+                parser_error(p, buf);
+            }
+            parser_add_macro(p, name, value ? value : "1");
+            AstNode *node = ast_new_macro_def(name, value ? value : "1", line, col);
+            free(name);
+            free(value);
+            parser_expect(p, TOK_SEMICOLON);
+            return node;
+        }
+        case TOK_AT_IF:
+            return parse_cond_comp(p, p->cur->line, p->cur->col);
         case TOK_EOF:
             return NULL;
         default: {
@@ -808,7 +1170,7 @@ static AstNode *parse_decl(Parser *p) {
     }
 }
 
-Parser *parser_new(Lexer *lexer, const char *filename) {
+Parser *parser_new(Lexer *lexer, const char *filename, char **include_paths, int include_path_count) {
     Parser *p = calloc(1, sizeof(Parser));
     if (!p) {
         fprintf(stderr, "fatal: out of memory\n");
@@ -816,6 +1178,8 @@ Parser *parser_new(Lexer *lexer, const char *filename) {
     }
     p->lexer = lexer;
     p->filename = filename;
+    p->include_paths = include_paths;
+    p->include_path_count = include_path_count;
     p->cur = lexer->current;
     p->peek = lexer->peek;
     return p;
@@ -832,6 +1196,15 @@ AstNode *parser_parse(Parser *p) {
 
 void parser_free(Parser *p) {
     if (!p) return;
+    for (int i = 0; i < p->imported_count; i++) {
+        free(p->imported_files[i]);
+    }
+    free(p->imported_files);
+    for (int i = 0; i < p->macro_count; i++) {
+        free(p->macros[i].name);
+        free(p->macros[i].value);
+    }
+    free(p->macros);
     free(p);
 }
 
