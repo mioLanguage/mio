@@ -1,0 +1,17 @@
+# Generated binaries
+*.exe
+*.o
+*.obj
+*.lib
+*.a
+*.so
+*.dylib
+
+# LLVM build
+src/llvm-project/build/
+
+# IDE
+.vscode/
+
+# Build artifacts
+build/

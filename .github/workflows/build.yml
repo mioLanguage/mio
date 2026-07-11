@@ -1,0 +1,186 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            exe: mioc
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+            exe: mioc
+          - os: macos-13
+            name: macos-x86_64
+            exe: mioc
+          - os: macos-latest
+            name: macos-arm64
+            exe: mioc
+          - os: windows-latest
+            name: windows-x86_64
+            exe: mioc.exe
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ---------- Linux deps ----------
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # ---------- macOS deps ----------
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+
+      # ---------- Windows deps ----------
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ninja -y --no-progress
+
+      # ---------- Build LLVM (Linux/macOS) ----------
+      - name: Build LLVM (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p src/llvm-project/build
+          cd src/llvm-project/build
+          cmake ../llvm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=install \
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM;RISCV;WebAssembly;BPF;NVPTX" \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DLLVM_BUILD_UTILS=OFF \
+            -DLLVM_BUILD_EXAMPLES=OFF \
+            -DLLVM_BUILD_TESTS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_ENABLE_RUNTIMES="" \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF
+          ninja install
+
+      # ---------- Build LLVM (Windows) ----------
+      - name: Build LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src/llvm-project/build | Out-Null
+          cd src/llvm-project/build
+          cmake ../llvm -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX=install `
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64;ARM;RISCV;WebAssembly;BPF;NVPTX" `
+            -DLLVM_ENABLE_PROJECTS="clang;lld" `
+            -DLLVM_BUILD_LLVM_DYLIB=OFF `
+            -DLLVM_LINK_LLVM_DYLIB=OFF `
+            -DLLVM_BUILD_UTILS=OFF `
+            -DLLVM_BUILD_EXAMPLES=OFF `
+            -DLLVM_BUILD_TESTS=OFF `
+            -DLLVM_INCLUDE_TESTS=OFF `
+            -DLLVM_INCLUDE_EXAMPLES=OFF `
+            -DLLVM_INCLUDE_BENCHMARKS=OFF `
+            -DLLVM_INCLUDE_DOCS=OFF `
+            -DLLVM_ENABLE_RUNTIMES="" `
+            -DLLVM_ENABLE_ZSTD=OFF `
+            -DLLVM_ENABLE_ZLIB=OFF `
+            -DLLVM_ENABLE_TERMINFO=OFF
+          ninja install
+
+      # ---------- Build mioc (Linux/macOS) ----------
+      - name: Build mioc (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export LLVM_DIR="$GITHUB_WORKSPACE/src/llvm-project/build/install"
+          cd src
+          bash build.sh
+          chmod +x mioc
+          ./mioc --version
+
+      # ---------- Build mioc (Windows) ----------
+      - name: Build mioc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:LLVM_DIR = "$env:GITHUB_WORKSPACE\src\llvm-project\build\install"
+          cd src
+          .\build.ps1
+          .\mioc.exe --version
+
+      # ---------- Upload artifact ----------
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: src/${{ matrix.exe }}
+
+  # ============================================================
+  # Deploy: collect all binaries, push to "build" branch
+  # ============================================================
+  deploy:
+    name: Deploy to build branch
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Push to build branch
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Switch to build branch (create if not exists)
+          if git rev-parse --verify build >/dev/null 2>&1; then
+            git checkout build
+            rm -rf *
+          else
+            git checkout --orphan build
+            git rm -rf . 2>/dev/null || true
+          fi
+
+          # Copy binaries
+          mkdir -p build
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            if [ -f "$dir/mioc" ] || [ -f "$dir/mioc.exe" ]; then
+              cp "$dir"/* build/
+              mv build/mioc "build/mioc-${name}" 2>/dev/null || true
+              mv build/mioc.exe "build/mioc-${name}.exe" 2>/dev/null || true
+            fi
+          done
+
+          git add build/
+          git commit -m "Build ${GITHUB_SHA:0:7} [skip ci]" || echo "Nothing to commit"
+          git push -f origin build
