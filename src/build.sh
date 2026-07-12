@@ -73,7 +73,7 @@ fi
     -llldCommon -llldCOFF -llldELF -llldMachO \
     $WE \
     "$SRC/libxml2_stub.a" \
-    -lz \
+    -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
 # Cleanup

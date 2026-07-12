@@ -45,7 +45,8 @@ jobs:
           . /etc/os-release
           sudo add-apt-repository -y "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main"
           sudo apt-get update
-          sudo apt-get install -y llvm-21-dev clang-21 lld-21 libpolly-21-dev liblld-21-dev 2>/dev/null || true
+          sudo apt-get install -y llvm-21-dev clang-21 lld-21 \
+            libpolly-21-dev liblld-21-dev libzstd-dev 2>/dev/null || true
           # If liblld-21-dev doesn't exist, try lld-21-dev
           if [ ! -f /usr/lib/llvm-21/include/lld/Common/Driver.h ]; then
             sudo apt-get install -y lld-21-dev 2>/dev/null || true
