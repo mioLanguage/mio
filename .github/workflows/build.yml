@@ -129,23 +129,27 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $llvmDir = "C:\Program Files\LLVM"
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.tar.xz"
-          $xz = "$env:TEMP\llvm.tar.xz"
-          Write-Host "Downloading LLVM..."
-          curl -sL -o $xz $url
-          Write-Host "Extracting..."
-          tar -xJf $xz -C "$env:ProgramFiles" 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "tar failed, trying 7z..."
-            7z x $xz -o"$env:ProgramFiles" -y
+          choco install llvm -y --no-progress --limit-output --version=21.1.0
+          refreshenv
+          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
+          if ($clang) {
+            $llvmDir = Split-Path -Parent (Split-Path -Parent $clang)
+          } else {
+            $llvmDir = "C:\Program Files\LLVM"
           }
-          $extracted = Get-ChildItem "$env:ProgramFiles" -Directory -Filter "LLVM-*" | Select-Object -First 1
-          if ($extracted) {
-            if (Test-Path $llvmDir) { Remove-Item -Recurse -Force $llvmDir }
-            Rename-Item $extracted.FullName $llvmDir
+          Write-Host "LLVM dir: $llvmDir"
+          if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
+            Write-Host "Headers missing, extracting from installer..."
+            $exe = Get-ChildItem "$env:ProgramData\chocolatey\lib\llvm\tools" -Filter "*.exe" -Recurse | Select-Object -First 1
+            if ($exe) {
+              7z x $exe.FullName -o"$env:TEMP\llvm_extract" -y
+              $extracted = Get-ChildItem "$env:TEMP\llvm_extract" -Directory | Select-Object -First 1
+              if ($extracted) {
+                Copy-Item -Recurse -Force "$($extracted.FullName)\include\*" "$llvmDir\include\"
+              }
+              Remove-Item -Recurse -Force "$env:TEMP\llvm_extract"
+            }
           }
-          Remove-Item $xz
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
           echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
 
