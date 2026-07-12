@@ -123,39 +123,25 @@ jobs:
         run: echo "LLVM_DIR=$(brew --prefix llvm)" >> $GITHUB_ENV
 
       # ============================================================
-      # Windows: install LLVM via chocolatey (fast, local mirror)
+      # Windows: install LLVM from release tar.xz (includes all headers)
       # ============================================================
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y --no-progress --limit-output --version=21.1.0
-          refreshenv
-          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
-          if ($clang) {
-            $llvmDir = Split-Path -Parent (Split-Path -Parent $clang)
-          } else {
-            $llvmDir = "C:\Program Files\LLVM"
+          $llvmDir = "C:\Program Files\LLVM"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.tar.xz"
+          $xz = "$env:TEMP\llvm.tar.xz"
+          Write-Host "Downloading LLVM tar.xz..."
+          curl -sL -o $xz $url
+          Write-Host "Extracting..."
+          tar -xJf $xz -C "$env:ProgramFiles"
+          $extracted = Get-ChildItem "$env:ProgramFiles" -Directory -Filter "LLVM-*" | Select-Object -First 1
+          if ($extracted) {
+            if (Test-Path $llvmDir) { Remove-Item -Recurse -Force $llvmDir }
+            Rename-Item $extracted.FullName $llvmDir
           }
-          Write-Host "LLVM dir: $llvmDir"
-          if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
-            Write-Host "Headers missing, fetching from llvm source via git sparse checkout..."
-            Set-Location $env:TEMP
-            git clone --filter=tree:0 --no-checkout --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git llvm-src
-            Set-Location llvm-src
-            git sparse-checkout set llvm/include
-            git checkout
-            robocopy "llvm\include" "$llvmDir\include" /E /XC /XN /XO /NFL /NDL /NJH /NJS
-            if ($LASTEXITCODE -ge 8) { throw "robocopy failed" }
-            $global:LASTEXITCODE = 0
-            if (-not (Test-Path "$llvmDir\include\llvm\Config\abi-breaking.h")) {
-              $h = '#ifndef LLVM_ABI_BREAKING_CHECKS_H', '#define LLVM_ABI_BREAKING_CHECKS_H', '#define LLVM_ABI_BREAKING_CHECKS 0', '#endif'
-              $h -join "`n" | Out-File -FilePath "$llvmDir\include\llvm\Config\abi-breaking.h" -Encoding ASCII
-            }
-            Set-Location ..
-            Remove-Item -Recurse -Force llvm-src
-            Write-Host "Headers installed."
-          }
+          Remove-Item $xz
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
           echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
 
