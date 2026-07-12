@@ -145,8 +145,7 @@ jobs:
             Set-Location llvm-src
             git sparse-checkout set llvm/include
             git checkout
-            New-Item -ItemType Directory -Path "$llvmDir\include" -Force
-            Copy-Item -Recurse "llvm\include\*" "$llvmDir\include\"
+            Copy-Item -Recurse -Force "llvm\include\*" "$llvmDir\include\"
             Set-Location ..
             Remove-Item -Recurse -Force llvm-src
             Write-Host "Headers installed."
