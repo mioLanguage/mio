@@ -54,13 +54,24 @@ rm -f "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
+# On Linux, GNU ld needs --start-group to resolve circular deps between
+# LLVM/LLD static libraries. macOS linker handles this automatically.
+if [ "$(uname -s)" = "Linux" ]; then
+    WS="-Wl,--start-group"
+    WE="-Wl,--end-group"
+else
+    WS=""
+    WE=""
+fi
 "$CXX" -std=c++17 \
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
     -o "$SRC/mioc" \
+    $WS \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
+    $WE \
     "$SRC/libxml2_stub.a" \
     -lz \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
