@@ -1,14 +1,14 @@
 # mio 编程语言
-mio 是一种编译型编程语言，采用自举方式开发，首个编译版本使用 C 语言实现。编译器将 `.mio` 源文件翻译为 C 代码，再由 C 编译器生成可执行文件。
+mio 是一种编译型编程语言，是 mio 解释器的进化版。首个编译版本使用 C 语言实现。第二版使用 c++ 语言实现。编译器将 `.mio` 源文件翻译为 llvm 代码，再由 lld 生成可执行文件。
 ## 获取
 ### 下载预编译二进制文件
 访问 [Releases](https://github.com/mioLanguage/mio/releases) 页面下载对应平台的二进制文件。
 >[!NOTE]
 >如果遇到依赖库缺失问题，建议从源代码编译。
 ### 从源代码编译
-**环境要求：** C11 兼容编译器（GCC / Clang / MSVC）
+**环境要求：** c++17 兼容编译器（GCC / Clang / MSVC）
 ```bash
-gcc -std=c11 -o mioc src/main.c
+g++ -std=c++17 -o mioc src/main.c
 ```
 ## 使用方法
 ```bash
@@ -43,11 +43,33 @@ var x = 10;  # 行末注释
 
 **关键字：** `import`
 
-**使用方法：** 导入 C 头文件或其他 mio 文件，必须写在文件顶层。
+**使用方法：** 导入 C 头文件或其他 mio 文件，必须写在文件顶层。可以用 -I 命令指定头文件路径。
+```bash
+mioc -I./include hello.mio -o hello.o
+```
 ```mio
 import stdio.h;              # 导入 C 标准库
 import "mylib.mio";          # 导入 mio 文件（用引号包裹）
 import stdio.h, "lib.mio";   # 同时导入多个
+```
+## 宏与条件编译
+
+**关键字：** `macro`，`@[if,elif,else,end]`
+
+**使用方法：** 定义宏来替换代码和条件编译防止重复引入。可以用 -D 命令定义宏。
+```bash
+mioc -DDEBUG hello.mio -o hello.o
+```
+```mio
+macro DEBUG;
+macro RELEASE;
+@if DEBUG
+	printf("DEBUG\n");
+@elif RELEASE
+	printf("RELEASE\n");
+@else
+	printf("UNKNOWN\n");
+@end
 ```
 ## 变量
 
@@ -220,7 +242,7 @@ struct 结构体名 {
     def 结构体名(参数列表): 字段名(参数), ... {}
 
     # 方法（this 为指针）
-    def 返回类型 方法名(this: 结构体名, 其他参数) {
+    def 返回类型 方法名(其他参数) {
         函数体
     }
 
@@ -230,7 +252,7 @@ struct 结构体名 {
     }
 
     # 运算符重载
-    def 结构体名 operator+(this: 结构体名, other: 结构体名) {
+    def 结构体名 operator+(other: 结构体名) {
         函数体
     }
 }
@@ -245,12 +267,12 @@ struct Point {
     def Point(xx: f64, yy: f64): x(xx), y(yy) {}
 
     # 方法
-    def f64 distance(this: Point) {
+    def f64 distance() {
         return this.x * this.x + this.y * this.y;
     }
 
     # 运算符重载
-    def Point operator+(this: Point, other: Point) {
+    def Point operator+(other: Point) {
         return Point(this.x + other.x, this.y + other.y);
     }
 

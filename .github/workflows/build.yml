@@ -1,10 +1,6 @@
 name: Build
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -25,6 +21,9 @@ jobs:
             exe: mioc
           - os: windows-latest
             name: windows-x86_64
+            exe: mioc.exe
+          - os: windows-11-arm
+            name: windows-arm64
             exe: mioc.exe
     runs-on: ${{ matrix.os }}
 
@@ -127,7 +126,10 @@ jobs:
         shell: pwsh
         run: |
           $llvmDir = "C:\Program Files\LLVM"
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-x86_64-pc-windows-msvc.tar.xz"
+          $arch = if ([Environment]::Is64BitOperatingSystem) {
+            if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
+          } else { "x86_64" }
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-${arch}-pc-windows-msvc.tar.xz"
           $xz = "$env:TEMP\llvm.tar.xz"
           Write-Host "Downloading LLVM..."
           curl -sL -o $xz $url
@@ -211,17 +213,16 @@ jobs:
             git rm -rf . 2>/dev/null || true
           fi
 
-          mkdir -p build
           for dir in artifacts/*/; do
             name=$(basename "$dir")
             if [ -f "$dir/mioc" ]; then
-              cp "$dir/mioc" "build/mioc-${name}"
+              cp "$dir/mioc" "mioc-${name}"
             elif [ -f "$dir/mioc.exe" ]; then
-              cp "$dir/mioc.exe" "build/mioc-${name}.exe"
+              cp "$dir/mioc.exe" "mioc-${name}.exe"
             fi
           done
 
-          ls -la build/
-          git add build/
+          ls -la
+          git add .
           git commit -m "Build ${GITHUB_SHA:0:7} [skip ci]" || echo "Nothing to commit"
           git push -f origin build
