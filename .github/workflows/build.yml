@@ -129,33 +129,25 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y --no-progress --limit-output --version=21.1.0
-          refreshenv
-          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
-          if ($clang) {
-            $llvmDir = Split-Path -Parent (Split-Path -Parent $clang)
-          } else {
-            $llvmDir = "C:\Program Files\LLVM"
+          $llvmDir = "C:\Program Files\LLVM"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.exe"
+          $exe = "$env:TEMP\llvm_installer.exe"
+          Write-Host "Downloading LLVM installer..."
+          curl -sL -o $exe $url
+          Write-Host "Extracting with 7z..."
+          $tmp = "$env:TEMP\llvm_extract"
+          New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+          7z x $exe -o"$tmp" -y
+          $global:LASTEXITCODE = 0
+          $inc = Get-ChildItem $tmp -Recurse -Directory -Filter "include" -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path "$($_.FullName)\llvm\IR\IRBuilder.h" } |
+            Select-Object -First 1
+          if ($inc) {
+            $root = Split-Path -Parent $inc.FullName
+            Copy-Item -Recurse -Force "$root\*" "$llvmDir\"
+            Write-Host "Copied LLVM from extracted installer."
           }
-          Write-Host "LLVM dir: $llvmDir"
-          if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
-            Write-Host "Headers missing, extracting from installer..."
-            $exe = Get-ChildItem "$env:ChocolateyInstall\lib\llvm\tools" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($exe) {
-              $tmp = "$env:TEMP\llvm_extract"
-              New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-              7z x $exe.FullName -o"$tmp" -y
-              $global:LASTEXITCODE = 0
-              $inc = Get-ChildItem $tmp -Recurse -Directory -Filter "include" -ErrorAction SilentlyContinue |
-                Where-Object { Test-Path "$($_.FullName)\llvm\IR\IRBuilder.h" } |
-                Select-Object -First 1
-              if ($inc) {
-                Copy-Item -Recurse -Force "$($inc.FullName)\*" "$llvmDir\include\"
-                Write-Host "Copied include from extracted installer."
-              }
-              Remove-Item -Recurse -Force $tmp
-            }
-          }
+          Remove-Item -Recurse -Force $tmp, $exe
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
           echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
 
