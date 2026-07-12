@@ -47,11 +47,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y llvm-21-dev clang-21 lld-21 \
             liblld-21-dev libzstd-dev
-          # Install Polly (try multiple package names)
-          sudo apt-get install -y libpolly-21-dev 2>/dev/null || \
-            sudo apt-get install -y polly-21-dev 2>/dev/null || \
-            sudo apt-get install -y libpolly-dev 2>/dev/null || true
-          ls -la /usr/lib/llvm-21/lib/libLLVMPolly* 2>/dev/null || echo "Polly not found via apt"
+          # Debug: what Polly packages are available?
+          echo "=== Searching for Polly packages ==="
+          apt-cache search polly 2>/dev/null | grep -i "21\|llvm" || echo "(none found)"
+          echo "=== LLVM lib dir contents (Polly) ==="
+          ls -la /usr/lib/llvm-21/lib/lib*Polly* /usr/lib/llvm-21/lib/lib*polly* 2>/dev/null || echo "(no Polly libs)"
+          # Try to install Polly
+          sudo apt-get install -y libpolly-21-dev 2>&1 || echo "libpolly-21-dev failed"
+          echo "=== After install attempt ==="
+          ls -la /usr/lib/llvm-21/lib/lib*Polly* /usr/lib/llvm-21/lib/lib*polly* 2>/dev/null || echo "(still no Polly libs)"
           # If liblld-21-dev doesn't exist, try lld-21-dev
           if [ ! -f /usr/lib/llvm-21/include/lld/Common/Driver.h ]; then
             sudo apt-get install -y lld-21-dev 2>/dev/null || true

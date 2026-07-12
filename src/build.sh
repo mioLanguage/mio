@@ -59,11 +59,9 @@ echo "Building mioc..."
 if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
-    POLLY_STUB="-Wl,--defsym=getPollyPluginInfo=0"
 else
     WS=""
     WE=""
-    POLLY_STUB=""
 fi
 "$CXX" -std=c++17 \
     -I"$INC" \
@@ -75,7 +73,6 @@ fi
     -llldCommon -llldCOFF -llldELF -llldMachO \
     "$SRC/libxml2_stub.a" \
     $WE \
-    $POLLY_STUB \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
