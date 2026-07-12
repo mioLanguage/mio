@@ -137,12 +137,12 @@ jobs:
           Write-Host "Extracting with 7z..."
           7z x $xz -o"$env:TEMP" -y
           $global:LASTEXITCODE = 0
-          $tar = Get-ChildItem "$env:TEMP" -Filter "*.tar" | Where-Object { $_.Name -like "clang+llvm*" } | Select-Object -First 1
-          if ($tar) {
+          $tar = "$env:TEMP\llvm.tar"
+          if (Test-Path $tar) {
             Write-Host "Extracting tar..."
-            7z x $tar.FullName -o"$env:ProgramFiles" -y
+            7z x $tar -o"$env:ProgramFiles" -y
             $global:LASTEXITCODE = 0
-            Remove-Item $tar.FullName
+            Remove-Item $tar
           }
           $global:LASTEXITCODE = 0
           $extracted = Get-ChildItem "$env:ProgramFiles" -Directory -Filter "clang+llvm-*" | Select-Object -First 1
