@@ -129,19 +129,29 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y --no-progress --limit-output
-          # Find where Chocolatey installed LLVM
+          choco install llvm -y --no-progress --limit-output --version=21.1.0
           refreshenv
           $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
           if ($clang) {
             $llvmDir = Split-Path -Parent (Split-Path -Parent $clang)
-            Write-Host "Found LLVM at: $llvmDir"
           } else {
             $llvmDir = "C:\Program Files\LLVM"
-            Write-Host "Fallback LLVM: $llvmDir"
           }
-          Write-Host "Include exists: $(Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")"
-          Get-ChildItem "$llvmDir" -Directory | Select-Object Name
+          Write-Host "LLVM dir: $llvmDir"
+          if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
+            Write-Host "Headers missing, downloading LLVM release..."
+            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.zip"
+            $zip = "$env:TEMP\llvm.zip"
+            $tmp = "$env:TEMP\llvm_tmp"
+            curl -sL -o $zip $url
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
+            $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
+            Copy-Item -Recurse "$($inner.FullName)\include\*" "$llvmDir\include\"
+            Copy-Item -Recurse "$($inner.FullName)\lib\*" "$llvmDir\lib\"
+            Remove-Item -Recurse -Force $zip, $tmp
+            Write-Host "Headers and libs installed from release."
+          }
+          Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
           echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
 
       # ============================================================
