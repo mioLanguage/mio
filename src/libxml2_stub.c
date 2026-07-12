@@ -21,3 +21,5 @@ xmlNs*xmlNewNs(xmlNode*n,const unsigned char*h,const unsigned char*p){return 0;}
 void xmlUnlinkNode(xmlNode*n){}
 void xmlSetGenericErrorFunc(void*c,void*f){}
 xmlNode*xmlDocGetRootElement(const xmlDoc*d){return 0;}
+
+void*getPollyPluginInfo(void){return 0;}
