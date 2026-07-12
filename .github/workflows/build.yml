@@ -140,14 +140,20 @@ jobs:
           Write-Host "LLVM dir: $llvmDir"
           if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
             Write-Host "Headers missing, extracting from installer..."
-            $exe = Get-ChildItem "$env:ProgramData\chocolatey\lib\llvm\tools" -Filter "*.exe" -Recurse | Select-Object -First 1
+            $exe = Get-ChildItem "$env:ChocolateyInstall\lib\llvm\tools" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($exe) {
-              7z x $exe.FullName -o"$env:TEMP\llvm_extract" -y
-              $extracted = Get-ChildItem "$env:TEMP\llvm_extract" -Directory | Select-Object -First 1
-              if ($extracted) {
-                Copy-Item -Recurse -Force "$($extracted.FullName)\include\*" "$llvmDir\include\"
+              $tmp = "$env:TEMP\llvm_extract"
+              New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+              7z x $exe.FullName -o"$tmp" -y
+              $global:LASTEXITCODE = 0
+              $inc = Get-ChildItem $tmp -Recurse -Directory -Filter "include" -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path "$($_.FullName)\llvm\IR\IRBuilder.h" } |
+                Select-Object -First 1
+              if ($inc) {
+                Copy-Item -Recurse -Force "$($inc.FullName)\*" "$llvmDir\include\"
+                Write-Host "Copied include from extracted installer."
               }
-              Remove-Item -Recurse -Force "$env:TEMP\llvm_extract"
+              Remove-Item -Recurse -Force $tmp
             }
           }
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
