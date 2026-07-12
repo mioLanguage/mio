@@ -139,17 +139,21 @@ jobs:
           New-Item -ItemType Directory -Path $tmp -Force | Out-Null
           7z x $exe -o"$tmp" -y
           $global:LASTEXITCODE = 0
-          Write-Host "=== extracted root ==="
-          Get-ChildItem $tmp | ForEach-Object { Write-Host $_.Name }
-          Write-Host "=== all dirs ==="
-          Get-ChildItem $tmp -Recurse -Directory | Select-Object -First 30 | ForEach-Object { Write-Host $_.FullName }
-          $inc = Get-ChildItem $tmp -Recurse -Directory -Filter "include" -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path "$($_.FullName)\llvm\IR\IRBuilder.h" } |
-            Select-Object -First 1
-          if ($inc) {
-            $root = Split-Path -Parent $inc.FullName
+          Write-Host "=== file count ==="
+          (Get-ChildItem $tmp -Recurse -File).Count
+          Write-Host "=== searching for IRBuilder.h ==="
+          $irbuilder = Get-ChildItem $tmp -Recurse -File -Filter "IRBuilder.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($irbuilder) {
+            Write-Host "Found: $($irbuilder.FullName)"
+            $inc = Split-Path -Parent (Split-Path -Parent $irbuilder.FullName)
+            Write-Host "include dir: $inc"
+            $root = Split-Path -Parent $inc
+            Write-Host "root dir: $root"
             Copy-Item -Recurse -Force "$root\*" "$llvmDir\"
             Write-Host "Copied LLVM from extracted installer."
+          } else {
+            Write-Host "IRBuilder.h NOT FOUND"
+            Get-ChildItem $tmp -Directory | ForEach-Object { Write-Host "DIR: $($_.Name)" }
           }
           Remove-Item -Recurse -Force $tmp, $exe
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
