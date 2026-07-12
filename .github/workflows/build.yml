@@ -139,17 +139,17 @@ jobs:
           }
           Write-Host "LLVM dir: $llvmDir"
           if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
-            Write-Host "Headers missing, downloading LLVM release..."
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.zip"
-            $zip = "$env:TEMP\llvm.zip"
-            $tmp = "$env:TEMP\llvm_tmp"
-            curl -sL -o $zip $url
-            Expand-Archive -Path $zip -DestinationPath $tmp -Force
-            $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
-            Copy-Item -Recurse "$($inner.FullName)\include\*" "$llvmDir\include\"
-            Copy-Item -Recurse "$($inner.FullName)\lib\*" "$llvmDir\lib\"
-            Remove-Item -Recurse -Force $zip, $tmp
-            Write-Host "Headers and libs installed from release."
+            Write-Host "Headers missing, fetching from llvm source via git sparse checkout..."
+            Set-Location $env:TEMP
+            git clone --filter=tree:0 --no-checkout --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git llvm-src
+            Set-Location llvm-src
+            git sparse-checkout set llvm/include
+            git checkout
+            New-Item -ItemType Directory -Path "$llvmDir\include" -Force
+            Copy-Item -Recurse "llvm\include\*" "$llvmDir\include\"
+            Set-Location ..
+            Remove-Item -Recurse -Force llvm-src
+            Write-Host "Headers installed."
           }
           Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
           echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
