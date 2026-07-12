@@ -49,6 +49,8 @@ fi
 # Build libxml2 stub
 echo "Building libxml2 stub..."
 "$CC" -c "$SRC/libxml2_stub.c" -o "$SRC/libxml2_stub.o"
+ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
+rm -f "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -67,14 +69,14 @@ fi
     "$SRC/main.cpp" \
     -o "$SRC/mioc" \
     $WS \
-    "$SRC/libxml2_stub.o" \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
+    "$SRC/libxml2_stub.a" \
     $WE \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
 # Cleanup
-rm -f "$SRC/libxml2_stub.o"
+rm -f "$SRC/libxml2_stub.a"
 
 echo "Build successful: $SRC/mioc"
