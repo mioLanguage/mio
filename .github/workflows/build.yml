@@ -130,18 +130,19 @@ jobs:
         shell: pwsh
         run: |
           choco install llvm -y --no-progress --limit-output
-          # Debug: find where LLVM is installed
-          Write-Host "=== Looking for LLVM ==="
-          Get-ChildItem "C:\Program Files\LLVM" -ErrorAction SilentlyContinue | Select-Object Name
-          Write-Host "=== LLVM bin ==="
-          Get-ChildItem "C:\Program Files\LLVM\bin" -ErrorAction SilentlyContinue | Select-Object Name -First 5
-          Write-Host "=== LLVM include ==="
-          Get-ChildItem "C:\Program Files\LLVM\include" -ErrorAction SilentlyContinue | Select-Object Name -First 10
-          Write-Host "=== LLVM include/llvm ==="
-          Get-ChildItem "C:\Program Files\LLVM\include\llvm" -ErrorAction SilentlyContinue | Select-Object Name -First 10
-          Write-Host "=== LLVM include/llvm/IR ==="
-          Get-ChildItem "C:\Program Files\LLVM\include\llvm\IR" -ErrorAction SilentlyContinue | Select-Object Name -First 10
-          echo "LLVM_DIR=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          # Find where Chocolatey installed LLVM
+          refreshenv
+          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
+          if ($clang) {
+            $llvmDir = Split-Path -Parent (Split-Path -Parent $clang)
+            Write-Host "Found LLVM at: $llvmDir"
+          } else {
+            $llvmDir = "C:\Program Files\LLVM"
+            Write-Host "Fallback LLVM: $llvmDir"
+          }
+          Write-Host "Include exists: $(Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")"
+          Get-ChildItem "$llvmDir" -Directory | Select-Object Name
+          echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
 
       # ============================================================
       # Build mioc
