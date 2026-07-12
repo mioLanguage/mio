@@ -15,6 +15,26 @@ $CC = "$LLVM\bin\clang.exe"
 $INC = "$LLVM\include"
 $LIB = "$LLVM\lib"
 
+# Chocolatey's llvm package may not install the include directory.
+# Search for it under the LLVM tree.
+if (-not (Test-Path "$INC\llvm\IR\IRBuilder.h")) {
+    $found = Get-ChildItem "$LLVM" -Recurse -Directory -Filter "IR" -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path "$($_.FullName)\IRBuilder.h" } |
+        Select-Object -First 1
+    if ($found) {
+        $INC = Split-Path -Parent $found.FullName
+        Write-Host "Found include at: $INC"
+    } else {
+        Write-Host "Warning: LLVM include directory not found"
+    }
+}
+
+if (-not (Test-Path "$INC\llvm\IR\IRBuilder.h")) {
+    Write-Host "Error: LLVM headers not found. Please install LLVM with development headers."
+    Write-Host "  choco install llvm --version=21.1.0"
+    exit 1
+}
+
 Write-Host "Building libxml2 stub..."
 & $CC -c "$SRC\libxml2_stub.c" -o "$SRC\libxml2_stub.obj"
 if ($LASTEXITCODE -ne 0) {
