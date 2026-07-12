@@ -74,7 +74,8 @@ fi
     "$SRC/libxml2_stub.a" \
     $WE \
     -lz -lzstd \
-    $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
+    $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
+    $(pkg-config --libs libzstd 2>/dev/null || echo "")
 
 # Cleanup
 rm -f "$SRC/libxml2_stub.a"

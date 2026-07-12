@@ -78,10 +78,10 @@ jobs:
       # ============================================================
       # macOS: install LLVM + LLD via Homebrew
       # ============================================================
-      - name: Install LLVM + LLD (macOS)
+      - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm lld
+          brew install llvm lld zstd
           LLVM_PREFIX=$(brew --prefix llvm)
           LLD_PREFIX=$(brew --prefix lld)
           echo "LLVM_PREFIX=$LLVM_PREFIX"
@@ -130,6 +130,17 @@ jobs:
         shell: pwsh
         run: |
           choco install llvm -y --no-progress --limit-output
+          # Debug: find where LLVM is installed
+          Write-Host "=== Looking for LLVM ==="
+          Get-ChildItem "C:\Program Files\LLVM" -ErrorAction SilentlyContinue | Select-Object Name
+          Write-Host "=== LLVM bin ==="
+          Get-ChildItem "C:\Program Files\LLVM\bin" -ErrorAction SilentlyContinue | Select-Object Name -First 5
+          Write-Host "=== LLVM include ==="
+          Get-ChildItem "C:\Program Files\LLVM\include" -ErrorAction SilentlyContinue | Select-Object Name -First 10
+          Write-Host "=== LLVM include/llvm ==="
+          Get-ChildItem "C:\Program Files\LLVM\include\llvm" -ErrorAction SilentlyContinue | Select-Object Name -First 10
+          Write-Host "=== LLVM include/llvm/IR ==="
+          Get-ChildItem "C:\Program Files\LLVM\include\llvm\IR" -ErrorAction SilentlyContinue | Select-Object Name -First 10
           echo "LLVM_DIR=C:\Program Files\LLVM" >> $env:GITHUB_ENV
 
       # ============================================================
