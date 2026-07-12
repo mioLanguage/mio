@@ -46,7 +46,12 @@ jobs:
           sudo add-apt-repository -y "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main"
           sudo apt-get update
           sudo apt-get install -y llvm-21-dev clang-21 lld-21 \
-            liblld-21-dev libzstd-dev libpolly-21-dev 2>/dev/null || true
+            liblld-21-dev libzstd-dev
+          # Install Polly (try multiple package names)
+          sudo apt-get install -y libpolly-21-dev 2>/dev/null || \
+            sudo apt-get install -y polly-21-dev 2>/dev/null || \
+            sudo apt-get install -y libpolly-dev 2>/dev/null || true
+          ls -la /usr/lib/llvm-21/lib/libLLVMPolly* 2>/dev/null || echo "Polly not found via apt"
           # If liblld-21-dev doesn't exist, try lld-21-dev
           if [ ! -f /usr/lib/llvm-21/include/lld/Common/Driver.h ]; then
             sudo apt-get install -y lld-21-dev 2>/dev/null || true

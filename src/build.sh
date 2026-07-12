@@ -52,6 +52,17 @@ echo "Building libxml2 stub..."
 ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
 rm -f "$SRC/libxml2_stub.o"
 
+# Check if Polly is available; if not, build a stub
+EXTRA_OBJ=""
+if [ ! -f "$LIB/libLLVMPolly.a" ] && [ ! -f "$LIB/libPolly.a" ]; then
+	echo "Polly not found, building stub..."
+	cat >"$SRC/polly_stub.cpp" <<'EOF'
+extern "C" void* getPollyPluginInfo(){return nullptr;}
+EOF
+	"$CXX" -std=c++17 -c "$SRC/polly_stub.cpp" -o "$SRC/polly_stub.o"
+	EXTRA_OBJ="$SRC/polly_stub.o"
+fi
+
 # Build mioc
 echo "Building mioc..."
 # On Linux, GNU ld needs --start-group to resolve circular deps between
@@ -67,6 +78,7 @@ fi
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
+    $EXTRA_OBJ \
     -o "$SRC/mioc" \
     $WS \
     $LLVM_LIBS \
@@ -77,6 +89,6 @@ fi
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
 # Cleanup
-rm -f "$SRC/libxml2_stub.a"
+rm -f "$SRC/libxml2_stub.a" "$SRC/polly_stub.cpp" "$SRC/polly_stub.o"
 
 echo "Build successful: $SRC/mioc"
