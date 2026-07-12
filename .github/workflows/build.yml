@@ -147,6 +147,7 @@ jobs:
             git checkout
             robocopy "llvm\include" "$llvmDir\include" /E /XC /XN /XO /NFL /NDL /NJH /NJS
             if ($LASTEXITCODE -ge 8) { throw "robocopy failed" }
+            $global:LASTEXITCODE = 0
             Set-Location ..
             Remove-Item -Recurse -Force llvm-src
             Write-Host "Headers installed."
