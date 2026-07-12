@@ -132,10 +132,14 @@ jobs:
           $llvmDir = "C:\Program Files\LLVM"
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.tar.xz"
           $xz = "$env:TEMP\llvm.tar.xz"
-          Write-Host "Downloading LLVM tar.xz..."
+          Write-Host "Downloading LLVM..."
           curl -sL -o $xz $url
           Write-Host "Extracting..."
-          tar -xJf $xz -C "$env:ProgramFiles"
+          tar -xJf $xz -C "$env:ProgramFiles" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "tar failed, trying 7z..."
+            7z x $xz -o"$env:ProgramFiles" -y
+          }
           $extracted = Get-ChildItem "$env:ProgramFiles" -Directory -Filter "LLVM-*" | Select-Object -First 1
           if ($extracted) {
             if (Test-Path $llvmDir) { Remove-Item -Recurse -Force $llvmDir }
