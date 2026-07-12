@@ -17,42 +17,70 @@ jobs:
           - os: ubuntu-latest
             name: linux-x86_64
             exe: mioc
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.5/clang+llvm-20.1.5-x86_64-linux-gnu-ubuntu-24.04.tar.xz
-            llvm_dir: clang+llvm-20.1.5-x86_64-linux-gnu-ubuntu-24.04
           - os: ubuntu-24.04-arm
             name: linux-arm64
             exe: mioc
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.5/clang+llvm-20.1.5-aarch64-linux-gnu.tar.xz
-            llvm_dir: clang+llvm-20.1.5-aarch64-linux-gnu
           - os: macos-13
             name: macos-x86_64
             exe: mioc
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.5/clang+llvm-20.1.5-x86_64-apple-darwin.tar.xz
-            llvm_dir: clang+llvm-20.1.5-x86_64-apple-darwin
           - os: macos-latest
             name: macos-arm64
             exe: mioc
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.5/clang+llvm-20.1.5-arm64-apple-darwin.tar.xz
-            llvm_dir: clang+llvm-20.1.5-arm64-apple-darwin
           - os: windows-latest
             name: windows-x86_64
             exe: mioc.exe
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.5/clang+llvm-20.1.5-x86_64-pc-windows-msvc.tar.xz
-            llvm_dir: clang+llvm-20.1.5-x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download LLVM
-        shell: bash
+      # ============================================================
+      # Linux: install LLVM via official APT repo
+      # ============================================================
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
         run: |
-          curl -L -o llvm.tar.xz "${{ matrix.llvm_url }}"
-          tar -xf llvm.tar.xz
-          echo "LLVM_DIR=$GITHUB_WORKSPACE/${{ matrix.llvm_dir }}" >> $GITHUB_ENV
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          . /etc/os-release
+          sudo add-apt-repository -y "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main"
+          sudo apt-get update
+          sudo apt-get install -y llvm-21-dev clang-21 lld-21
 
-      # ---------- Build mioc (Linux/macOS) ----------
+      - name: Set LLVM_DIR (Linux)
+        if: runner.os == 'Linux'
+        run: echo "LLVM_DIR=/usr/lib/llvm-21" >> $GITHUB_ENV
+
+      # ============================================================
+      # macOS: install LLVM via Homebrew
+      # ============================================================
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm
+
+      - name: Set LLVM_DIR (macOS)
+        if: runner.os == 'macOS'
+        run: echo "LLVM_DIR=$(brew --prefix llvm)" >> $GITHUB_ENV
+
+      # ============================================================
+      # Windows: download LLVM prebuilt binaries from GitHub
+      # ============================================================
+      - name: Download LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz
+          7z x llvm.tar.xz -y
+          7z x llvm.tar -y -ollvm
+          Remove-Item llvm.tar.xz, llvm.tar -Force
+          $dir = Get-ChildItem -Directory llvm\ | Select-Object -First 1
+          echo "LLVM_DIR=$env:GITHUB_WORKSPACE\llvm\$dir" >> $env:GITHUB_ENV
+
+      # ============================================================
+      # Build mioc
+      # ============================================================
       - name: Build mioc (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -62,17 +90,17 @@ jobs:
           chmod +x mioc
           ./mioc --version
 
-      # ---------- Build mioc (Windows) ----------
       - name: Build mioc (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:LLVM_DIR = "$env:GITHUB_WORKSPACE\${{ matrix.llvm_dir }}"
           cd src
           .\build.ps1
           .\mioc.exe --version
 
-      # ---------- Upload artifact ----------
+      # ============================================================
+      # Upload
+      # ============================================================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -113,13 +141,14 @@ jobs:
           mkdir -p build
           for dir in artifacts/*/; do
             name=$(basename "$dir")
-            if [ -f "$dir/mioc" ] || [ -f "$dir/mioc.exe" ]; then
-              cp "$dir"/* build/
-              mv build/mioc "build/mioc-${name}" 2>/dev/null || true
-              mv build/mioc.exe "build/mioc-${name}.exe" 2>/dev/null || true
+            if [ -f "$dir/mioc" ]; then
+              cp "$dir/mioc" "build/mioc-${name}"
+            elif [ -f "$dir/mioc.exe" ]; then
+              cp "$dir/mioc.exe" "build/mioc-${name}.exe"
             fi
           done
 
+          ls -la build/
           git add build/
           git commit -m "Build ${GITHUB_SHA:0:7} [skip ci]" || echo "Nothing to commit"
           git push -f origin build

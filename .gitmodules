@@ -1,4 +1,0 @@
-[submodule "src/llvm-project"]
-	path = src/llvm-project
-	url = https://github.com/mioLanguage/llvm-project.git
-	shallow = true
