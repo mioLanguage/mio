@@ -52,16 +52,11 @@ echo "Building libxml2 stub..."
 ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
 rm -f "$SRC/libxml2_stub.o"
 
-# Check if Polly is available; if not, build a stub
-EXTRA_OBJ=""
-if [ ! -f "$LIB/libLLVMPolly.a" ] && [ ! -f "$LIB/libPolly.a" ]; then
-	echo "Polly not found, building stub..."
-	cat >"$SRC/polly_stub.cpp" <<'EOF'
+# Build Polly stub (always, in case libLLVMPolly.a doesn't contain getPollyPluginInfo)
+cat >"$SRC/polly_stub.cpp" <<'EOF'
 extern "C" void* getPollyPluginInfo(){return nullptr;}
 EOF
-	"$CXX" -std=c++17 -c "$SRC/polly_stub.cpp" -o "$SRC/polly_stub.o"
-	EXTRA_OBJ="$SRC/polly_stub.o"
-fi
+"$CXX" -std=c++17 -c "$SRC/polly_stub.cpp" -o "$SRC/polly_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -78,7 +73,7 @@ fi
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
-    $EXTRA_OBJ \
+    "$SRC/polly_stub.o" \
     -o "$SRC/mioc" \
     $WS \
     $LLVM_LIBS \
