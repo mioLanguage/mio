@@ -73,13 +73,41 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install llvm lld
-          # LLD is a separate formula; symlink its headers+libs into LLVM prefix
           LLVM_PREFIX=$(brew --prefix llvm)
           LLD_PREFIX=$(brew --prefix lld)
+          echo "LLVM_PREFIX=$LLVM_PREFIX"
+          echo "LLD_PREFIX=$LLD_PREFIX"
+          # Symlink LLD headers into LLVM prefix
           ln -sf "$LLD_PREFIX/include/lld" "$LLVM_PREFIX/include/lld"
-          for lib in "$LLD_PREFIX/lib/"*.a; do
-            ln -sf "$lib" "$LLVM_PREFIX/lib/$(basename "$lib")"
+          # Symlink LLD libraries (.a and .dylib)
+          echo "LLD lib contents:"
+          ls -la "$LLD_PREFIX/lib/" || true
+          FOUND=0
+          for lib in "$LLD_PREFIX/lib/"liblld*.a "$LLD_PREFIX/lib/"liblld*.dylib; do
+            if [ -f "$lib" ]; then
+              echo "  symlink $lib -> $LLVM_PREFIX/lib/$(basename "$lib")"
+              ln -sf "$lib" "$LLVM_PREFIX/lib/$(basename "$lib")"
+              FOUND=1
+            fi
           done
+          if [ "$FOUND" = "0" ]; then
+            echo "brew lld has no static libs, downloading LLVM+LLD bundle..."
+            if [ "$(uname -m)" = "arm64" ]; then
+              ARCH="arm64"
+            else
+              ARCH="x86_64"
+            fi
+            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-${ARCH}-apple-darwin.tar.xz"
+            echo "Downloading $URL"
+            curl -sL "$URL" -o /tmp/llvm.tar.xz
+            sudo tar xJf /tmp/llvm.tar.xz -C /tmp --strip-components=1
+            # Copy LLD headers+libs into brew LLVM prefix
+            sudo cp -r /tmp/include/lld "$LLVM_PREFIX/include/lld"
+            sudo cp /tmp/lib/liblld*.a "$LLVM_PREFIX/lib/"
+            rm -f /tmp/llvm.tar.xz
+          fi
+          echo "LLVM lib after symlink:"
+          ls "$LLVM_PREFIX/lib/"liblld* 2>/dev/null || echo "  (no lld libs found)"
 
       - name: Set LLVM_DIR (macOS)
         if: runner.os == 'macOS'

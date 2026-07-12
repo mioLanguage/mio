@@ -43,7 +43,7 @@ if [ ! -f "$LLVM_CONFIG" ]; then
 else
     LLVM_LIBS=$($LLVM_CONFIG --libs all --link-static 2>/dev/null || $LLVM_CONFIG --libs all)
     # Remove optional libraries that may not be installed (Polly, etc.)
-    LLVM_LIBS=$(echo "$LLVM_LIBS" | tr ' ' '\n' | grep -v -E '^-lPolly(ISL)?$' | tr '\n' ' ')
+    LLVM_LIBS=$(echo "$LLVM_LIBS" | tr ' ' '\n' | grep -v -E '^-lPolly(ISL)?$|^-lLLVMLTO$' | tr '\n' ' ')
 fi
 
 # Build libxml2 stub
