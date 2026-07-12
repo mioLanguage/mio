@@ -146,6 +146,7 @@ jobs:
             git sparse-checkout set llvm/include
             git checkout
             robocopy "llvm\include" "$llvmDir\include" /E /XC /XN /XO /NFL /NDL /NJH /NJS
+            if ($LASTEXITCODE -ge 8) { throw "robocopy failed" }
             Set-Location ..
             Remove-Item -Recurse -Force llvm-src
             Write-Host "Headers installed."
