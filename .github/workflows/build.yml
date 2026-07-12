@@ -139,6 +139,10 @@ jobs:
           New-Item -ItemType Directory -Path $tmp -Force | Out-Null
           7z x $exe -o"$tmp" -y
           $global:LASTEXITCODE = 0
+          Write-Host "=== extracted root ==="
+          Get-ChildItem $tmp | ForEach-Object { Write-Host $_.Name }
+          Write-Host "=== all dirs ==="
+          Get-ChildItem $tmp -Recurse -Directory | Select-Object -First 30 | ForEach-Object { Write-Host $_.FullName }
           $inc = Get-ChildItem $tmp -Recurse -Directory -Filter "include" -ErrorAction SilentlyContinue |
             Where-Object { Test-Path "$($_.FullName)\llvm\IR\IRBuilder.h" } |
             Select-Object -First 1
