@@ -52,44 +52,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item "$SRC\libxml2_stub.obj" -Force -ErrorAction SilentlyContinue
 
-$libs = @(
-    "LLVMCore", "LLVMSupport", "LLVMTargetParser", "LLVMBinaryFormat",
-    "LLVMRemarks", "LLVMBitstreamReader", "LLVMDemangle", "LLVMTransformUtils",
-    "LLVMAnalysis", "LLVMProfileData", "LLVMDebugInfoDWARF", "LLVMDebugInfoMSF",
-    "LLVMDebugInfoCodeView", "LLVMDebugInfoPDB", "LLVMDebugInfoBTF", "LLVMDebugInfoGSYM",
-    "LLVMDebugInfoDWARFLowLevel", "LLVMObject", "LLVMMCParser", "LLVMIRReader",
-    "LLVMTextAPI", "LLVMMC", "LLVMBitReader", "LLVMBitWriter", "LLVMAsmParser",
-    "LLVMCodeGen", "LLVMCodeGenTypes", "LLVMScalarOpts", "LLVMInstCombine",
-    "LLVMAggressiveInstCombine", "LLVMipo", "LLVMInstrumentation", "LLVMVectorize",
-    "LLVMObjCARCOpts", "LLVMCoroutines", "LLVMCFGuard", "LLVMHipStdPar", "LLVMLinker",
-    "LLVMIRPrinter", "LLVMSandboxIR", "LLVMPasses", "LLVMExtensions", "LLVMTarget",
-    "LLVMSelectionDAG", "LLVMGlobalISel", "LLVMAsmPrinter", "LLVMMCDisassembler",
-    "LLVMExecutionEngine", "LLVMRuntimeDyld", "LLVMJITLink", "LLVMOrcJIT",
-    "LLVMOrcTargetProcess", "LLVMOrcShared", "LLVMOrcDebugging", "LLVMX86CodeGen",
-    "LLVMX86Desc", "LLVMX86Info", "LLVMX86AsmParser", "LLVMX86Disassembler",
-    "LLVMCGData", "LLVMFrontendDriver", "LLVMFrontendOpenMP", "LLVMFrontendOffloading",
-    "LLVMFrontendDirective", "LLVMFrontendAtomic", "LLVMFrontendHLSL", "LLVMMCJIT",
-    "LLVMInterpreter", "LLVMSymbolize", "LLVMCoverage", "LLVMXRay", "LLVMMCA",
-    "LLVMDWARFLinker", "LLVMDWARFLinkerClassic", "LLVMDWARFLinkerParallel", "LLVMDWP",
-    "LLVMObjectYAML", "LLVMOption", "LLVMWindowsDriver", "LLVMWindowsManifest",
-    "LLVMLTO", "LLVMDTLTO", "LLVMTableGen", "LLVMFileCheck", "LLVMMIRParser",
-    "LLVMInterfaceStub", "LLVMLineEditor", "LLVMSupportLSP", "LLVMABI", "LLVMCAS",
-    "LLVMTelemetry", "LLVMDiff", "LLVMCFIVerify", "LLVMExegesis", "LLVMExegesisX86",
-    "LLVMDebuginfod", "LLVMDebugInfoLogicalView", "LLVMObjCopy", "LLVMDlltoolDriver",
-    "LLVMLibDriver", "LLVMPlugins", "LLVMOptDriver", "LLVMTextAPIBinaryReader",
-    "LLVMTableGenBasic", "LLVMTableGenCommon", "LLVMNVPTXCodeGen", "LLVMNVPTXDesc",
-    "LLVMNVPTXInfo", "LLVMARMCodeGen", "LLVMARMDesc", "LLVMARMInfo", "LLVMARMUtils",
-    "LLVMARMAsmParser", "LLVMARMDisassembler", "LLVMAArch64CodeGen", "LLVMAArch64Desc",
-    "LLVMAArch64Info", "LLVMAArch64Utils", "LLVMAArch64AsmParser", "LLVMAArch64Disassembler",
-    "LLVMRISCVCodeGen", "LLVMRISCVDesc", "LLVMRISCVInfo", "LLVMRISCVAsmParser",
-    "LLVMRISCVDisassembler", "LLVMRISCVTargetMCA", "LLVMWebAssemblyCodeGen",
-    "LLVMWebAssemblyDesc", "LLVMWebAssemblyInfo", "LLVMWebAssemblyUtils",
-    "LLVMWebAssemblyAsmParser", "LLVMWebAssemblyDisassembler", "LLVMBPFCodeGen",
-    "LLVMBPFDesc", "LLVMBPFInfo", "LLVMBPFAsmParser", "LLVMBPFDisassembler",
-    "LLVMExegesisRISCV", "LLVMExegesisAArch64", "LLVMX86TargetMCA", "LLVMFuzzMutate",
-    "LLVMFuzzerCLI", "LLVMDWARFCFIChecker",
-    "lldCommon", "lldCOFF", "lldELF", "lldMachO"
-)
+$libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 
 $libFlags = ($libs | ForEach-Object { "-l$_" }) -join " "
 
