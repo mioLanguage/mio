@@ -49,10 +49,6 @@ fi
 # Build libxml2 stub
 echo "Building libxml2 stub..."
 "$CC" -c "$SRC/libxml2_stub.c" -o "$SRC/libxml2_stub.o"
-ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
-echo "Stub symbols:"
-nm "$SRC/libxml2_stub.a" | grep -i polly || echo "  (no polly symbol)"
-rm -f "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -61,13 +57,9 @@ echo "Building mioc..."
 if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
-    WA="-Wl,--whole-archive"
-    NA="-Wl,--no-whole-archive"
 else
     WS=""
     WE=""
-    WA=""
-    NA=""
 fi
 "$CXX" -std=c++17 \
     -I"$INC" \
@@ -75,14 +67,14 @@ fi
     "$SRC/main.cpp" \
     -o "$SRC/mioc" \
     $WS \
+    "$SRC/libxml2_stub.o" \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
-    $WA "$SRC/libxml2_stub.a" $NA \
     $WE \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
 # Cleanup
-rm -f "$SRC/libxml2_stub.a"
+rm -f "$SRC/libxml2_stub.o"
 
 echo "Build successful: $SRC/mioc"
