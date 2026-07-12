@@ -68,9 +68,17 @@ jobs:
       # ============================================================
       # macOS: install LLVM + LLD via Homebrew
       # ============================================================
-      - name: Install LLVM (macOS)
+      - name: Install LLVM + LLD (macOS)
         if: runner.os == 'macOS'
-        run: brew install llvm
+        run: |
+          brew install llvm lld
+          # LLD is a separate formula; symlink its headers+libs into LLVM prefix
+          LLVM_PREFIX=$(brew --prefix llvm)
+          LLD_PREFIX=$(brew --prefix lld)
+          ln -sf "$LLD_PREFIX/include/lld" "$LLVM_PREFIX/include/lld"
+          for lib in "$LLD_PREFIX/lib/"*.a; do
+            ln -sf "$lib" "$LLVM_PREFIX/lib/$(basename "$lib")"
+          done
 
       - name: Set LLVM_DIR (macOS)
         if: runner.os == 'macOS'

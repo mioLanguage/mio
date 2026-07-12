@@ -62,6 +62,7 @@ echo "Building mioc..."
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
     "$SRC/libxml2_stub.a" \
+    -lz \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "")
 
 # Cleanup
