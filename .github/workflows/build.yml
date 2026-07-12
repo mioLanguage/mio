@@ -149,12 +149,8 @@ jobs:
             if ($LASTEXITCODE -ge 8) { throw "robocopy failed" }
             $global:LASTEXITCODE = 0
             if (-not (Test-Path "$llvmDir\include\llvm\Config\abi-breaking.h")) {
-              @"
-              #ifndef LLVM_ABI_BREAKING_CHECKS_H
-              #define LLVM_ABI_BREAKING_CHECKS_H
-              #define LLVM_ABI_BREAKING_CHECKS 0
-              #endif
-              "@ | Out-File -FilePath "$llvmDir\include\llvm\Config\abi-breaking.h" -Encoding ASCII
+              $h = '#ifndef LLVM_ABI_BREAKING_CHECKS_H', '#define LLVM_ABI_BREAKING_CHECKS_H', '#define LLVM_ABI_BREAKING_CHECKS 0', '#endif'
+              $h -join "`n" | Out-File -FilePath "$llvmDir\include\llvm\Config\abi-breaking.h" -Encoding ASCII
             }
             Set-Location ..
             Remove-Item -Recurse -Force llvm-src
