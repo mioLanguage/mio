@@ -65,10 +65,10 @@ jobs:
             echo "Downloading LLD headers..."
             sudo mkdir -p /usr/lib/llvm-21/include/lld/Common
             sudo curl -sL -o /usr/lib/llvm-21/include/lld/Common/Driver.h \
-              https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.8/lld/include/lld/Common/Driver.h
+              https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/lld/include/lld/Common/Driver.h
             sudo mkdir -p /usr/lib/llvm-21/include/lld/Common
             sudo curl -sL -o /usr/lib/llvm-21/include/lld/Common/Version.inc \
-              https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.8/lld/include/lld/Common/Version.inc
+              https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/lld/include/lld/Common/Version.inc
           fi
 
       - name: Set LLVM_DIR (Linux)
@@ -106,7 +106,7 @@ jobs:
             else
               ARCH="x86_64"
             fi
-            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-${ARCH}-apple-darwin.tar.xz"
+            URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-${ARCH}-apple-darwin.tar.xz"
             echo "Downloading $URL"
             curl -sL "$URL" -o /tmp/llvm.tar.xz
             sudo tar xJf /tmp/llvm.tar.xz -C /tmp --strip-components=1
@@ -129,7 +129,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm -y --no-progress --limit-output --version=21.1.8
+          choco install llvm -y --no-progress --limit-output --version=21.1.0
           refreshenv
           $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
           if ($clang) {
@@ -141,7 +141,7 @@ jobs:
           if (-not (Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h")) {
             Write-Host "Headers missing, fetching from llvm source via git sparse checkout..."
             Set-Location $env:TEMP
-            git clone --filter=tree:0 --no-checkout --branch llvmorg-21.1.8 https://github.com/llvm/llvm-project.git llvm-src
+            git clone --filter=tree:0 --no-checkout --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git llvm-src
             Set-Location llvm-src
             git sparse-checkout set llvm/include
             git checkout
