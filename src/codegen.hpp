@@ -814,6 +814,7 @@ public:
 		LLVMInitializeAllAsmPrinters();
 		LLVMInitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
+		fprintf(stderr,"debug: target triple = %s\n",targetTriple.c_str());
 		std::string errMsg;
 		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
 		if(!target){
