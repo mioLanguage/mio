@@ -19,6 +19,8 @@
 #include"llvm/IR/LegacyPassManager.h"
 #include"llvm/MC/TargetRegistry.h"
 #include"llvm/Support/CodeGen.h"
+#include"llvm-c/Target.h"
+#include"llvm-c/TargetMachine.h"
 #include"lld/Common/Driver.h"
 LLD_HAS_DRIVER(coff);
 LLD_HAS_DRIVER(elf);
@@ -806,10 +808,11 @@ public:
 		return true;
 	}
 	bool emitObject(const std::string& path){
-		llvm::InitializeAllTargets();
-		llvm::InitializeAllTargetMCs();
-		llvm::InitializeAllAsmPrinters();
-		llvm::InitializeAllAsmParsers();
+		LLVMInitializeAllTargetInfos();
+		LLVMInitializeAllTargets();
+		LLVMInitializeAllTargetMCs();
+		LLVMInitializeAllAsmPrinters();
+		LLVMInitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
 		std::string errMsg;
 		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
@@ -846,10 +849,11 @@ public:
 		return true;
 	}
 	bool emitAssembly(const std::string& path){
-		llvm::InitializeAllTargets();
-		llvm::InitializeAllTargetMCs();
-		llvm::InitializeAllAsmPrinters();
-		llvm::InitializeAllAsmParsers();
+		LLVMInitializeAllTargetInfos();
+		LLVMInitializeAllTargets();
+		LLVMInitializeAllTargetMCs();
+		LLVMInitializeAllAsmPrinters();
+		LLVMInitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
 		std::string errMsg;
 		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
