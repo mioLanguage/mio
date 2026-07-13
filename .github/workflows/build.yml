@@ -28,10 +28,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             name: linux-x86_64
             exe: mioc
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             name: linux-arm64
             exe: mioc
           - os: macos-latest
@@ -227,6 +227,8 @@ jobs:
             elif [ -f "$dir/mioc.exe" ]; then
               cp "$dir/mioc.exe" "mioc-${name}.exe"
               cp "$dir/LLVM-C.dll" "LLVM-C.dll" 2>/dev/null || true
+              zip "mioc-${name}.zip" "mioc-${name}.exe" "LLVM-C.dll"
+              rm -f "mioc-${name}.exe" "LLVM-C.dll"
             fi
           done
           ls -la
@@ -239,6 +241,5 @@ jobs:
           body: ${{ github.event.inputs.notes }}
           files: |
             mioc-*
-            LLVM-C.dll
           prerelease: ${{ github.event.inputs.prerelease }}
           make_latest: true
