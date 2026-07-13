@@ -7,6 +7,10 @@
 *.so
 *.dylib
 
+*.ll
+*.mio
+*.s
+
 # LLVM build
 src/llvm-project/build/
 

@@ -40,11 +40,9 @@ jobs:
           - os: windows-latest
             name: windows-x86_64
             exe: mioc.exe
-            llvm_target: X86
           - os: windows-11-arm
             name: windows-arm64
             exe: mioc.exe
-            llvm_target: AArch64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -139,61 +137,27 @@ jobs:
         run: echo "LLVM_DIR=$(brew --prefix llvm)" >> $GITHUB_ENV
 
       # ============================================================
-      # Windows: build LLVM from source, cache only libs+headers+compiler
+      # Windows: download pre-built LLVM
       # ============================================================
-      - name: Cache LLVM build (Windows)
+      - name: Download LLVM (Windows)
         if: runner.os == 'Windows'
-        id: llvm-cache
-        uses: actions/cache@v4
-        with:
-          path: C:\llvm-cache
-          key: llvm-21.1.0-${{ matrix.name }}-v3
-
-      - name: Build LLVM from source (Windows)
-        if: runner.os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          function Check { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" } }
-          $llvmSrc = "C:\llvm-src"
-          $llvmBuild = "C:\llvm-build"
-          Write-Host "Cloning LLVM 21.1.0..."
-          git clone --depth 1 --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git $llvmSrc
-          Check
-          Write-Host "Configuring LLVM (target: ${{ matrix.llvm_target }})..."
-          cmake -S "$llvmSrc\llvm" -B $llvmBuild -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DLLVM_TARGETS_TO_BUILD=${{ matrix.llvm_target }} `
-            -DLLVM_BUILD_LLVM_DYLIB=OFF `
-            -DLLVM_LINK_LLVM_DYLIB=OFF `
-            -DLLVM_ENABLE_PROJECTS="clang;lld" `
-            -DLLVM_INCLUDE_TESTS=OFF `
-            -DLLVM_INCLUDE_EXAMPLES=OFF `
-            -DLLVM_INCLUDE_BENCHMARKS=OFF `
-            -DLLVM_OPTIMIZED_TABLEGEN=OFF
-          Check
-          Write-Host "Building LLVM headers..."
-          cmake --build $llvmBuild --target llvm-headers --config Release
-          Check
-          cmake --build $llvmBuild --target clang-headers --config Release
-          Check
-          Write-Host "Building LLVM (this takes ~30 min)..."
-          cmake --build $llvmBuild --config Release -j $env:NUMBER_OF_PROCESSORS
-          Check
-          Write-Host "Copying cache files..."
-          New-Item -ItemType Directory -Force -Path C:\llvm-cache\bin, C:\llvm-cache\lib | Out-Null
-          Copy-Item -Recurse -Force "$llvmBuild\include" C:\llvm-cache\
-          Copy-Item -Force "$llvmBuild\bin\clang++.exe","$llvmBuild\bin\clang.exe","$llvmBuild\bin\llvm-lib.exe" C:\llvm-cache\bin\
-          Get-ChildItem "$llvmBuild\lib\*.lib" | Copy-Item -Destination C:\llvm-cache\lib\
-          Write-Host "Cache files copied. Size:"
-          Get-ChildItem C:\llvm-cache -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { Write-Host "  $([math]::Round($_.Sum/1MB,1)) MB" }
-          Remove-Item -Recurse -Force $llvmSrc
-          Remove-Item -Recurse -Force $llvmBuild
+          $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86_64' }
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-${arch}-pc-windows-msvc.tar.xz"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile C:\llvm.tar.xz
+          Write-Host "Extracting..."
+          tar xf C:\llvm.tar.xz -C C:\
+          Rename-Item "C:\clang+llvm-21.1.0-${arch}-pc-windows-msvc" C:\llvm
+          Remove-Item C:\llvm.tar.xz
+          Write-Host "LLVM installed to C:\llvm"
 
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: echo "LLVM_DIR=C:\llvm-cache" >> $env:GITHUB_ENV
+        run: echo "LLVM_DIR=C:\llvm" >> $env:GITHUB_ENV
 
       # ============================================================
       # Build mioc

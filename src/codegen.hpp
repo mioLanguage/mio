@@ -11,12 +11,16 @@
 #include"llvm/IR/DataLayout.h"
 #include"llvm/Target/TargetMachine.h"
 #include"llvm/Target/TargetOptions.h"
-#include"llvm/Support/TargetSelect.h"
+#include"llvm-c/Target.h"
+#include"llvm-c/TargetMachine.h"
+#include"llvm-c/Core.h"
 #include"llvm/Support/FileSystem.h"
 #include"llvm/TargetParser/Host.h"
 #include"llvm/TargetParser/Triple.h"
 #include"llvm/Support/raw_ostream.h"
 #include"llvm/IR/LegacyPassManager.h"
+#include"llvm/InitializePasses.h"
+#include"llvm/PassRegistry.h"
 #include"llvm/MC/TargetRegistry.h"
 #include"llvm/Support/CodeGen.h"
 #include"lld/Common/Driver.h"
@@ -806,82 +810,69 @@ public:
 		return true;
 	}
 	bool emitObject(const std::string& path){
-		llvm::InitializeAllTargets();
-		llvm::InitializeAllTargetMCs();
-		llvm::InitializeAllAsmPrinters();
-		llvm::InitializeAllAsmParsers();
+		LLVMInitializeAllTargetInfos();
+		LLVMInitializeAllTargets();
+		LLVMInitializeAllTargetMCs();
+		LLVMInitializeAllAsmPrinters();
+		LLVMInitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
-		std::string errMsg;
-		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
-		if(!target){
-			fprintf(stderr,"error: %s\n",errMsg.c_str());
+		char* errMsg=nullptr;
+		LLVMTargetRef targetRef=nullptr;
+		if(LLVMGetTargetFromTriple(targetTriple.c_str(),&targetRef,&errMsg)){
+			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			return false;
 		}
-		llvm::TargetOptions opt;
-		std::optional<llvm::Reloc::Model> rm(llvm::Reloc::PIC_);
-		auto* targetMachine=target->createTargetMachine(llvm::Triple(targetTriple),"generic","",opt,rm);
-		if(!targetMachine){
+		LLVMTargetMachineRef tm=LLVMCreateTargetMachine(
+			targetRef,targetTriple.c_str(),"generic","",
+			LLVMCodeGenLevelDefault,LLVMRelocPIC,LLVMCodeModelDefault);
+		if(!tm){
 			fprintf(stderr,"error: cannot create target machine\n");
 			return false;
 		}
+		auto* targetMachine=reinterpret_cast<llvm::TargetMachine*>(tm);
 		mod->setDataLayout(targetMachine->createDataLayout());
 		mod->setTargetTriple(llvm::Triple(targetTriple));
-		std::error_code ec;
-		llvm::raw_fd_ostream dest(path,ec,llvm::sys::fs::OF_None);
-		if(ec){
-			fprintf(stderr,"error: cannot open '%s': %s\n",path.c_str(),ec.message().c_str());
-			delete targetMachine;
+		if(LLVMTargetMachineEmitToFile(tm,reinterpret_cast<LLVMModuleRef>(mod.get()),const_cast<char*>(path.c_str()),LLVMObjectFile,&errMsg)){
+			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			if(errMsg)LLVMDisposeErrorMessage(errMsg);
+			LLVMDisposeTargetMachine(tm);
 			return false;
 		}
-		llvm::legacy::PassManager pm;
-		llvm::CodeGenFileType ft=llvm::CodeGenFileType::ObjectFile;
-		if(targetMachine->addPassesToEmitFile(pm,dest,nullptr,ft)){
-			fprintf(stderr,"error: target machine cannot emit object file\n");
-			delete targetMachine;
-			return false;
-		}
-		pm.run(*mod);
-		dest.flush();
-		delete targetMachine;
+		LLVMDisposeTargetMachine(tm);
 		return true;
 	}
 	bool emitAssembly(const std::string& path){
-		llvm::InitializeAllTargets();
-		llvm::InitializeAllTargetMCs();
-		llvm::InitializeAllAsmPrinters();
-		llvm::InitializeAllAsmParsers();
+		LLVMInitializeAllTargetInfos();
+		LLVMInitializeAllTargets();
+		LLVMInitializeAllTargetMCs();
+		LLVMInitializeAllAsmPrinters();
+		LLVMInitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
-		std::string errMsg;
-		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
-		if(!target){
-			fprintf(stderr,"error: %s\n",errMsg.c_str());
+		char* errMsg=nullptr;
+		LLVMTargetRef targetRef=nullptr;
+		if(LLVMGetTargetFromTriple(targetTriple.c_str(),&targetRef,&errMsg)){
+			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			return false;
 		}
-		llvm::TargetOptions opt;
-		std::optional<llvm::Reloc::Model> rm(llvm::Reloc::PIC_);
-		auto* targetMachine=target->createTargetMachine(llvm::Triple(targetTriple),"generic","",opt,rm);
-		if(!targetMachine){
+		LLVMTargetMachineRef tm=LLVMCreateTargetMachine(
+			targetRef,targetTriple.c_str(),"generic","",
+			LLVMCodeGenLevelDefault,LLVMRelocPIC,LLVMCodeModelDefault);
+		if(!tm){
 			fprintf(stderr,"error: cannot create target machine\n");
 			return false;
 		}
+		auto* targetMachine=reinterpret_cast<llvm::TargetMachine*>(tm);
 		mod->setDataLayout(targetMachine->createDataLayout());
 		mod->setTargetTriple(llvm::Triple(targetTriple));
-		std::error_code ec;
-		llvm::raw_fd_ostream dest(path,ec,llvm::sys::fs::OF_None);
-		if(ec){
-			fprintf(stderr,"error: cannot open '%s': %s\n",path.c_str(),ec.message().c_str());
-			delete targetMachine;
+		if(LLVMTargetMachineEmitToFile(tm,reinterpret_cast<LLVMModuleRef>(mod.get()),const_cast<char*>(path.c_str()),LLVMAssemblyFile,&errMsg)){
+			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			if(errMsg)LLVMDisposeErrorMessage(errMsg);
+			LLVMDisposeTargetMachine(tm);
 			return false;
 		}
-		llvm::legacy::PassManager pm;
-		if(targetMachine->addPassesToEmitFile(pm,dest,nullptr,llvm::CodeGenFileType::AssemblyFile)){
-			fprintf(stderr,"error: target machine cannot emit assembly\n");
-			delete targetMachine;
-			return false;
-		}
-		pm.run(*mod);
-		dest.flush();
-		delete targetMachine;
+		LLVMDisposeTargetMachine(tm);
 		return true;
 	}
 		bool linkExecutable(const std::string& objPath,const std::string& exePath){
