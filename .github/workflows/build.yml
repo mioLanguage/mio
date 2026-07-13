@@ -2,6 +2,24 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag (e.g. v1.0.0, latest)'
+        required: true
+        default: 'latest'
+      title:
+        description: 'Release title'
+        required: false
+        default: 'Latest Build'
+      notes:
+        description: 'Release notes'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark as pre-release (beta)'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   build:
@@ -186,36 +204,22 @@ jobs:
             src/LLVM-C.dll
 
   # ============================================================
-  # Deploy: collect all binaries, push to "build" branch
+  # Release: collect all binaries, publish to GitHub Releases
   # ============================================================
-  deploy:
-    name: Deploy to build branch
+  release:
+    name: Publish Release
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Push to build branch
+      - name: Rename and collect
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          if git rev-parse --verify build >/dev/null 2>&1; then
-            git checkout build
-            rm -rf *
-          else
-            git checkout --orphan build
-            git rm -rf . 2>/dev/null || true
-          fi
-
           for dir in artifacts/*/; do
             name=$(basename "$dir")
             if [ -f "$dir/mioc" ]; then
@@ -225,8 +229,16 @@ jobs:
               cp "$dir/LLVM-C.dll" "LLVM-C.dll" 2>/dev/null || true
             fi
           done
-
           ls -la
-          git add .
-          git commit -m "Build ${GITHUB_SHA:0:7} [skip ci]" || echo "Nothing to commit"
-          git push -f origin build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.title }}
+          body: ${{ github.event.inputs.notes }}
+          files: |
+            mioc-*
+            LLVM-C.dll
+          prerelease: ${{ github.event.inputs.prerelease }}
+          make_latest: true

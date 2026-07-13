@@ -46,7 +46,7 @@ fi
 
 # Build libxml2 stub
 echo "Building libxml2 stub..."
-"$CXX" -c "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
+"$CXX" -c -ffunction-sections -fdata-sections "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
 ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
 rm -f "$SRC/libxml2_stub.o"
 
@@ -57,11 +57,14 @@ echo "Building mioc..."
 if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
+    GC="-Wl,--gc-sections"
 else
     WS=""
     WE=""
+    GC="-Wl,-dead_strip"
 fi
 "$CXX" -std=c++17 \
+    -ffunction-sections -fdata-sections \
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
@@ -71,9 +74,14 @@ fi
     -llldCommon -llldCOFF -llldELF -llldMachO \
     "$SRC/libxml2_stub.a" \
     $WE \
+    $GC \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
     $(pkg-config --libs libzstd 2>/dev/null || echo "")
+
+# Strip debug symbols to reduce binary size
+echo "Stripping..."
+strip "$SRC/mioc" 2>/dev/null || true
 
 # Cleanup
 rm -f "$SRC/libxml2_stub.a"
