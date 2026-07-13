@@ -910,7 +910,7 @@ public:
 				addArg(objPath);
 				addArg("-o");
 				addArg(exePath);
-				addArg("-lc");
+				addArg("-l:libc.so.6");
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::MachO:{
