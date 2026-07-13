@@ -36,7 +36,7 @@ if (-not (Test-Path "$INC\llvm\IR\IRBuilder.h")) {
 }
 
 Write-Host "Building libxml2 stub..."
-& $CC -c "$SRC\libxml2_stub.c" -o "$SRC\libxml2_stub.obj"
+& $CXX -c "$SRC\libxml2_stub.cpp" -o "$SRC\libxml2_stub.obj"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Stub compilation failed"
     exit 1

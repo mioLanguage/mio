@@ -42,13 +42,11 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
     LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null)
-    # Remove optional libraries that may not be installed (Polly, etc.)
-    LLVM_LIBS=$(echo "$LLVM_LIBS" | tr ' ' '\n' | grep -v -E '^-lLLVMLTO|^-lPolly|^-lLLVMPolly' | tr '\n' ' ')
 fi
 
 # Build libxml2 stub
 echo "Building libxml2 stub..."
-"$CC" -c "$SRC/libxml2_stub.c" -o "$SRC/libxml2_stub.o"
+"$CXX" -c "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
 ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
 rm -f "$SRC/libxml2_stub.o"
 

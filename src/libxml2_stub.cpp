@@ -1,5 +1,18 @@
-#include<stdlib.h>
-#include<string.h>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+
+namespace llvm {
+class PassBuilder;
+struct PassPluginLibraryInfo {
+	uint32_t APIVersion;
+	const char *PluginName;
+	const char *PluginVersion;
+	void (*RegisterPassBuilderCallbacks)(PassBuilder &);
+};
+} // namespace llvm
+
+extern "C" {
 
 typedef struct _xmlNode{void*_private;int type;unsigned char*name;struct _xmlNode*children;struct _xmlNode*last;struct _xmlNode*parent;struct _xmlNode*next;struct _xmlNode*prev;struct _xmlDoc*doc;void*ns;unsigned char*content;void*properties;void*nsDef;void*psvi;unsigned short line;unsigned short extra;}xmlNode;
 typedef xmlNode xmlNs;
@@ -21,3 +34,9 @@ xmlNs*xmlNewNs(xmlNode*n,const unsigned char*h,const unsigned char*p){return 0;}
 void xmlUnlinkNode(xmlNode*n){}
 void xmlSetGenericErrorFunc(void*c,void*f){}
 xmlNode*xmlDocGetRootElement(const xmlDoc*d){return 0;}
+
+llvm::PassPluginLibraryInfo getPollyPluginInfo() {
+	return {1, "Polly", "0.0", [](llvm::PassBuilder &) {}};
+}
+
+} // extern "C"
