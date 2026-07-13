@@ -172,7 +172,7 @@ jobs:
           cd src
           .\build.ps1
           .\mioc.exe --version
-          Copy-Item "$env:LLVM_DIR\bin\LLVM-C.dll" src\
+          Copy-Item "$env:LLVM_DIR\bin\LLVM-C.dll" .
 
       # ============================================================
       # Upload
