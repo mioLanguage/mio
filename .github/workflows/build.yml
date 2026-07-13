@@ -139,15 +139,15 @@ jobs:
         run: echo "LLVM_DIR=$(brew --prefix llvm)" >> $GITHUB_ENV
 
       # ============================================================
-      # Windows: build LLVM from source (static libs, no DLL)
+      # Windows: build LLVM from source, cache only libs+headers+compiler
       # ============================================================
       - name: Cache LLVM build (Windows)
         if: runner.os == 'Windows'
         id: llvm-cache
         uses: actions/cache@v4
         with:
-          path: C:\llvm-build
-          key: llvm-21.1.0-${{ matrix.name }}-20260713
+          path: C:\llvm-cache
+          key: llvm-21.1.0-${{ matrix.name }}-v3
 
       - name: Build LLVM from source (Windows)
         if: runner.os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
@@ -172,40 +172,28 @@ jobs:
             -DLLVM_INCLUDE_BENCHMARKS=OFF `
             -DLLVM_OPTIMIZED_TABLEGEN=OFF
           Check
+          Write-Host "Building LLVM headers..."
+          cmake --build $llvmBuild --target llvm-headers --config Release
+          Check
+          cmake --build $llvmBuild --target clang-headers --config Release
+          Check
           Write-Host "Building LLVM (this takes ~30 min)..."
           cmake --build $llvmBuild --config Release -j $env:NUMBER_OF_PROCESSORS
           Check
-          Write-Host "LLVM build complete"
+          Write-Host "Copying cache files..."
+          New-Item -ItemType Directory -Force -Path C:\llvm-cache\bin, C:\llvm-cache\lib | Out-Null
+          Copy-Item -Recurse -Force "$llvmBuild\include" C:\llvm-cache\
+          Copy-Item -Force "$llvmBuild\bin\clang++.exe","$llvmBuild\bin\clang.exe","$llvmBuild\bin\llvm-lib.exe" C:\llvm-cache\bin\
+          Get-ChildItem "$llvmBuild\lib\*.lib" | Copy-Item -Destination C:\llvm-cache\lib\
+          Write-Host "Cache files copied. Size:"
+          Get-ChildItem C:\llvm-cache -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { Write-Host "  $([math]::Round($_.Sum/1MB,1)) MB" }
           Remove-Item -Recurse -Force $llvmSrc
-
-      - name: Verify LLVM build (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Write-Host "=== Checking C:\llvm-build ==="
-          if (-not (Test-Path "C:\llvm-build")) { Write-Host "MISSING!"; exit 1 }
-          Get-ChildItem "C:\llvm-build" -Directory | ForEach-Object { Write-Host "  $($_.Name)/" }
-          foreach ($sub in @('include','bin','lib')) {
-            $p = "C:\llvm-build\$sub"
-            if (Test-Path $p) {
-              Write-Host "=== $sub/ ==="
-              Get-ChildItem $p -Directory -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)/" }
-            } else {
-              Write-Host "=== $sub/ MISSING! ==="
-            }
-          }
-          if (Test-Path "C:\llvm-build\include\llvm\IR\IRBuilder.h") {
-            Write-Host "Headers OK"
-          } else {
-            Write-Host "ERROR: llvm/IR/IRBuilder.h not found!"
-            Get-ChildItem "C:\llvm-build\include" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" }
-            exit 1
-          }
+          Remove-Item -Recurse -Force $llvmBuild
 
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: echo "LLVM_DIR=C:\llvm-build" >> $env:GITHUB_ENV
+        run: echo "LLVM_DIR=C:\llvm-cache" >> $env:GITHUB_ENV
 
       # ============================================================
       # Build mioc
