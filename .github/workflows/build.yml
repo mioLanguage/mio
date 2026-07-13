@@ -153,10 +153,13 @@ jobs:
         if: runner.os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          function Check { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" } }
           $llvmSrc = "C:\llvm-src"
           $llvmBuild = "C:\llvm-build"
           Write-Host "Cloning LLVM 21.1.0..."
           git clone --depth 1 --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git $llvmSrc
+          Check
           Write-Host "Configuring LLVM (target: ${{ matrix.llvm_target }})..."
           cmake -S "$llvmSrc\llvm" -B $llvmBuild -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
@@ -168,10 +171,36 @@ jobs:
             -DLLVM_INCLUDE_EXAMPLES=OFF `
             -DLLVM_INCLUDE_BENCHMARKS=OFF `
             -DLLVM_OPTIMIZED_TABLEGEN=OFF
+          Check
           Write-Host "Building LLVM (this takes ~30 min)..."
           cmake --build $llvmBuild --config Release -j $env:NUMBER_OF_PROCESSORS
+          Check
           Write-Host "LLVM build complete"
           Remove-Item -Recurse -Force $llvmSrc
+
+      - name: Verify LLVM build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "=== Checking C:\llvm-build ==="
+          if (-not (Test-Path "C:\llvm-build")) { Write-Host "MISSING!"; exit 1 }
+          Get-ChildItem "C:\llvm-build" -Directory | ForEach-Object { Write-Host "  $($_.Name)/" }
+          foreach ($sub in @('include','bin','lib')) {
+            $p = "C:\llvm-build\$sub"
+            if (Test-Path $p) {
+              Write-Host "=== $sub/ ==="
+              Get-ChildItem $p -Directory -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)/" }
+            } else {
+              Write-Host "=== $sub/ MISSING! ==="
+            }
+          }
+          if (Test-Path "C:\llvm-build\include\llvm\IR\IRBuilder.h") {
+            Write-Host "Headers OK"
+          } else {
+            Write-Host "ERROR: llvm/IR/IRBuilder.h not found!"
+            Get-ChildItem "C:\llvm-build\include" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
+          }
 
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'
