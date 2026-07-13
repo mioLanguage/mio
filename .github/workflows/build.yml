@@ -40,9 +40,11 @@ jobs:
           - os: windows-latest
             name: windows-x86_64
             exe: mioc.exe
+            llvm_target: X86
           - os: windows-11-arm
             name: windows-arm64
             exe: mioc.exe
+            llvm_target: AArch64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -137,39 +139,44 @@ jobs:
         run: echo "LLVM_DIR=$(brew --prefix llvm)" >> $GITHUB_ENV
 
       # ============================================================
-      # Windows: install LLVM from release tar.xz (includes all headers)
+      # Windows: build LLVM from source (static libs, no DLL)
       # ============================================================
-      - name: Install LLVM (Windows)
+      - name: Cache LLVM build (Windows)
         if: runner.os == 'Windows'
+        id: llvm-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\llvm-build
+          key: llvm-21.1.0-${{ matrix.name }}-20260713
+
+      - name: Build LLVM from source (Windows)
+        if: runner.os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $llvmDir = "C:\Program Files\LLVM"
-          $arch = if ([Environment]::Is64BitOperatingSystem) {
-            if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
-          } else { "x86_64" }
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/clang+llvm-21.1.0-${arch}-pc-windows-msvc.tar.xz"
-          $xz = "$env:TEMP\llvm.tar.xz"
-          Write-Host "Downloading LLVM..."
-          curl -sL -o $xz $url
-          Write-Host "Extracting with 7z..."
-          7z x $xz -o"$env:TEMP" -y
-          $global:LASTEXITCODE = 0
-          $tar = "$env:TEMP\llvm.tar"
-          if (Test-Path $tar) {
-            Write-Host "Extracting tar..."
-            7z x $tar -o"$env:ProgramFiles" -y
-            $global:LASTEXITCODE = 0
-            Remove-Item $tar
-          }
-          $global:LASTEXITCODE = 0
-          $extracted = Get-ChildItem "$env:ProgramFiles" -Directory -Filter "clang+llvm-*" | Select-Object -First 1
-          if ($extracted) {
-            if (Test-Path $llvmDir) { Remove-Item -Recurse -Force $llvmDir }
-            Rename-Item $extracted.FullName $llvmDir
-          }
-          Remove-Item $xz
-          Test-Path "$llvmDir\include\llvm\IR\IRBuilder.h"
-          echo "LLVM_DIR=$llvmDir" >> $env:GITHUB_ENV
+          $llvmSrc = "C:\llvm-src"
+          $llvmBuild = "C:\llvm-build"
+          Write-Host "Cloning LLVM 21.1.0..."
+          git clone --depth 1 --branch llvmorg-21.1.0 https://github.com/llvm/llvm-project.git $llvmSrc
+          Write-Host "Configuring LLVM (target: ${{ matrix.llvm_target }})..."
+          cmake -S "$llvmSrc\llvm" -B $llvmBuild -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DLLVM_TARGETS_TO_BUILD=${{ matrix.llvm_target }} `
+            -DLLVM_BUILD_LLVM_DYLIB=OFF `
+            -DLLVM_LINK_LLVM_DYLIB=OFF `
+            -DLLVM_ENABLE_PROJECTS="clang;lld" `
+            -DLLVM_INCLUDE_TESTS=OFF `
+            -DLLVM_INCLUDE_EXAMPLES=OFF `
+            -DLLVM_INCLUDE_BENCHMARKS=OFF `
+            -DLLVM_OPTIMIZED_TABLEGEN=OFF
+          Write-Host "Building LLVM (this takes ~30 min)..."
+          cmake --build $llvmBuild --config Release -j $env:NUMBER_OF_PROCESSORS
+          Write-Host "LLVM build complete"
+          Remove-Item -Recurse -Force $llvmSrc
+
+      - name: Set LLVM_DIR (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "LLVM_DIR=C:\llvm-build" >> $env:GITHUB_ENV
 
       # ============================================================
       # Build mioc
@@ -188,28 +195,8 @@ jobs:
         shell: pwsh
         run: |
           cd src
-          echo "=== LLVM bin contents ==="
-          Get-ChildItem "$env:LLVM_DIR\bin\*.dll" | Select-Object Name, Length
-          echo "=== LLVM lib contents ==="
-          Get-ChildItem "$env:LLVM_DIR\lib\*.lib" | Select-Object Name, Length
-          echo "=== Checking llvm-config ==="
-          if (Test-Path "$env:LLVM_DIR\bin\llvm-config.exe") {
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --cxxflags
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --ldflags
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --libs
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --system-libs
-            & "$env:LLVM_DIR\bin\llvm-config.exe" --targets-built
-          } else {
-            echo "llvm-config.exe not found"
-          }
-          echo "=== Checking LLVMExports ==="
-          if (Test-Path "$env:LLVM_DIR\lib\cmake\llvm\LLVMExports.cmake") {
-            Get-Content "$env:LLVM_DIR\lib\cmake\llvm\LLVMExports.cmake" | Select-Object -First 50
-          }
-          echo "=== Building ==="
           .\build.ps1
           .\mioc.exe --version
-          Copy-Item "$env:LLVM_DIR\bin\*.dll" .
 
       # ============================================================
       # Upload
@@ -220,7 +207,6 @@ jobs:
           name: ${{ matrix.name }}
           path: |
             src/${{ matrix.exe }}
-            src/*.dll
 
   # ============================================================
   # Release: collect all binaries, publish to GitHub Releases
@@ -245,9 +231,8 @@ jobs:
               cp "$dir/mioc" "mioc-${name}"
             elif [ -f "$dir/mioc.exe" ]; then
               cp "$dir/mioc.exe" "mioc-${name}.exe"
-              cp "$dir/"*.dll . 2>/dev/null || true
-              zip "mioc-${name}.zip" "mioc-${name}.exe" *.dll
-              rm -f "mioc-${name}.exe" *.dll
+              zip "mioc-${name}.zip" "mioc-${name}.exe"
+              rm -f "mioc-${name}.exe"
             fi
           done
           ls -la
