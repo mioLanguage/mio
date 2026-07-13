@@ -188,6 +188,25 @@ jobs:
         shell: pwsh
         run: |
           cd src
+          echo "=== LLVM bin contents ==="
+          Get-ChildItem "$env:LLVM_DIR\bin\*.dll" | Select-Object Name, Length
+          echo "=== LLVM lib contents ==="
+          Get-ChildItem "$env:LLVM_DIR\lib\*.lib" | Select-Object Name, Length
+          echo "=== Checking llvm-config ==="
+          if (Test-Path "$env:LLVM_DIR\bin\llvm-config.exe") {
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --cxxflags
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --ldflags
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --libs
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --system-libs
+            & "$env:LLVM_DIR\bin\llvm-config.exe" --targets-built
+          } else {
+            echo "llvm-config.exe not found"
+          }
+          echo "=== Checking LLVMExports ==="
+          if (Test-Path "$env:LLVM_DIR\lib\cmake\llvm\LLVMExports.cmake") {
+            Get-Content "$env:LLVM_DIR\lib\cmake\llvm\LLVMExports.cmake" | Select-Object -First 50
+          }
+          echo "=== Building ==="
           .\build.ps1
           .\mioc.exe --version
           Copy-Item "$env:LLVM_DIR\bin\*.dll" .
