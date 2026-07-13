@@ -41,7 +41,7 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     echo "Warning: llvm-config not found, using static library list"
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
-    LLVM_LIBS=$($LLVM_CONFIG --libs all 2>/dev/null)
+    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null)
     # Remove optional libraries that may not be installed (Polly, etc.)
     LLVM_LIBS=$(echo "$LLVM_LIBS" | tr ' ' '\n' | grep -v -E '^-lPolly(ISL)?$|^-lLLVMPolly$' | tr '\n' ' ')
 fi

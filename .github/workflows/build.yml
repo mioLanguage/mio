@@ -172,6 +172,7 @@ jobs:
           cd src
           .\build.ps1
           .\mioc.exe --version
+          Copy-Item "$env:LLVM_DIR\bin\LLVM-C.dll" src\
 
       # ============================================================
       # Upload
@@ -180,7 +181,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: src/${{ matrix.exe }}
+          path: |
+            src/${{ matrix.exe }}
+            src/LLVM-C.dll
 
   # ============================================================
   # Deploy: collect all binaries, push to "build" branch
@@ -219,6 +222,7 @@ jobs:
               cp "$dir/mioc" "mioc-${name}"
             elif [ -f "$dir/mioc.exe" ]; then
               cp "$dir/mioc.exe" "mioc-${name}.exe"
+              cp "$dir/LLVM-C.dll" "LLVM-C.dll" 2>/dev/null || true
             fi
           done
 

@@ -806,9 +806,10 @@ public:
 		return true;
 	}
 	bool emitObject(const std::string& path){
-		llvm::InitializeNativeTarget();
-		llvm::InitializeNativeTargetAsmPrinter();
-		llvm::InitializeNativeTargetAsmParser();
+		llvm::InitializeAllTargets();
+		llvm::InitializeAllTargetMCs();
+		llvm::InitializeAllAsmPrinters();
+		llvm::InitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
 		std::string errMsg;
 		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
@@ -845,9 +846,10 @@ public:
 		return true;
 	}
 	bool emitAssembly(const std::string& path){
-		llvm::InitializeNativeTarget();
-		llvm::InitializeNativeTargetAsmPrinter();
-		llvm::InitializeNativeTargetAsmParser();
+		llvm::InitializeAllTargets();
+		llvm::InitializeAllTargetMCs();
+		llvm::InitializeAllAsmPrinters();
+		llvm::InitializeAllAsmParsers();
 		std::string targetTriple=llvm::sys::getProcessTriple();
 		std::string errMsg;
 		const llvm::Target* target=llvm::TargetRegistry::lookupTarget(llvm::Triple(targetTriple),errMsg);
