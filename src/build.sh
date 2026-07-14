@@ -55,10 +55,13 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
+    LLD_LIBS="-llldCommon -llldCOFF -llldELF -llldMachO"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
+    # macOS: use full path to .a files to force static linking
+    LLD_LIBS="$LIB/liblldCommon.a $LIB/liblldCOFF.a $LIB/liblldELF.a $LIB/liblldMachO.a"
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
@@ -68,7 +71,7 @@ fi
     -o "$BIN/mioc" \
     $WS \
     $LLVM_LIBS \
-    -llldCommon -llldCOFF -llldELF -llldMachO \
+    $LLD_LIBS \
     $WE \
     $GC \
     -lz -lzstd \
