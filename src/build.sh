@@ -55,16 +55,10 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
-    LLD_LIBS="-llldCommon -llldCOFF -llldELF -llldMachO"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
-    if [ -f "$LIB/liblldCommon.a" ]; then
-        LLD_LIBS="$LIB/liblldCommon.a $LIB/liblldCOFF.a $LIB/liblldELF.a $LIB/liblldMachO.a"
-    else
-        LLD_LIBS="-llldCommon -llldCOFF -llldELF -llldMachO"
-    fi
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
@@ -74,7 +68,7 @@ fi
     -o "$BIN/mioc" \
     $WS \
     $LLVM_LIBS \
-    $LLD_LIBS \
+    -llldCommon -llldCOFF -llldELF -llldMachO \
     $WE \
     $GC \
     -lz -lzstd \
@@ -84,5 +78,40 @@ fi
 # Strip debug symbols to reduce binary size
 echo "Stripping..."
 strip "$BIN/mioc" 2>/dev/null || true
+
+# Bundle LLD dylibs for portable distribution on macOS
+if [ "$(uname -s)" = "Darwin" ]; then
+	echo "Bundling LLD dylibs..."
+	# Find where lld dylibs are
+	for candidate in "$LLD_PREFIX/lib" "$LIB"; do
+		if [ -f "$candidate/liblldCommon.dylib" ]; then
+			LLD_DYLIB_DIR="$candidate"
+			break
+		fi
+	done
+	if [ -z "$LLD_DYLIB_DIR" ]; then
+		echo "Warning: LLD dylibs not found, skipping bundle"
+	else
+		for lib in liblldCommon.dylib liblldCOFF.dylib liblldELF.dylib liblldMachO.dylib; do
+			if [ -f "$LLD_DYLIB_DIR/$lib" ]; then
+				cp "$LLD_DYLIB_DIR/$lib" "$BIN/"
+				install_name_tool -id "@loader_path/$lib" "$BIN/$lib"
+			fi
+		done
+		# Fix inter-dylib references
+		for dylib in "$BIN"/liblld*.dylib; do
+			otool -L "$dylib" | tail -n +2 | grep 'liblld.*dylib' | awk '{print $1}' | while read -r ref; do
+				libname=$(basename "$ref")
+				install_name_tool -change "$ref" "@loader_path/$libname" "$dylib"
+			done
+		done
+		# Fix mioc references to LLD dylibs
+		otool -L "$BIN/mioc" | tail -n +2 | grep 'liblld' | awk '{print $1}' | while read -r ref; do
+			libname=$(basename "$ref")
+			install_name_tool -change "$ref" "@loader_path/$libname" "$BIN/mioc"
+		done
+		echo "Bundled LLD dylibs into bin/"
+	fi
+fi
 
 echo "Build successful: $BIN/mioc"
