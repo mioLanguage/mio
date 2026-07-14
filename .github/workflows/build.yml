@@ -139,13 +139,25 @@ jobs:
           $arch = '${{ matrix.llvm_arch }}'
           $ver = '${{ matrix.llvm_ver }}'
           if ($arch -eq 'aarch64') {
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
-            Write-Host "Downloading $url"
-            Invoke-WebRequest -Uri $url -OutFile C:\llvm.tar.xz
-            Write-Host "Extracting..."
-            tar xf C:\llvm.tar.xz -C C:\
-            Rename-Item "C:\clang+llvm-${ver}-${arch}-pc-windows-msvc" C:\llvm
-            Remove-Item C:\llvm.tar.xz
+            $tar_url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
+            $exe_url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/LLVM-${ver}-woa64.exe"
+            Write-Host "Downloading installer (for bin/) from $exe_url"
+            Invoke-WebRequest -Uri $exe_url -OutFile C:\llvm-installer.exe
+            Write-Host "Installing (this may take a few minutes)..."
+            Start-Process -Wait -FilePath C:\llvm-installer.exe -ArgumentList '/S','/D=C:\llvm'
+            Remove-Item -Force C:\llvm-installer.exe
+            Write-Host "Downloading archive (for include/ and lib/) from $tar_url"
+            Invoke-WebRequest -Uri $tar_url -OutFile C:\llvm-archive.tar.xz
+            $topdir = (tar tf C:\llvm-archive.tar.xz | Select-Object -First 1).Split('/')[0]
+            Write-Host "Extracting include/ and lib/ from archive..."
+            New-Item -ItemType Directory -Path C:\temp_archive -Force | Out-Null
+            tar xf C:\llvm-archive.tar.xz -C C:\temp_archive "$topdir/include/" "$topdir/lib/"
+            Write-Host "Copying include/ to C:\llvm\include..."
+            Copy-Item "C:\temp_archive\$topdir\include\*" C:\llvm\include\ -Recurse -Force
+            Write-Host "Copying lib/ to C:\llvm\lib..."
+            Copy-Item "C:\temp_archive\$topdir\lib\*" C:\llvm\lib\ -Recurse -Force
+            Remove-Item -Force C:\llvm-archive.tar.xz
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue C:\temp_archive
           } else {
             $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
             Write-Host "Downloading $url"
@@ -181,38 +193,6 @@ jobs:
         run: |
           "LLVM_DIR=C:\llvm" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "LLVM_DIR set to C:\llvm"
-
-      - name: Setup MSVC linker (Windows ARM64)
-        if: runner.os == 'Windows' && matrix.llvm_arch == 'aarch64'
-        shell: pwsh
-        run: |
-          $vsPath = & "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          Write-Host "Visual Studio path: $vsPath"
-          $vcvars = "$vsPath\VC\Auxiliary\Build\vcvarsall.bat"
-          if (Test-Path $vcvars) {
-            Write-Host "Running vcvarsall.bat arm64..."
-            cmd /c "`"$vcvars`" arm64 > nul && set" | ForEach-Object {
-              if ($_ -match '^PATH=(.*)') {
-                $msvcPath = $matches[1]
-                Write-Host "Adding MSVC PATH"
-                $msvcPath | Out-File -FilePath $env:GITHUB_PATH -Append
-              }
-            }
-            "USE_MSVC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
-          } else {
-            Write-Host "vcvarsall.bat not found, searching for link.exe..."
-            $linkExe = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Filter "link.exe" -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match "HostArm64" } |
-              Select-Object -First 1
-            if ($linkExe) {
-              $linkDir = $linkExe.Directory.FullName
-              Write-Host "Found link.exe at $linkDir"
-              $linkDir | Out-File -FilePath $env:GITHUB_PATH -Append
-              "USE_MSVC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
-            } else {
-              Write-Host "WARNING: MSVC link.exe not found"
-            }
-          }
 
       # ============================================================
       # Build mioc
