@@ -64,7 +64,8 @@ $clangArgs = @(
     "-L", "$LIB",
     "$SRC\main.cpp",
     "-o", "$BIN\mioc.exe",
-    "-Wl,/FORCE:MULTIPLE"
+    "-Wl,/FORCE:MULTIPLE",
+    "-Wl,/opt:nolto"
 )
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
