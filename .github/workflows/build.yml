@@ -138,22 +138,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $arch = '${{ matrix.llvm_arch }}'
           $ver = '${{ matrix.llvm_ver }}'
-          if ($arch -eq 'aarch64') {
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/LLVM-${ver}-woa64.exe"
-            Write-Host "Downloading $url"
-            Invoke-WebRequest -Uri $url -OutFile C:\llvm-installer.exe
-            Write-Host "Installing (this may take a few minutes)..."
-            Start-Process -Wait -FilePath C:\llvm-installer.exe -ArgumentList '/S','/D=C:\llvm'
-            Remove-Item -Force -ErrorAction SilentlyContinue C:\llvm-installer.exe
-          } else {
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
-            Write-Host "Downloading $url"
-            Invoke-WebRequest -Uri $url -OutFile C:\llvm.tar.xz
-            Write-Host "Extracting..."
-            tar xf C:\llvm.tar.xz -C C:\
-            Rename-Item "C:\clang+llvm-${ver}-${arch}-pc-windows-msvc" C:\llvm
-            Remove-Item C:\llvm.tar.xz
-          }
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile C:\llvm.tar.xz
+          Write-Host "Extracting..."
+          tar xf C:\llvm.tar.xz -C C:\
+          Rename-Item "C:\clang+llvm-${ver}-${arch}-pc-windows-msvc" C:\llvm
+          Remove-Item C:\llvm.tar.xz
           Write-Host "LLVM installed to C:\llvm"
           Write-Host "Checking installation..."
           if (Test-Path C:\llvm\bin\clang++.exe) {

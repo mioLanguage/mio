@@ -60,6 +60,7 @@ $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 Write-Host "Building mioc.exe..."
 $clangArgs = @(
     "-std=c++17",
+    "-fno-lto",
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
