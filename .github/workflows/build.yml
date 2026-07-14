@@ -172,6 +172,17 @@ jobs:
             Write-Host "  WARNING: clang++.exe not found at C:\llvm\bin\clang++.exe"
             Get-ChildItem C:\llvm -Recurse -Name -ErrorAction SilentlyContinue | Select-Object -First 30
           }
+          Write-Host "Listing C:\llvm\lib\*.lib:"
+          Get-ChildItem C:\llvm\lib\*.lib -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "  $($_.Name)  $($_.Length) bytes"
+          }
+          if (-not (Get-ChildItem C:\llvm\lib\*.lib -ErrorAction SilentlyContinue)) {
+            Write-Host "  (no .lib files found in C:\llvm\lib)"
+            Write-Host "Searching for .lib files anywhere under C:\llvm..."
+            Get-ChildItem C:\llvm -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+          }
 
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'
