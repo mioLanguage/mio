@@ -155,6 +155,13 @@ jobs:
             Remove-Item C:\llvm.tar.xz
           }
           Write-Host "LLVM installed to C:\llvm"
+          Write-Host "Checking installation..."
+          if (Test-Path C:\llvm\bin\clang++.exe) {
+            Write-Host "  clang++.exe found"
+          } else {
+            Write-Host "  WARNING: clang++.exe not found at C:\llvm\bin\clang++.exe"
+            Get-ChildItem C:\llvm -Recurse -Name -ErrorAction SilentlyContinue | Select-Object -First 30
+          }
 
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'

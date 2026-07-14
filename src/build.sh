@@ -44,13 +44,12 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     echo "Warning: llvm-config not found, using static library list"
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
-    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g')
+    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g; s/-lLLVMLTO\b//g')
 fi
 
 # Build libxml2 stub
 echo "Building libxml2 stub..."
-"$CXX" -c -ffunction-sections -fdata-sections "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
-ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
+"$CXX" -c "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -89,6 +88,6 @@ echo "Stripping..."
 strip "$BIN/mioc" 2>/dev/null || true
 
 # Cleanup
-rm -f "$SRC/libxml2_stub.o" "$SRC/libxml2_stub.a"
+rm -f "$SRC/libxml2_stub.o"
 
 echo "Build successful: $BIN/mioc"
