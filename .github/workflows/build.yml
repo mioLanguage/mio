@@ -45,7 +45,7 @@ jobs:
           - os: windows-11-arm
             name: windows-arm64
             exe: mioc.exe
-            llvm_ver: 21.1.0
+            llvm_ver: 22.1.8
             llvm_arch: arm64
     runs-on: ${{ matrix.os }}
 

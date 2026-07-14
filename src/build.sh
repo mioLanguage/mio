@@ -61,12 +61,10 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
-    IGNORE="-Wl,--unresolved-symbols=ignore-in-object-files"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
-    IGNORE=""
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
@@ -80,7 +78,6 @@ fi
     "$SRC/libxml2_stub.a" \
     $WE \
     $GC \
-    $IGNORE \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
     $(pkg-config --libs libzstd 2>/dev/null || echo "")
