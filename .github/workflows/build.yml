@@ -145,6 +145,7 @@ jobs:
             Invoke-WebRequest -Uri $tar_url -OutFile C:\llvm-hdr.tar.xz
             $topdir = (tar tf C:\llvm-hdr.tar.xz | Select-Object -First 1).Split('/')[0]
             Write-Host "Extracting include dir from tar.xz..."
+            New-Item -ItemType Directory -Path C:\temp_hdr -Force | Out-Null
             tar xf C:\llvm-hdr.tar.xz -C C:\temp_hdr "$topdir/include/"
             Write-Host "Downloading installer from $exe_url"
             Invoke-WebRequest -Uri $exe_url -OutFile C:\llvm-installer.exe
