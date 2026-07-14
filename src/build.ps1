@@ -66,6 +66,11 @@ $clangArgs = @(
     "-o", "$BIN\mioc.exe",
     "-Wl,/FORCE:MULTIPLE"
 )
+# On ARM64, use MSVC link.exe instead of lld-link to avoid "misaligned ldr/str offset" error
+if ($env:USE_MSVC_LINK -eq "1") {
+    Write-Host "ARM64 detected: using MSVC link.exe instead of lld-link"
+    $clangArgs += "-fuse-ld=link"
+}
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
     "$SRC\libxml2_stub.lib",
