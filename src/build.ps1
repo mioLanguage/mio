@@ -66,6 +66,11 @@ $clangArgs = @(
     "-o", "$BIN\mioc.exe",
     "-Wl,/FORCE:MULTIPLE"
 )
+# On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
+if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    Write-Host "ARM64: adding /OPT:NOLBR,NOICF,NOREF to work around lld-link alignment bug"
+    $clangArgs += "-Wl,/OPT:NOLBR,NOICF,NOREF"
+}
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
     "$SRC\libxml2_stub.lib",
