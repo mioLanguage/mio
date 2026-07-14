@@ -60,10 +60,12 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
+    UNDEF="-Wl,--undefined=getPollyPluginInfo"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
+    UNDEF=""
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
@@ -77,6 +79,7 @@ fi
     -llldCommon -llldCOFF -llldELF -llldMachO \
     $WE \
     $GC \
+    $UNDEF \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
     $(pkg-config --libs libzstd 2>/dev/null || echo "")
