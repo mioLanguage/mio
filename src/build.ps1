@@ -69,6 +69,9 @@ $clangArgs = @(
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
     "$SRC\libxml2_stub.lib",
+    "-Wl,/DEFAULTLIB:ucrt",
+    "-Wl,/DEFAULTLIB:libcmt",
+    "-Wl,/nodefaultlib:msvcrt",
     "-lntdll",
     "-ladvapi32"
 )

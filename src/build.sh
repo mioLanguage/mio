@@ -51,7 +51,6 @@ fi
 echo "Building libxml2 stub..."
 "$CXX" -c -ffunction-sections -fdata-sections "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
 ar rcs "$SRC/libxml2_stub.a" "$SRC/libxml2_stub.o"
-rm -f "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -71,11 +70,11 @@ fi
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
+    "$SRC/libxml2_stub.o" \
     -o "$BIN/mioc" \
     $WS \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
-    "$SRC/libxml2_stub.a" \
     $WE \
     $GC \
     -lz -lzstd \
@@ -87,6 +86,6 @@ echo "Stripping..."
 strip "$BIN/mioc" 2>/dev/null || true
 
 # Cleanup
-rm -f "$SRC/libxml2_stub.a"
+rm -f "$SRC/libxml2_stub.o" "$SRC/libxml2_stub.a"
 
 echo "Build successful: $BIN/mioc"
