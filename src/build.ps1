@@ -57,14 +57,15 @@ Remove-Item "$SRC\libxml2_stub.obj" -Force -ErrorAction SilentlyContinue
 
 $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 
-Write-Host "Building mioc.exe..."
+Write-Host "Building mioc.exe (static linking)..."
 $clangArgs = @(
     "-std=c++17",
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
     "-o", "$BIN\mioc.exe",
-    "-Wl,/FORCE:MULTIPLE"
+    "-Wl,/FORCE:MULTIPLE",
+    "-static"
 )
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(

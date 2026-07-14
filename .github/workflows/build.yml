@@ -46,7 +46,7 @@ jobs:
             name: windows-arm64
             exe: mioc.exe
             llvm_ver: 22.1.8
-            llvm_arch: arm64
+            llvm_arch: aarch64
     runs-on: ${{ matrix.os }}
 
     steps:
