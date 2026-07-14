@@ -21,12 +21,12 @@ $LIB = "$LLVM\lib"
 # Chocolatey's llvm package may not install the include directory.
 # Search for it under the LLVM tree.
 if (-not (Test-Path "$INC\llvm\IR\IRBuilder.h")) {
-    $found = Get-ChildItem "$LLVM" -Recurse -Directory -Filter "IR" -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path "$($_.FullName)\IRBuilder.h" } |
+    $found = Get-ChildItem "$LLVM" -Recurse -File -Filter "IRBuilder.h" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match "llvm\\IR\\IRBuilder.h" } |
         Select-Object -First 1
     if ($found) {
-        $INC = Split-Path -Parent $found.FullName
-        Write-Host "Found include at: $INC"
+        $INC = Split-Path -Parent (Split-Path -Parent $found.FullName)
+        Write-Host "Found LLVM include directory: $INC"
     } else {
         Write-Host "Warning: LLVM include directory not found"
     }
@@ -60,7 +60,6 @@ $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 Write-Host "Building mioc.exe..."
 $clangArgs = @(
     "-std=c++17",
-    "-fno-lto",
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
