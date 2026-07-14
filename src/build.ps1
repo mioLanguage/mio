@@ -56,6 +56,9 @@ if ($LASTEXITCODE -ne 0) {
 Remove-Item "$SRC\libxml2_stub.obj" -Force -ErrorAction SilentlyContinue
 
 $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
+if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' }
+}
 
 Write-Host "Building mioc.exe..."
 $clangArgs = @(
