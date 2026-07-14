@@ -139,12 +139,21 @@ jobs:
           $arch = '${{ matrix.llvm_arch }}'
           $ver = '${{ matrix.llvm_ver }}'
           if ($arch -eq 'aarch64') {
-            $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/LLVM-${ver}-woa64.exe"
-            Write-Host "Downloading $url"
-            Invoke-WebRequest -Uri $url -OutFile C:\llvm-installer.exe
+            $tar_url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
+            $exe_url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/LLVM-${ver}-woa64.exe"
+            Write-Host "Downloading headers from $tar_url"
+            Invoke-WebRequest -Uri $tar_url -OutFile C:\llvm-hdr.tar.xz
+            $topdir = (tar tf C:\llvm-hdr.tar.xz | Select-Object -First 1).Split('/')[0]
+            Write-Host "Extracting include dir from tar.xz..."
+            tar xf C:\llvm-hdr.tar.xz -C C:\temp_hdr "$topdir/include/"
+            Write-Host "Downloading installer from $exe_url"
+            Invoke-WebRequest -Uri $exe_url -OutFile C:\llvm-installer.exe
             Write-Host "Installing (this may take a few minutes)..."
             Start-Process -Wait -FilePath C:\llvm-installer.exe -ArgumentList '/S','/D=C:\llvm'
-            Remove-Item -Force -ErrorAction SilentlyContinue C:\llvm-installer.exe
+            Write-Host "Copying headers from tar.xz to C:\llvm\include..."
+            Copy-Item "C:\temp_hdr\$topdir\include\*" C:\llvm\include\ -Recurse -Force
+            Remove-Item -Force -ErrorAction SilentlyContinue C:\llvm-hdr.tar.xz, C:\llvm-installer.exe
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue C:\temp_hdr
           } else {
             $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
             Write-Host "Downloading $url"
