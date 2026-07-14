@@ -35,7 +35,7 @@ void xmlUnlinkNode(xmlNode*n){}
 void xmlSetGenericErrorFunc(void*c,void*f){}
 xmlNode*xmlDocGetRootElement(const xmlDoc*d){return 0;}
 
-llvm::PassPluginLibraryInfo __attribute__((used)) getPollyPluginInfo() {
+llvm::PassPluginLibraryInfo getPollyPluginInfo() {
 	return {1, "Polly", "0.0", [](llvm::PassBuilder &) {}};
 }
 

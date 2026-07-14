@@ -44,12 +44,8 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     echo "Warning: llvm-config not found, using static library list"
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
-    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g; s/-lLLVMLTO\b//g')
+    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null)
 fi
-
-# Build libxml2 stub
-echo "Building libxml2 stub..."
-"$CXX" -c "$SRC/libxml2_stub.cpp" -o "$SRC/libxml2_stub.o"
 
 # Build mioc
 echo "Building mioc..."
@@ -59,26 +55,22 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
-    UNDEF="-Wl,--undefined=getPollyPluginInfo"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
-    UNDEF=""
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
-    "$SRC/libxml2_stub.o" \
     -o "$BIN/mioc" \
     $WS \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
     $WE \
     $GC \
-    $UNDEF \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
     $(pkg-config --libs libzstd 2>/dev/null || echo "")
@@ -86,8 +78,5 @@ fi
 # Strip debug symbols to reduce binary size
 echo "Stripping..."
 strip "$BIN/mioc" 2>/dev/null || true
-
-# Cleanup
-rm -f "$SRC/libxml2_stub.o"
 
 echo "Build successful: $BIN/mioc"

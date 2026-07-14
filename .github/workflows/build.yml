@@ -64,7 +64,7 @@ jobs:
           sudo add-apt-repository -y "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main"
           sudo apt-get update
           sudo apt-get install -y llvm-21 llvm-21-dev clang-21 lld-21 \
-            liblld-21-dev libzstd-dev
+            liblld-21-dev libpolly-21-dev libzstd-dev
           if [ ! -f /usr/lib/llvm-21/include/lld/Common/Driver.h ]; then
             sudo apt-get install -y lld-21-dev 2>/dev/null || true
           fi
@@ -166,7 +166,9 @@ jobs:
       - name: Set LLVM_DIR (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: echo "LLVM_DIR=C:\llvm" >> $env:GITHUB_ENV
+        run: |
+          "LLVM_DIR=C:\llvm" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "LLVM_DIR set to C:\llvm"
 
       # ============================================================
       # Build mioc
