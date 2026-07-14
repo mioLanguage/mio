@@ -60,8 +60,11 @@ else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
-    # macOS: use full path to .a files to force static linking
-    LLD_LIBS="$LIB/liblldCommon.a $LIB/liblldCOFF.a $LIB/liblldELF.a $LIB/liblldMachO.a"
+    if [ -f "$LIB/liblldCommon.a" ]; then
+        LLD_LIBS="$LIB/liblldCommon.a $LIB/liblldCOFF.a $LIB/liblldELF.a $LIB/liblldMachO.a"
+    else
+        LLD_LIBS="-llldCommon -llldCOFF -llldELF -llldMachO"
+    fi
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \

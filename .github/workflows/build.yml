@@ -97,15 +97,20 @@ jobs:
           # Symlink LLD libraries (.a and .dylib)
           echo "LLD lib contents:"
           ls -la "$LLD_PREFIX/lib/" || true
-          FOUND=0
-          for lib in "$LLD_PREFIX/lib/"liblld*.a "$LLD_PREFIX/lib/"liblld*.dylib; do
+          # Symlink LLD dylibs (if any)
+          for lib in "$LLD_PREFIX/lib/"liblld*.dylib; do
             if [ -f "$lib" ]; then
               echo "  symlink $lib -> $LLVM_PREFIX/lib/$(basename "$lib")"
               ln -sf "$lib" "$LLVM_PREFIX/lib/$(basename "$lib")"
-              FOUND=1
             fi
           done
-          if [ "$FOUND" = "0" ]; then
+          # Get LLD static libs: prefer brew lld, else download LLVM 22.1.8 bundle
+          if ls "$LLD_PREFIX/lib/"liblld*.a >/dev/null 2>&1; then
+            for lib in "$LLD_PREFIX/lib/"liblld*.a; do
+              echo "  symlink $lib -> $LLVM_PREFIX/lib/$(basename "$lib")"
+              ln -sf "$lib" "$LLVM_PREFIX/lib/$(basename "$lib")"
+            done
+          else
             echo "brew lld has no static libs, downloading LLVM+LLD bundle..."
             if [ "$(uname -m)" = "arm64" ]; then
               ARCH="arm64"
@@ -116,7 +121,6 @@ jobs:
             echo "Downloading $URL"
             curl -sL "$URL" -o /tmp/llvm.tar.xz
             sudo tar xJf /tmp/llvm.tar.xz -C /tmp --strip-components=1
-            # Copy LLD headers+libs into brew LLVM prefix
             sudo cp -r /tmp/include/lld "$LLVM_PREFIX/include/lld"
             sudo cp /tmp/lib/liblld*.a "$LLVM_PREFIX/lib/"
             rm -f /tmp/llvm.tar.xz
