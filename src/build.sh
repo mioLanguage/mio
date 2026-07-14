@@ -41,7 +41,7 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     echo "Warning: llvm-config not found, using static library list"
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
-    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g')
+    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g; s/-lLLVMLTO\b//g')
 fi
 
 # Build libxml2 stub

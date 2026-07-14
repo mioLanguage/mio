@@ -54,12 +54,21 @@ Remove-Item "$SRC\libxml2_stub.obj" -Force -ErrorAction SilentlyContinue
 
 $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 
-$libFlags = ($libs | ForEach-Object { "-l$_" }) -join " "
-
 Write-Host "Building mioc.exe..."
-$cmd = "& `"$CXX`" -std=c++17 -I `"$INC`" -L `"$LIB`" `"$SRC\main.cpp`" -o `"$SRC\mioc.exe`" $libFlags `"$SRC\libxml2_stub.lib`" -lntdll -ladvapi32"
-Write-Host $cmd
-Invoke-Expression $cmd
+$clangArgs = @(
+    "-std=c++17",
+    "-I", "$INC",
+    "-L", "$LIB",
+    "$SRC\main.cpp",
+    "-o", "$SRC\mioc.exe"
+)
+$clangArgs += ($libs | ForEach-Object { "-l$_" })
+$clangArgs += @(
+    "$SRC\libxml2_stub.lib",
+    "-lntdll",
+    "-ladvapi32"
+)
+& $CXX @clangArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful: $SRC\mioc.exe"
