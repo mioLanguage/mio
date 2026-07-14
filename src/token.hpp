@@ -19,6 +19,7 @@ typedef enum{
     TOK_STRING_LIT,
     TOK_CHAR_LIT,
     TOK_IMPORT,
+    TOK_EXTERN,
     TOK_VAR,
     TOK_DEF,
     TOK_CONST,
@@ -84,6 +85,7 @@ typedef enum{
     TOK_COMMA,
     TOK_DOT,
     TOK_ARROW,
+    TOK_VARARG,
 }TokenKind;
 typedef struct{
     TokenKind kind;
@@ -110,6 +112,7 @@ const std::string tok_name(TokenKind kind){
         case TOK_STRING_LIT: return "STRING_LIT";
         case TOK_CHAR_LIT: return "CHAR_LIT";
         case TOK_IMPORT: return "import";
+        case TOK_EXTERN: return "extern";
         case TOK_VAR: return "var";
         case TOK_DEF: return "def";
         case TOK_CONST: return "const";
@@ -175,6 +178,7 @@ const std::string tok_name(TokenKind kind){
         case TOK_COMMA: return ",";
         case TOK_DOT: return ".";
         case TOK_ARROW: return "->";
+        case TOK_VARARG: return "...";
         default: return "UNKNOWN";
     }
 }

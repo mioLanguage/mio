@@ -240,7 +240,9 @@ private:
 			case ';': return tok_new(TOK_SEMICOLON,std::string(),lineNum,colNum);
 			case ':': return tok_new(TOK_COLON,std::string(),lineNum,colNum);
 			case ',': return tok_new(TOK_COMMA,std::string(),lineNum,colNum);
-			case '.': return tok_new(TOK_DOT,std::string(),lineNum,colNum);
+			case '.': 
+				if(match('.')&&match('.'))return tok_new(TOK_VARARG,"...",lineNum,colNum);
+				return tok_new(TOK_DOT,std::string(),lineNum,colNum);
 			case '=':
 				if(match('='))return tok_new(TOK_EQ,std::string(),lineNum,colNum);
 				return tok_new(TOK_ASSIGN,std::string(),lineNum,colNum);
@@ -291,7 +293,7 @@ private:
 #undef cur
 #undef match
 const KeywordEntry Lexer::keywords[]={
-	{"import",TOK_IMPORT},{"var",TOK_VAR},{"def",TOK_DEF},
+	{"import",TOK_IMPORT},{"extern",TOK_EXTERN},{"var",TOK_VAR},{"def",TOK_DEF},
 	{"const",TOK_CONST},{"if",TOK_IF},{"else",TOK_ELSE},
 	{"elif",TOK_ELIF},{"while",TOK_WHILE},{"for",TOK_FOR},
 	{"break",TOK_BREAK},{"continue",TOK_CONTINUE},{"goto",TOK_GOTO},

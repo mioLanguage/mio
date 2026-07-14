@@ -72,9 +72,13 @@ class CodeGen{
 			case MioTypeKind::F64:	return llvm::Type::getDoubleTy(ctx);
 			case MioTypeKind::BOOL:	return llvm::Type::getInt1Ty(ctx);
 			case MioTypeKind::CHAR:	return llvm::Type::getInt8Ty(ctx);
+			case MioTypeKind::POINTER:
+				return llvm::PointerType::get(convertType(mt->base_type),0);
 			case MioTypeKind::ARRAY:{
 				llvm::Type* elem=convertType(mt->base_type);
-				return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
+				if(mt->array_size>0)
+					return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
+				return llvm::PointerType::get(elem,0);
 			}
 			case MioTypeKind::STRUCT:{
 				if(!mt->name.empty()&&structTypes.count(mt->name))
@@ -233,6 +237,19 @@ class CodeGen{
 				case AstNodeKind::ENUM_DEF:		genEnumDef(node);break;
 				case AstNodeKind::UNION_DEF:	genUnionDef(node);break;
 				case AstNodeKind::MACRO_DEF:	break;
+				case AstNodeKind::BLOCK:
+					for(auto* stmt:node->block.stmts){
+						switch(stmt->kind){
+							case AstNodeKind::VAR_DECL:		genGlobalVar(stmt);break;
+							case AstNodeKind::CONST_DECL:	genGlobalVar(stmt);break;
+							case AstNodeKind::FUNC_DEF:		genFuncDef(stmt);break;
+							case AstNodeKind::STRUCT_DEF:	genStructDef(stmt);break;
+							case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
+							case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
+							default:break;
+						}
+					}
+					break;
 				default:break;
 			}
 		}
@@ -258,9 +275,10 @@ class CodeGen{
 		llvm::Type* retTy=convertType(def->func_def.return_type);
 		std::vector<llvm::Type*> paramTys;
 		for(auto& p:def->func_def.params)paramTys.push_back(convertType(p.type));
-		auto* ft=llvm::FunctionType::get(retTy,paramTys,false);
+		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		auto* fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,name,mod.get());
 		funcDecls[name]=fn;
+		if(def->func_def.is_extern)return;
 		size_t idx=0;
 		for(auto& arg:fn->args()){
 			if(idx<def->func_def.params.size())
@@ -875,7 +893,7 @@ public:
 		LLVMDisposeTargetMachine(tm);
 		return true;
 	}
-		bool linkExecutable(const std::string& objPath,const std::string& exePath){
+		bool linkExecutable(const std::string& objPath,const std::string& exePath,bool staticLink=false){
 		std::string triple=llvm::sys::getProcessTriple();
 		llvm::Triple t(triple);
 		std::deque<std::string> strStorage;
@@ -889,11 +907,20 @@ public:
 				addArg("mioc");
 				addArg(objPath);
 				addArg("/out:"+exePath);
-				addArg("/entry:main");
 				addArg("/subsystem:console");
-				addArg("/defaultlib:msvcrt");
-				addArg("/defaultlib:legacy_stdio_definitions");
-				addArg("/nodefaultlib:libcmt");
+				if(staticLink){
+					addArg("/entry:mainCRTStartup");
+					addArg("/defaultlib:libcmt");
+					addArg("/defaultlib:libucrt");
+					addArg("/defaultlib:libvcruntime");
+					addArg("/defaultlib:legacy_stdio_definitions");
+				}else{
+					addArg("/entry:main");
+					addArg("/defaultlib:msvcrt");
+					addArg("/defaultlib:ucrt");
+					addArg("/defaultlib:legacy_stdio_definitions");
+					addArg("/nodefaultlib:libcmt");
+				}
 				return lld::coff::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::ELF:{

@@ -40,9 +40,13 @@ jobs:
           - os: windows-latest
             name: windows-x86_64
             exe: mioc.exe
+            llvm_ver: 22.1.8
+            llvm_arch: x86_64
           - os: windows-11-arm
             name: windows-arm64
             exe: mioc.exe
+            llvm_ver: 21.1.0
+            llvm_arch: arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -132,8 +136,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
-          $ver = '22.1.8'
+          $arch = '${{ matrix.llvm_arch }}'
+          $ver = '${{ matrix.llvm_ver }}'
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${ver}/clang+llvm-${ver}-${arch}-pc-windows-msvc.tar.xz"
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile C:\llvm.tar.xz
@@ -157,8 +161,8 @@ jobs:
         run: |
           cd src
           bash build.sh
-          chmod +x mioc
-          ./mioc --version
+          chmod +x ../bin/mioc
+          ../bin/mioc --version
 
       - name: Build mioc (Windows)
         if: runner.os == 'Windows'
@@ -166,7 +170,7 @@ jobs:
         run: |
           cd src
           .\build.ps1
-          .\mioc.exe --version
+          ..\bin\mioc.exe --version
 
       # ============================================================
       # Upload
@@ -176,7 +180,8 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: |
-            src/${{ matrix.exe }}
+            bin/${{ matrix.exe }}
+            include/
 
   # ============================================================
   # Release: collect all binaries, publish to GitHub Releases
@@ -197,12 +202,22 @@ jobs:
         run: |
           for dir in artifacts/*/; do
             name=$(basename "$dir")
-            if [ -f "$dir/mioc" ]; then
-              cp "$dir/mioc" "mioc-${name}"
-            elif [ -f "$dir/mioc.exe" ]; then
-              cp "$dir/mioc.exe" "mioc-${name}.exe"
-              zip "mioc-${name}.zip" "mioc-${name}.exe"
-              rm -f "mioc-${name}.exe"
+            if [ -f "$dir/bin/mioc" ]; then
+              mkdir -p "mioc-${name}/bin"
+              cp "$dir/bin/mioc" "mioc-${name}/bin/mioc"
+              if [ -d "$dir/include" ]; then
+                cp -r "$dir/include" "mioc-${name}/"
+              fi
+              (cd "mioc-${name}" && zip -r "../mioc-${name}.zip" .)
+              rm -rf "mioc-${name}"
+            elif [ -f "$dir/bin/mioc.exe" ]; then
+              mkdir -p "mioc-${name}/bin"
+              cp "$dir/bin/mioc.exe" "mioc-${name}/bin/mioc.exe"
+              if [ -d "$dir/include" ]; then
+                cp -r "$dir/include" "mioc-${name}/"
+              fi
+              (cd "mioc-${name}" && zip -r "../mioc-${name}.zip" .)
+              rm -rf "mioc-${name}"
             fi
           done
           ls -la

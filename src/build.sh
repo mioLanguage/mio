@@ -2,6 +2,9 @@
 set -e
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(dirname "$SRC")"
+BIN="$ROOT/bin"
+mkdir -p "$BIN"
 
 # LLVM_DIR can be set via environment variable or found automatically
 if [ -z "$LLVM_DIR" ]; then
@@ -41,7 +44,7 @@ if [ ! -f "$LLVM_CONFIG" ]; then
     echo "Warning: llvm-config not found, using static library list"
     LLVM_LIBS="-lLLVMCore -lLLVMSupport -lLLVMTargetParser -lLLVMBinaryFormat -lLLVMRemarks"
 else
-    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g; s/-lLLVMLTO\b//g')
+    LLVM_LIBS=$($LLVM_CONFIG --link-static --libs all 2>/dev/null | sed 's/-lPollyISL\b//g; s/-lPolly\b//g')
 fi
 
 # Build libxml2 stub
@@ -58,32 +61,35 @@ if [ "$(uname -s)" = "Linux" ]; then
     WS="-Wl,--start-group"
     WE="-Wl,--end-group"
     GC="-Wl,--gc-sections"
+    IGNORE="-Wl,--unresolved-symbols=ignore-in-object-files"
 else
     WS=""
     WE=""
     GC="-Wl,-dead_strip"
+    IGNORE=""
 fi
 "$CXX" -std=c++17 \
     -ffunction-sections -fdata-sections \
     -I"$INC" \
     -L"$LIB" \
     "$SRC/main.cpp" \
-    -o "$SRC/mioc" \
+    -o "$BIN/mioc" \
     $WS \
     $LLVM_LIBS \
     -llldCommon -llldCOFF -llldELF -llldMachO \
     "$SRC/libxml2_stub.a" \
     $WE \
     $GC \
+    $IGNORE \
     -lz -lzstd \
     $(pkg-config --libs libxml-2.0 2>/dev/null || echo "") \
     $(pkg-config --libs libzstd 2>/dev/null || echo "")
 
 # Strip debug symbols to reduce binary size
 echo "Stripping..."
-strip "$SRC/mioc" 2>/dev/null || true
+strip "$BIN/mioc" 2>/dev/null || true
 
 # Cleanup
 rm -f "$SRC/libxml2_stub.a"
 
-echo "Build successful: $SRC/mioc"
+echo "Build successful: $BIN/mioc"

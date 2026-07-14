@@ -43,6 +43,7 @@ static void help(const char* prog){
 	fprintf(stderr,"  -c          compile only, emit object file (.o) instead of executable\n");
 	fprintf(stderr,"  -I <path>   add include path for .mio file resolution\n");
 	fprintf(stderr,"  -D <macro>  define a macro (e.g. -D DEBUG or -D VERSION=2)\n");
+	fprintf(stderr,"  -static     link statically (no DLL dependencies)\n");
 }
 int main(int argc,char* argv[]){
 	try{
@@ -54,13 +55,14 @@ int main(int argc,char* argv[]){
 		}
 		std::string input_file,output_file;
 		std::vector<std::string> include_paths,defines;
-		bool emit_asm=false,compile_only=false;
+		bool emit_asm=false,compile_only=false,static_link=false;
 		for(int i=1;i<argc;i++){
 			if(strcmp(argv[i],"-o")==0&&i+1<argc)output_file=argv[++i];
 			else if(strcmp(argv[i],"-I")==0&&i+1<argc)include_paths.push_back(argv[++i]);
 			else if(strcmp(argv[i],"-D")==0&&i+1<argc)defines.push_back(argv[++i]);
 			else if(strcmp(argv[i],"-S")==0)emit_asm=true;
 			else if(strcmp(argv[i],"-c")==0)compile_only=true;
+			else if(strcmp(argv[i],"-static")==0)static_link=true;
 			else if(input_file.empty())input_file=argv[i];
 		}
 		if(input_file.empty()){help(argv[0]);exit(1);}
@@ -120,7 +122,7 @@ int main(int argc,char* argv[]){
 				exit(1);
 			}
 			std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
-			ok=cg.linkExecutable(obj_path,exe_path);
+			ok=cg.linkExecutable(obj_path,exe_path,static_link);
 			if(ok){
 				fprintf(stdout,"Generated: %s\n",exe_path.c_str());
 				std::remove(obj_path.c_str());

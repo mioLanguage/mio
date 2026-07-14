@@ -19,7 +19,8 @@ enum class MioTypeKind{
 	ENUM,
 	UNION,
 	ARRAY,
-	FUNC
+	FUNC,
+	POINTER
 };
 class MioType{
 public:
@@ -103,6 +104,11 @@ inline MioType* mio_type_new_named(MioTypeKind kind,const std::string& name){
 }
 inline MioType* mio_type_new_array(MioType* base,int size){
 	return new MioType(base, size);
+}
+inline MioType* mio_type_new_pointer(MioType* base){
+	MioType* mt=new MioType(MioTypeKind::POINTER);
+	mt->base_type=base;
+	return mt;
 }
 inline MioType* mio_type_clone(const MioType* type){
 	if(!type) return nullptr;

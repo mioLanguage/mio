@@ -1,0 +1,15 @@
+@if !STDLIB
+marco STDLIB;
+extern def i8* malloc(size: u64);
+extern def i8* calloc(count: u64, size: u64);
+extern def i8* realloc(ptr: i8*, size: u64);
+extern def void free(ptr: i8*);
+extern def void exit(status: i32);
+extern def i32 atexit(func: i8*);
+extern def i32 system(command: i8*);
+extern def i8* getenv(name: i8*);
+extern def i32 abs(x: i32);
+extern def i64 labs(x: i64);
+extern def i32 rand();
+extern def void srand(seed: u32);
+@end

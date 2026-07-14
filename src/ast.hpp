@@ -94,7 +94,7 @@ public:
 		MioType*return_type;
 		std::vector<Param> params;
 		AstNode*body;
-		bool is_static,is_operator;
+		bool is_static,is_operator,is_extern,is_variadic;
 		std::string op_name,struct_name;
 		std::vector<InitField> init_list;
 	} func_def;
@@ -335,6 +335,8 @@ inline AstNode*ast_new_func_def(const std::string& name,MioType*return_type,AstN
 	n->func_def.body=body;
 	n->func_def.is_static=is_static;
 	n->func_def.is_operator=false;
+	n->func_def.is_extern=false;
+	n->func_def.is_variadic=false;
 	return n;
 }
 inline AstNode*ast_new_struct_def(const std::string& name,int line,int col){

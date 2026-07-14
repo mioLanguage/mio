@@ -1,4 +1,7 @@
 $SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ROOT = Split-Path -Parent $SRC
+$BIN = "$ROOT\bin"
+if (-not (Test-Path $BIN)) { New-Item -ItemType Directory -Path $BIN -Force | Out-Null }
 
 $LLVM = "$SRC\llvm-project\"
 if (-not (Test-Path "$LLVM\bin\clang++.exe")) {
@@ -60,7 +63,8 @@ $clangArgs = @(
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
-    "-o", "$SRC\mioc.exe"
+    "-o", "$BIN\mioc.exe",
+    "-Wl,/FORCE:MULTIPLE"
 )
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
@@ -71,7 +75,7 @@ $clangArgs += @(
 & $CXX @clangArgs
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "Build successful: $SRC\mioc.exe"
+    Write-Host "Build successful: $BIN\mioc.exe"
 } else {
     Write-Host "Build failed with exit code $LASTEXITCODE"
 }

@@ -140,52 +140,57 @@ private:
 		if(cur->kind==TOK_STRING_LIT){
 			std::string path=cur->lexeme;
 			advance();
+			std::string resolved;
 			if(has_mio_extension(path)){
-				std::string resolved=resolve_mio_file(path);
-				if(resolved.empty()){
-					char buf[512];
-					snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
-					error(buf);
-					return nullptr;
-				}
-				if(is_imported(resolved)){
-					return nullptr;
-				}
-				mark_imported(resolved);
-				std::string source=read_file_content(resolved);
-				if(source.empty()){
-					char buf[512];
-					snprintf(buf,sizeof(buf),"cannot read imported file '%s'",path.c_str());
-					error(buf);
-					return nullptr;
-				}
-				auto* old_lexer=lexer;
-				auto* old_cur=cur;
-				auto* old_peek=peek;
-				std::string old_filename=filename;
-				auto* new_lexer=new Lexer(source,resolved);
-				lexer=new_lexer;
-				filename=resolved;
-				cur=new_lexer->current;
-				peek=new_lexer->peek();
-				auto* block=new AstNode(AstNodeKind::BLOCK,line,col);
-				while(!check(TOK_EOF)){
-					auto* decl=parse_decl();
-					if(decl)add_import_to_block(block,decl);
-				}
-				delete new_lexer;
-				lexer=old_lexer;
-				cur=old_cur;
-				peek=old_peek;
-				filename=old_filename;
-				return block;
+				resolved=resolve_mio_file(path);
 			}else{
-				return ast_new_import(path,line,col);
+				resolved=resolve_mio_file(path+".mio");
 			}
+			if(!resolved.empty()){
+				return parse_import_file(resolved,path,line,col);
+			}
+			if(has_mio_extension(path)){
+				char buf[512];
+				snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
+				error(buf);
+				return nullptr;
+			}
+			return ast_new_import(path,line,col);
 		}else{
 			std::string path=parse_import_path();
 			return ast_new_import(path,line,col);
 		}
+	}
+	AstNode* parse_import_file(const std::string& resolved,const std::string& display_path,int line,int col){
+		if(is_imported(resolved))return nullptr;
+		mark_imported(resolved);
+		std::string source=read_file_content(resolved);
+		if(source.empty()){
+			char buf[512];
+			snprintf(buf,sizeof(buf),"cannot read imported file '%s'",display_path.c_str());
+			error(buf);
+			return nullptr;
+		}
+		auto* old_lexer=lexer;
+		auto* old_cur=cur;
+		auto* old_peek=peek;
+		std::string old_filename=filename;
+		auto* new_lexer=new Lexer(source,resolved);
+		lexer=new_lexer;
+		filename=resolved;
+		cur=new_lexer->current;
+		peek=new_lexer->peek();
+		auto* block=new AstNode(AstNodeKind::BLOCK,line,col);
+		while(!check(TOK_EOF)){
+			auto* decl=parse_decl();
+			if(decl)add_import_to_block(block,decl);
+		}
+		delete new_lexer;
+		lexer=old_lexer;
+		cur=old_cur;
+		peek=old_peek;
+		filename=old_filename;
+		return block;
 	}
 	std::string parse_import_path(){
 		if(cur->kind==TOK_STRING_LIT){
@@ -232,6 +237,8 @@ private:
 	}
 	MioType* parse_type(){
 		auto* base=parse_base_type();
+		if(match(TOK_STAR))
+			return mio_type_new_pointer(base);
 		if(match(TOK_LBRACKET)){
 			if(cur->kind==TOK_INT_LIT){
 				int size=(int)cur->int_val;
@@ -644,7 +651,7 @@ private:
 			}
 		}
 	}
-	AstNode* parse_func_def(bool is_static){
+	AstNode* parse_func_def(bool is_static,bool is_extern=false){
 		int line=cur->line,col=cur->col;
 		auto* return_type=parse_type();
 		bool is_operator=false;
@@ -671,6 +678,10 @@ private:
 		expect(TOK_LPAREN);
 		if(!check(TOK_RPAREN)){
 			do{
+				if(match(TOK_VARARG)){
+					func->func_def.is_variadic=true;
+					break;
+				}
 				std::string pname=cur->lexeme;
 				expect(TOK_IDENT);
 				expect(TOK_COLON);
@@ -697,7 +708,12 @@ private:
 				if(!match(TOK_COMMA))break;
 			}
 		}
-		func->func_def.body=parse_block();
+		func->func_def.is_extern=is_extern;
+		if(is_extern){
+			expect(TOK_SEMICOLON);
+		}else{
+			func->func_def.body=parse_block();
+		}
 		return func;
 	}
 	AstNode* parse_struct_def(){
@@ -869,6 +885,13 @@ private:
 				}while(match(TOK_COMMA));
 				expect(TOK_SEMICOLON);
 				return block->block.stmts.empty()?(delete block,nullptr):block;
+			}
+			case TOK_EXTERN:{
+				advance();
+				if(match(TOK_DEF))
+					return parse_func_def(false,true);
+				error("expected 'def' after 'extern'");
+				return nullptr;
 			}
 			case TOK_VAR:
 				return parse_var_decl(false,false);
