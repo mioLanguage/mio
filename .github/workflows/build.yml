@@ -145,7 +145,7 @@ jobs:
             Invoke-WebRequest -Uri $exe_url -OutFile C:\llvm-installer.exe
             Write-Host "Installing (this may take a few minutes)..."
             Start-Process -Wait -FilePath C:\llvm-installer.exe -ArgumentList '/S','/D=C:\llvm'
-            Remove-Item -Force C:\llvm-installer.exe
+            Remove-Item -Force -ErrorAction SilentlyContinue C:\llvm-installer.exe
             Write-Host "Downloading archive (for include/ and lib/) from $tar_url"
             Invoke-WebRequest -Uri $tar_url -OutFile C:\llvm-archive.tar.xz
             $topdir = (tar tf C:\llvm-archive.tar.xz | Select-Object -First 1).Split('/')[0]
