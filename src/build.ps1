@@ -84,6 +84,19 @@ $clangArgs += @(
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful: $BIN\mioc.exe"
+    # Bundle MSVC runtime DLLs for machines without VC++ Redistributable
+    Write-Host "Bundling MSVC runtime DLLs..."
+    $deps = & "$LLVM\bin\llvm-objdump.exe" -p "$BIN\mioc.exe" 2>$null | Select-String "DLL Name:" | ForEach-Object { $_ -replace ".*DLL Name: ", "" }
+    $msvcDlls = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll")
+    foreach ($dll in $msvcDlls) {
+        if ($dll -in $deps) {
+            $src = Join-Path $env:SystemRoot "System32\$dll"
+            if (Test-Path $src) {
+                Copy-Item $src "$BIN\" -Force
+                Write-Host "  Bundled $dll"
+            }
+        }
+    }
 } else {
     Write-Host "Build failed with exit code $LASTEXITCODE"
 }
