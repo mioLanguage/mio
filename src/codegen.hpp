@@ -939,6 +939,17 @@ public:
 					addArg(p);
 				}
 				addArg("-lc");
+				// Search for CRT startup objects
+				{
+					const char* crt_files[]={"crt1.o","crti.o","crtn.o"};
+					for(auto* crt:crt_files){
+						for(auto* p:libc_paths){
+							std::string crt_path=std::string(p)+"/"+crt;
+							FILE* f=fopen(crt_path.c_str(),"r");
+							if(f){fclose(f);addArg(crt_path.c_str());break;}
+						}
+					}
+				}
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::MachO:{
