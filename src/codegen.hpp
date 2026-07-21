@@ -928,8 +928,8 @@ public:
 				addArg(objPath);
 				addArg("-o");
 				addArg(exePath);
-				addArg("-L/lib");
-				addArg("-L/usr/lib");
+				addArg("--sysroot");
+				addArg("/");
 				addArg("-lc");
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
