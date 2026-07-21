@@ -925,31 +925,34 @@ public:
 			}
 			case llvm::Triple::ELF:{
 				addArg("mioc");
-				addArg(objPath);
-				addArg("-o");
-				addArg(exePath);
 				const char* libc_paths[]={
 					"/lib/x86_64-linux-gnu","/lib64","/usr/lib/x86_64-linux-gnu",
 					"/usr/lib64","/lib/aarch64-linux-gnu","/usr/lib/aarch64-linux-gnu",
 					"/lib/arm-linux-gnueabihf","/usr/lib/arm-linux-gnueabihf",
 					"/lib","/usr/lib"
 				};
+				auto find_crt=[&](const char* name)->std::string{
+					for(auto* p:libc_paths){
+						std::string crt_path=std::string(p)+"/"+name;
+						FILE* f=fopen(crt_path.c_str(),"r");
+						if(f){fclose(f);return crt_path;}
+					}
+					return "";
+				};
+				std::string crt1=find_crt("crt1.o");
+				std::string crti=find_crt("crti.o");
+				std::string crtn=find_crt("crtn.o");
+				if(!crt1.empty())addArg(crt1);
+				if(!crti.empty())addArg(crti);
+				addArg(objPath);
+				if(!crtn.empty())addArg(crtn);
+				addArg("-o");
+				addArg(exePath);
 				for(auto* p:libc_paths){
 					addArg("-L");
 					addArg(p);
 				}
 				addArg("-lc");
-				// Search for CRT startup objects
-				{
-					const char* crt_files[]={"crt1.o","crti.o","crtn.o"};
-					for(auto* crt:crt_files){
-						for(auto* p:libc_paths){
-							std::string crt_path=std::string(p)+"/"+crt;
-							FILE* f=fopen(crt_path.c_str(),"r");
-							if(f){fclose(f);addArg(crt_path.c_str());break;}
-						}
-					}
-				}
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::MachO:{
