@@ -928,8 +928,16 @@ public:
 				addArg(objPath);
 				addArg("-o");
 				addArg(exePath);
-				addArg("--sysroot");
-				addArg("/");
+				const char* libc_paths[]={
+					"/lib/x86_64-linux-gnu","/lib64","/usr/lib/x86_64-linux-gnu",
+					"/usr/lib64","/lib/aarch64-linux-gnu","/usr/lib/aarch64-linux-gnu",
+					"/lib/arm-linux-gnueabihf","/usr/lib/arm-linux-gnueabihf",
+					"/lib","/usr/lib"
+				};
+				for(auto* p:libc_paths){
+					addArg("-L");
+					addArg(p);
+				}
 				addArg("-lc");
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
