@@ -149,13 +149,10 @@ private:
 			if(!resolved.empty()){
 				return parse_import_file(resolved,path,line,col);
 			}
-			if(has_mio_extension(path)){
-				char buf[512];
-				snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
-				error(buf);
-				return nullptr;
-			}
-			return ast_new_import(path,line,col);
+			char buf[512];
+			snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
+			error(buf);
+			return nullptr;
 		}else{
 			std::string path=parse_import_path();
 			if(!path.empty() && path[0]!='<'){
@@ -168,6 +165,10 @@ private:
 				if(!resolved.empty()){
 					return parse_import_file(resolved,path,line,col);
 				}
+				char buf[512];
+				snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
+				error(buf);
+				return nullptr;
 			}
 			return ast_new_import(path,line,col);
 		}
