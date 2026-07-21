@@ -158,6 +158,17 @@ private:
 			return ast_new_import(path,line,col);
 		}else{
 			std::string path=parse_import_path();
+			if(!path.empty() && path[0]!='<'){
+				std::string resolved;
+				if(has_mio_extension(path)){
+					resolved=resolve_mio_file(path);
+				}else{
+					resolved=resolve_mio_file(path+".mio");
+				}
+				if(!resolved.empty()){
+					return parse_import_file(resolved,path,line,col);
+				}
+			}
 			return ast_new_import(path,line,col);
 		}
 	}

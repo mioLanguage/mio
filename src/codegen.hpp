@@ -928,6 +928,7 @@ public:
 				addArg(objPath);
 				addArg("-o");
 				addArg(exePath);
+				addArg("--sysroot=/");
 				addArg("-lc");
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
