@@ -155,7 +155,7 @@ private:
 			return nullptr;
 		}else{
 			std::string path=parse_import_path();
-			if(!path.empty() && path[0]!='<'){
+			if(!path.empty()){
 				std::string resolved;
 				if(has_mio_extension(path)){
 					resolved=resolve_mio_file(path);
@@ -225,7 +225,7 @@ private:
 			error_expected("import path");
 			return "void";
 		}
-		return "<"+buf+">";
+		return buf;
 	}
 	MioType* parse_base_type(){
 		switch(cur->kind){
