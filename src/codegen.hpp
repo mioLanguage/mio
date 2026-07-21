@@ -928,7 +928,7 @@ public:
 				addArg(objPath);
 				addArg("-o");
 				addArg(exePath);
-				addArg("-l:libc.so.6");
+				addArg("-lc");
 				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::MachO:{
