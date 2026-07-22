@@ -61,13 +61,11 @@ $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -an
 Write-Host "Building mioc.exe..."
 $clangArgs = @(
     "-std=c++17",
-    "-fno-lto",
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
     "-o", "$BIN\mioc.exe",
-    "-Wl,/FORCE:MULTIPLE",
-    "-Wl,/LTCG:OFF"
+    "-Wl,/FORCE:MULTIPLE"
 )
 # On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
 if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
