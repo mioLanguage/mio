@@ -59,20 +59,27 @@ $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -and $_ -notmatch 'LLVM-C' -and $_ -notmatch '^LTO$' -and $_ -notmatch '^Remarks$' }
 
 Write-Host "Building mioc.exe..."
-$clangArgs = @(
-    "-std=c++17",
-    "-I", "$INC",
-    "-L", "$LIB",
-    "$SRC\main.cpp",
-    "-o", "$BIN\mioc.exe",
-    "-Wl,/FORCE:MULTIPLE"
-)
-# On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
-if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
-    Write-Host "ARM64: adding /OPT:NOLBR,NOICF,NOREF to work around lld-link alignment bug"
-    $clangArgs += "-Wl,/OPT:NOLBR"
-    $clangArgs += "-Wl,/OPT:NOICF"
-    $clangArgs += "-Wl,/OPT:NOREF"
+# On ARM64, use MSVC link.exe to handle LLVM LTO bitcode
+$useMsvcLink = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
+if ($useMsvcLink) {
+    Write-Host "ARM64: using MSVC link.exe instead of lld-link"
+    $clangArgs = @(
+        "-std=c++17",
+        "-I", "$INC",
+        "-L", "$LIB",
+        "$SRC\main.cpp",
+        "/Fe$BIN\mioc.exe",
+        "/link"
+    )
+} else {
+    $clangArgs = @(
+        "-std=c++17",
+        "-I", "$INC",
+        "-L", "$LIB",
+        "$SRC\main.cpp",
+        "-o", "$BIN\mioc.exe",
+        "-Wl,/FORCE:MULTIPLE"
+    )
 }
 $clangArgs += ($libs | ForEach-Object { "-l$_" })
 $clangArgs += @(
