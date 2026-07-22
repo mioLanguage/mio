@@ -59,95 +59,30 @@ $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -and $_ -notmatch 'LLVM-C' -and $_ -notmatch '^LTO$' -and $_ -notmatch '^Remarks$' }
 
 Write-Host "Building mioc.exe..."
-# On ARM64, use MSVC link.exe to handle LLVM LTO bitcode
-$useMsvcLink = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
-if ($useMsvcLink) {
-    Write-Host "ARM64: using MSVC link.exe instead of lld-link"
-    # Find link.exe under Visual Studio installation
-    $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
-    $linkExe = ""
-    if ($vsPath) {
-        $linkCandidates = @(
-            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\arm64\link.exe",
-            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\link.exe"
-        )
-        foreach ($pattern in $linkCandidates) {
-            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $linkExe = $found.FullName; break }
-        }
-    }
-    if (-not $linkExe) {
-        Write-Host "error: link.exe not found"
-        exit 1
-    }
-    Write-Host "Using linker: $linkExe"
-    # Compile to .obj first
-    & $CXX "-std=c++17" "-I$INC" "-L$LIB" "$SRC\main.cpp" "-c" "-o" "$BIN\mioc.obj" @($libs | ForEach-Object { "-l$_" })
-    if ($LASTEXITCODE -ne 0) { Write-Host "Compilation failed"; exit 1 }
-    # Find Windows SDK lib path for ntdll.lib, advapi32.lib, etc.
-    $winSdkLib = ""
-    $sdkPaths = @(
-        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\arm64",
-        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\x64"
-    )
-    foreach ($pattern in $sdkPaths) {
-        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) { $winSdkLib = $found.FullName; break }
-    }
-    if (-not $winSdkLib) {
-        Write-Host "error: Windows SDK lib not found"
-        exit 1
-    }
-    Write-Host "Windows SDK lib: $winSdkLib"
-    # Find UCRT lib path (for libucrt.lib)
-    $ucrtLib = ""
-    $ucrtPaths = @(
-        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\arm64",
-        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\x64"
-    )
-    foreach ($pattern in $ucrtPaths) {
-        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) { $ucrtLib = $found.FullName; break }
-    }
-    if ($ucrtLib) {
-        Write-Host "UCRT lib: $ucrtLib"
-    }
-    # Find MSVC C++ standard library path (for libcpmt.lib)
-    $msvcLib = Split-Path (Split-Path $linkExe)
-    $msvcLib = Join-Path (Split-Path (Split-Path $linkExe)) "lib"
-    $msvcArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
-    $msvcLibPath = "$msvcLib\$msvcArch"
-    if (-not (Test-Path $msvcLibPath)) {
-        # Try alternate path structure
-        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
-        if ($vsPath) {
-            $altPath = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\lib\$msvcArch" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($altPath) { $msvcLibPath = $altPath.FullName }
-        }
-    }
-    Write-Host "MSVC lib: $msvcLibPath"
-    # Link with MSVC link.exe
-    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath")
-    if ($ucrtLib) { $libArgs += "/LIBPATH:$ucrtLib" }
-    $libArgs += ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
-    & $linkExe @libArgs
-} else {
-    $clangArgs = @(
-        "-std=c++17",
-        "-I", "$INC",
-        "-L", "$LIB",
-        "$SRC\main.cpp",
-        "-o", "$BIN\mioc.exe",
-        "-Wl,/FORCE:MULTIPLE"
-    )
-    $clangArgs += ($libs | ForEach-Object { "-l$_" })
-    $clangArgs += @(
-        "$SRC\libxml2_stub.lib",
-        "-lntdll",
-        "-ladvapi32"
-    )
-    & $CXX @clangArgs
+$clangArgs = @(
+    "-std=c++17",
+    "-I", "$INC",
+    "-L", "$LIB",
+    "$SRC\main.cpp",
+    "-o", "$BIN\mioc.exe",
+    "-fno-lto",
+    "-Wl,/FORCE:MULTIPLE",
+    "-Wl,/LTCG:OFF"
+)
+# On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
+if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    Write-Host "ARM64: adding /OPT:NOLBR,NOICF,NOREF to work around lld-link alignment bug"
+    $clangArgs += "-Wl,/OPT:NOLBR"
+    $clangArgs += "-Wl,/OPT:NOICF"
+    $clangArgs += "-Wl,/OPT:NOREF"
 }
+$clangArgs += ($libs | ForEach-Object { "-l$_" })
+$clangArgs += @(
+    "$SRC\libxml2_stub.lib",
+    "-lntdll",
+    "-ladvapi32"
+)
+& $CXX @clangArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful: $BIN\mioc.exe"
