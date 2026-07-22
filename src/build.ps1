@@ -61,6 +61,7 @@ $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -an
 Write-Host "Building mioc.exe..."
 $clangArgs = @(
     "-std=c++17",
+    "-fno-lto",
     "-I", "$INC",
     "-L", "$LIB",
     "$SRC\main.cpp",
