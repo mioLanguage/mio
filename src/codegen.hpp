@@ -933,44 +933,16 @@ public:
 				return lld::coff::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			case llvm::Triple::ELF:{
-				addArg("mioc");
-				std::vector<std::string> libc_paths={
-					"/lib/x86_64-linux-gnu","/lib64","/usr/lib/x86_64-linux-gnu",
-					"/usr/lib64","/lib/aarch64-linux-gnu","/usr/lib/aarch64-linux-gnu",
-					"/lib/arm-linux-gnueabihf","/usr/lib/arm-linux-gnueabihf",
-					"/lib","/usr/lib"
-				};
-				auto find_crt=[&](const std::string& name){
-					for(const auto& p:libc_paths){
-						std::string crt_path=p+"/"+name;
-						std::ifstream ifs(crt_path);
-						if(ifs.is_open())return crt_path;
-					}
-					return std::string("");
-				};
-				std::string crt1=find_crt("Scrt1.o");
-				std::string crti=find_crt("crti.o");
-				std::string crtn=find_crt("crtn.o");
-				std::string crtbegin=find_crt("crtbeginS.o");
-				std::string crtend=find_crt("crtendS.o");
-				if(!crt1.empty())addArg(crt1);
-				if(!crti.empty())addArg(crti);
-				if(!crtbegin.empty())addArg(crtbegin);
-				addArg(objPath);
-				addArg("-pie");
-				addArg("-z");addArg("relro");
-				addArg("--hash-style=gnu");
-				addArg("--eh-frame-hdr");
-				if(!crtend.empty())addArg(crtend);
-				if(!crtn.empty())addArg(crtn);
-				addArg("-o");
-				addArg(exePath);
-				for(const auto& p:libc_paths){
-					addArg("-L");
-					addArg(p);
+				std::string cmd="cc "+objPath+" -o "+exePath;
+				if(staticLink){
+					cmd+=" -static";
 				}
-				addArg("-lc");
-				return lld::elf::link(args,llvm::outs(),llvm::errs(),false,false);
+				int ret=std::system(cmd.c_str());
+				if(ret!=0){
+					fprintf(stderr,"error: linking failed\n");
+					return false;
+				}
+				return true;
 			}
 			case llvm::Triple::MachO:{
 				addArg("mioc");
