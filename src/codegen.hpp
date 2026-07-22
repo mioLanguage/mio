@@ -951,9 +951,13 @@ public:
 				std::string crt1=find_crt("crt1.o");
 				std::string crti=find_crt("crti.o");
 				std::string crtn=find_crt("crtn.o");
+				std::string crtbegin=find_crt("crtbegin.o");
+				std::string crtend=find_crt("crtend.o");
 				if(!crt1.empty())addArg(crt1);
 				if(!crti.empty())addArg(crti);
+				if(!crtbegin.empty())addArg(crtbegin);
 				addArg(objPath);
+				if(!crtend.empty())addArg(crtend);
 				if(!crtn.empty())addArg(crtn);
 				addArg("-o");
 				addArg(exePath);
