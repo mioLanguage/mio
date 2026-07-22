@@ -59,30 +59,71 @@ $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
 $libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -and $_ -notmatch 'LLVM-C' -and $_ -notmatch '^LTO$' -and $_ -notmatch '^Remarks$' }
 
 Write-Host "Building mioc.exe..."
-$clangArgs = @(
-    "-std=c++17",
-    "-I", "$INC",
-    "-L", "$LIB",
-    "$SRC\main.cpp",
-    "-o", "$BIN\mioc.exe",
-    "-fno-lto",
-    "-Wl,/FORCE:MULTIPLE",
-    "-Wl,/LTCG:OFF"
-)
-# On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
-if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
-    Write-Host "ARM64: adding /OPT:NOLBR,NOICF,NOREF to work around lld-link alignment bug"
-    $clangArgs += "-Wl,/OPT:NOLBR"
-    $clangArgs += "-Wl,/OPT:NOICF"
-    $clangArgs += "-Wl,/OPT:NOREF"
+$useMsvcLink = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
+if ($useMsvcLink) {
+    Write-Host "ARM64: using MSVC link.exe to handle LLVM LTO bitcode"
+    # Find link.exe
+    $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    $linkExe = ""
+    if ($vsPath) {
+        $linkCandidates = @(
+            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\arm64\link.exe",
+            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\link.exe"
+        )
+        foreach ($pattern in $linkCandidates) {
+            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $linkExe = $found.FullName; break }
+        }
+    }
+    if (-not $linkExe) { Write-Host "error: link.exe not found"; exit 1 }
+    Write-Host "Using linker: $linkExe"
+    # Compile to .obj
+    & $CXX "-std=c++17" "-I$INC" "-L$LIB" "$SRC\main.cpp" "-c" "-o" "$BIN\mioc.obj" @($libs | ForEach-Object { "-l$_" })
+    if ($LASTEXITCODE -ne 0) { Write-Host "Compilation failed"; exit 1 }
+    # Find Windows SDK lib
+    $winSdkLib = ""
+    foreach ($pattern in @("$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\arm64", "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\x64")) {
+        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $winSdkLib = $found.FullName; break }
+    }
+    if (-not $winSdkLib) { Write-Host "error: Windows SDK lib not found"; exit 1 }
+    # Find UCRT lib
+    $ucrtLib = ""
+    foreach ($pattern in @("$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\arm64", "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\x64")) {
+        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $ucrtLib = $found.FullName; break }
+    }
+    # Find MSVC lib
+    $msvcLibPath = ""
+    if ($vsPath) {
+        $found = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\lib\arm64" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $msvcLibPath = $found.FullName }
+    }
+    if (-not $msvcLibPath) { Write-Host "error: MSVC lib not found"; exit 1 }
+    # Link
+    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath")
+    if ($ucrtLib) { $libArgs += "/LIBPATH:$ucrtLib" }
+    $libArgs += ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "kernel32.lib", "user32.lib", "shell32.lib", "/FORCE:MULTIPLE")
+    & $linkExe @libArgs
+} else {
+    $clangArgs = @(
+        "-std=c++17",
+        "-I", "$INC",
+        "-L", "$LIB",
+        "$SRC\main.cpp",
+        "-o", "$BIN\mioc.exe",
+        "-fno-lto",
+        "-Wl,/FORCE:MULTIPLE",
+        "-Wl,/LTCG:OFF"
+    )
+    $clangArgs += ($libs | ForEach-Object { "-l$_" })
+    $clangArgs += @(
+        "$SRC\libxml2_stub.lib",
+        "-lntdll",
+        "-ladvapi32"
+    )
+    & $CXX @clangArgs
 }
-$clangArgs += ($libs | ForEach-Object { "-l$_" })
-$clangArgs += @(
-    "$SRC\libxml2_stub.lib",
-    "-lntdll",
-    "-ladvapi32"
-)
-& $CXX @clangArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful: $BIN\mioc.exe"
