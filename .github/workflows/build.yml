@@ -178,7 +178,30 @@ jobs:
 
       - name: Setup MSVC (ARM64)
         if: runner.os == 'Windows' && matrix.llvm_arch == 'aarch64'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: pwsh
+        run: |
+          # Install latest VS Build Tools with MSVC toolchain
+          $installerUrl = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
+          Invoke-WebRequest -Uri $installerUrl -OutFile "$env:TEMP\vs_buildtools.exe"
+          $configFile = "$env:TEMP\vs_config.json"
+          @"
+          {
+            "version": "1.0",
+            "components": [
+              "Microsoft.VisualStudio.Workload.VCTools",
+              "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
+              "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+              "Microsoft.VisualStudio.Component.Windows10SDK"
+            ],
+            "extensions": []
+          }
+          "@ | Out-File -FilePath $configFile -Encoding utf8
+          Start-Process -FilePath "$env:TEMP\vs_buildtools.exe" -ArgumentList "--quiet", "--wait", "--norestart", "--nocache", "--config", $configFile -NoNewWindow -Wait
+          Write-Host "VS Build Tools installed"
+          # Find the new link.exe
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Write-Host "VS installed to: $vsPath"
+          Get-ChildItem "$vsPath\VC\Tools\MSVC\" -Directory | Sort-Object Name -Descending | Select-Object -First 1 | ForEach-Object { Write-Host "MSVC version: $($_.Name)" }
 
       - name: Build mioc (Windows)
         if: runner.os == 'Windows'
