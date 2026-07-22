@@ -176,6 +176,10 @@ jobs:
           chmod +x ../bin/mioc
           ../bin/mioc --version
 
+      - name: Setup MSVC (ARM64)
+        if: runner.os == 'Windows' && matrix.llvm_arch == 'aarch64'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Build mioc (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
