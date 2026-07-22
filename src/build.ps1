@@ -63,14 +63,30 @@ Write-Host "Building mioc.exe..."
 $useMsvcLink = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
 if ($useMsvcLink) {
     Write-Host "ARM64: using MSVC link.exe instead of lld-link"
-    $clangArgs = @(
-        "-std=c++17",
-        "-I", "$INC",
-        "-L", "$LIB",
-        "$SRC\main.cpp",
-        "/Fe$BIN\mioc.exe",
-        "/link"
-    )
+    # Find link.exe under Visual Studio installation
+    $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    $linkExe = ""
+    if ($vsPath) {
+        $linkCandidates = @(
+            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\arm64\link.exe",
+            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\link.exe"
+        )
+        foreach ($pattern in $linkCandidates) {
+            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $linkExe = $found.FullName; break }
+        }
+    }
+    if (-not $linkExe) {
+        Write-Host "error: link.exe not found"
+        exit 1
+    }
+    Write-Host "Using linker: $linkExe"
+    # Compile to .obj first
+    & $CXX "-std=c++17" "-I$INC" "-L$LIB" "$SRC\main.cpp" "-c" "-o" "$BIN\mioc.obj" @($libs | ForEach-Object { "-l$_" })
+    if ($LASTEXITCODE -ne 0) { Write-Host "Compilation failed"; exit 1 }
+    # Link with MSVC link.exe
+    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj") + ($libs | ForEach-Object { "/LIBPATH:$LIB" }) + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
+    & $linkExe @libArgs
 } else {
     $clangArgs = @(
         "-std=c++17",
@@ -80,14 +96,14 @@ if ($useMsvcLink) {
         "-o", "$BIN\mioc.exe",
         "-Wl,/FORCE:MULTIPLE"
     )
+    $clangArgs += ($libs | ForEach-Object { "-l$_" })
+    $clangArgs += @(
+        "$SRC\libxml2_stub.lib",
+        "-lntdll",
+        "-ladvapi32"
+    )
+    & $CXX @clangArgs
 }
-$clangArgs += ($libs | ForEach-Object { "-l$_" })
-$clangArgs += @(
-    "$SRC\libxml2_stub.lib",
-    "-lntdll",
-    "-ladvapi32"
-)
-& $CXX @clangArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build successful: $BIN\mioc.exe"
