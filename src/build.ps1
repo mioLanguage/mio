@@ -99,6 +99,19 @@ if ($useMsvcLink) {
         exit 1
     }
     Write-Host "Windows SDK lib: $winSdkLib"
+    # Find UCRT lib path (for libucrt.lib)
+    $ucrtLib = ""
+    $ucrtPaths = @(
+        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\arm64",
+        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\ucrt\x64"
+    )
+    foreach ($pattern in $ucrtPaths) {
+        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $ucrtLib = $found.FullName; break }
+    }
+    if ($ucrtLib) {
+        Write-Host "UCRT lib: $ucrtLib"
+    }
     # Find MSVC C++ standard library path (for libcpmt.lib)
     $msvcLib = Split-Path (Split-Path $linkExe)
     $msvcLib = Join-Path (Split-Path (Split-Path $linkExe)) "lib"
@@ -114,7 +127,9 @@ if ($useMsvcLink) {
     }
     Write-Host "MSVC lib: $msvcLibPath"
     # Link with MSVC link.exe
-    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath") + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
+    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath")
+    if ($ucrtLib) { $libArgs += "/LIBPATH:$ucrtLib" }
+    $libArgs += ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
     & $linkExe @libArgs
 } else {
     $clangArgs = @(
