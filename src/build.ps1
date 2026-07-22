@@ -99,8 +99,22 @@ if ($useMsvcLink) {
         exit 1
     }
     Write-Host "Windows SDK lib: $winSdkLib"
+    # Find MSVC C++ standard library path (for libcpmt.lib)
+    $msvcLib = Split-Path (Split-Path $linkExe)
+    $msvcLib = Join-Path (Split-Path (Split-Path $linkExe)) "lib"
+    $msvcArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+    $msvcLibPath = "$msvcLib\$msvcArch"
+    if (-not (Test-Path $msvcLibPath)) {
+        # Try alternate path structure
+        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if ($vsPath) {
+            $altPath = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\lib\$msvcArch" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($altPath) { $msvcLibPath = $altPath.FullName }
+        }
+    }
+    Write-Host "MSVC lib: $msvcLibPath"
     # Link with MSVC link.exe
-    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib") + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
+    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath") + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
     & $linkExe @libArgs
 } else {
     $clangArgs = @(
