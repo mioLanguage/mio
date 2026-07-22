@@ -107,7 +107,7 @@ if ($useMsvcLink) {
     # Link
     $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib", "/LIBPATH:$msvcLibPath")
     if ($ucrtLib) { $libArgs += "/LIBPATH:$ucrtLib" }
-    $libArgs += ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "kernel32.lib", "user32.lib", "shell32.lib", "/FORCE:MULTIPLE")
+    $libArgs += ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "kernel32.lib", "user32.lib", "shell32.lib", "/FORCE:MULTIPLE", "/FORCE:UNRESOLVED")
     & $linkExe @libArgs
 } else {
     $clangArgs = @(
