@@ -84,8 +84,23 @@ if ($useMsvcLink) {
     # Compile to .obj first
     & $CXX "-std=c++17" "-I$INC" "-L$LIB" "$SRC\main.cpp" "-c" "-o" "$BIN\mioc.obj" @($libs | ForEach-Object { "-l$_" })
     if ($LASTEXITCODE -ne 0) { Write-Host "Compilation failed"; exit 1 }
+    # Find Windows SDK lib path for ntdll.lib, advapi32.lib, etc.
+    $winSdkLib = ""
+    $sdkPaths = @(
+        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\arm64",
+        "$env:ProgramFiles (x86)\Windows Kits\10\Lib\*\um\x64"
+    )
+    foreach ($pattern in $sdkPaths) {
+        $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $winSdkLib = $found.FullName; break }
+    }
+    if (-not $winSdkLib) {
+        Write-Host "error: Windows SDK lib not found"
+        exit 1
+    }
+    Write-Host "Windows SDK lib: $winSdkLib"
     # Link with MSVC link.exe
-    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj") + ($libs | ForEach-Object { "/LIBPATH:$LIB" }) + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
+    $libArgs = @("/OUT:$BIN\mioc.exe", "$BIN\mioc.obj", "/LIBPATH:$LIB", "/LIBPATH:$winSdkLib") + ($libs | ForEach-Object { "$_.lib" }) + @("$SRC\libxml2_stub.lib", "ntdll.lib", "advapi32.lib", "/FORCE:MULTIPLE")
     & $linkExe @libArgs
 } else {
     $clangArgs = @(
