@@ -66,7 +66,8 @@ $clangArgs = @(
     "-L", "$LIB",
     "$SRC\main.cpp",
     "-o", "$BIN\mioc.exe",
-    "-Wl,/FORCE:MULTIPLE"
+    "-Wl,/FORCE:MULTIPLE",
+    "-Wl,/LTCG:OFF"
 )
 # On ARM64, disable linker optimizations to avoid "misaligned ldr/str offset" bug
 if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
