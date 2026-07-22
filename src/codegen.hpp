@@ -937,7 +937,7 @@ public:
 						std::ifstream ifs(crt_path);
 						if(ifs.is_open())return crt_path;
 					}
-					return "";
+					return std::string("");
 				};
 				std::string crt1=find_crt("crt1.o");
 				std::string crti=find_crt("crti.o");
