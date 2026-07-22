@@ -925,17 +925,17 @@ public:
 			}
 			case llvm::Triple::ELF:{
 				addArg("mioc");
-				const char* libc_paths[]={
+				std::vector<std::string> libc_paths={
 					"/lib/x86_64-linux-gnu","/lib64","/usr/lib/x86_64-linux-gnu",
 					"/usr/lib64","/lib/aarch64-linux-gnu","/usr/lib/aarch64-linux-gnu",
 					"/lib/arm-linux-gnueabihf","/usr/lib/arm-linux-gnueabihf",
 					"/lib","/usr/lib"
 				};
-				auto find_crt=[&](const char* name)->std::string{
-					for(auto* p:libc_paths){
-						std::string crt_path=std::string(p)+"/"+name;
-						FILE* f=fopen(crt_path.c_str(),"r");
-						if(f){fclose(f);return crt_path;}
+				auto find_crt=[&](const std::string& name){
+					for(const auto& p:libc_paths){
+						std::string crt_path=p+"/"+name;
+						std::ifstream ifs(crt_path);
+						if(ifs.is_open())return crt_path;
 					}
 					return "";
 				};
@@ -948,7 +948,7 @@ public:
 				if(!crtn.empty())addArg(crtn);
 				addArg("-o");
 				addArg(exePath);
-				for(auto* p:libc_paths){
+				for(const auto& p:libc_paths){
 					addArg("-L");
 					addArg(p);
 				}
