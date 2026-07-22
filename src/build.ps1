@@ -56,7 +56,7 @@ if ($LASTEXITCODE -ne 0) {
 Remove-Item "$SRC\libxml2_stub.obj" -Force -ErrorAction SilentlyContinue
 
 $libs = Get-ChildItem "$LIB\*.lib" | ForEach-Object { $_.BaseName }
-$libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -and $_ -notmatch 'LLVM-C' -and $_ -notmatch '^LTO$' -and $_ -notmatch '^Remarks$' }
+$libs = $libs | Where-Object { $_ -notmatch 'lldb' -and $_ -notmatch 'clang' -and $_ -notmatch 'LLVM-C' -and $_ -notmatch '^LTO$' -and $_ -notmatch '^Remarks$' -and $_ -notmatch 'LLVMWindowsManifest' }
 
 Write-Host "Building mioc.exe..."
 $useMsvcLink = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64")
