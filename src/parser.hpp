@@ -229,10 +229,18 @@ private:
 	}
 	MioType* parse_base_type(){
 		switch(cur->kind){
+			case TOK_I8: advance(); return mio_type_new(MioTypeKind::I8);
+			case TOK_I16: advance(); return mio_type_new(MioTypeKind::I16);
 			case TOK_I32: advance(); return mio_type_new(MioTypeKind::I32);
 			case TOK_I64: advance(); return mio_type_new(MioTypeKind::I64);
+			case TOK_I128: advance(); return mio_type_new(MioTypeKind::I128);
+			case TOK_U8: advance(); return mio_type_new(MioTypeKind::U8);
+			case TOK_U16: advance(); return mio_type_new(MioTypeKind::U16);
 			case TOK_U32: advance(); return mio_type_new(MioTypeKind::U32);
 			case TOK_U64: advance(); return mio_type_new(MioTypeKind::U64);
+			case TOK_U128: advance(); return mio_type_new(MioTypeKind::U128);
+			case TOK_USIZE: advance(); return mio_type_new(MioTypeKind::USIZE);
+			case TOK_ISIZE: advance(); return mio_type_new(MioTypeKind::ISIZE);
 			case TOK_F32: advance(); return mio_type_new(MioTypeKind::F32);
 			case TOK_F64: advance(); return mio_type_new(MioTypeKind::F64);
 			case TOK_BOOL: advance(); return mio_type_new(MioTypeKind::BOOL);

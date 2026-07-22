@@ -7,10 +7,18 @@
 #include<cstdio>
 enum class MioTypeKind{
 	VOID,
+	I8,
+	I16,
 	I32,
 	I64,
+	I128,
+	U8,
+	U16,
 	U32,
 	U64,
+	U128,
+	USIZE,
+	ISIZE,
 	F32,
 	F64,
 	BOOL,
@@ -79,15 +87,23 @@ public:
 	}
 	const char* c_name() const{
 		switch(kind){
-			case MioTypeKind::VOID:   return "void";
-			case MioTypeKind::I32:	return "int32_t";
-			case MioTypeKind::I64:	return "int64_t";
-			case MioTypeKind::U32:	return "uint32_t";
-			case MioTypeKind::U64:	return "uint64_t";
-			case MioTypeKind::F32:	return "float";
-			case MioTypeKind::F64:	return "double";
-			case MioTypeKind::BOOL:   return "bool";
-			case MioTypeKind::CHAR:   return "char";
+			case MioTypeKind::VOID:    return "void";
+			case MioTypeKind::I8:      return "int8_t";
+			case MioTypeKind::I16:     return "int16_t";
+			case MioTypeKind::I32:     return "int32_t";
+			case MioTypeKind::I64:     return "int64_t";
+			case MioTypeKind::I128:    return "__int128_t";
+			case MioTypeKind::U8:      return "uint8_t";
+			case MioTypeKind::U16:     return "uint16_t";
+			case MioTypeKind::U32:     return "uint32_t";
+			case MioTypeKind::U64:     return "uint64_t";
+			case MioTypeKind::U128:    return "__uint128_t";
+			case MioTypeKind::USIZE:   return "size_t";
+			case MioTypeKind::ISIZE:   return "ssize_t";
+			case MioTypeKind::F32:     return "float";
+			case MioTypeKind::F64:     return "double";
+			case MioTypeKind::BOOL:    return "bool";
+			case MioTypeKind::CHAR:    return "char";
 			case MioTypeKind::STRUCT:
 			case MioTypeKind::ENUM:
 			case MioTypeKind::UNION:

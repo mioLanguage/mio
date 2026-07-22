@@ -64,10 +64,18 @@ class CodeGen{
 		if(!mt)return llvm::Type::getVoidTy(ctx);
 		switch(mt->kind){
 			case MioTypeKind::VOID:	return llvm::Type::getVoidTy(ctx);
+			case MioTypeKind::I8:	return llvm::Type::getInt8Ty(ctx);
+			case MioTypeKind::I16:	return llvm::Type::getInt16Ty(ctx);
 			case MioTypeKind::I32:	return llvm::Type::getInt32Ty(ctx);
 			case MioTypeKind::I64:	return llvm::Type::getInt64Ty(ctx);
+			case MioTypeKind::I128:	return llvm::Type::getInt128Ty(ctx);
+			case MioTypeKind::U8:	return llvm::Type::getInt8Ty(ctx);
+			case MioTypeKind::U16:	return llvm::Type::getInt16Ty(ctx);
 			case MioTypeKind::U32:	return llvm::Type::getInt32Ty(ctx);
 			case MioTypeKind::U64:	return llvm::Type::getInt64Ty(ctx);
+			case MioTypeKind::U128:	return llvm::Type::getInt128Ty(ctx);
+			case MioTypeKind::USIZE:	return llvm::Type::getInt64Ty(ctx);
+			case MioTypeKind::ISIZE:	return llvm::Type::getInt64Ty(ctx);
 			case MioTypeKind::F32:	return llvm::Type::getFloatTy(ctx);
 			case MioTypeKind::F64:	return llvm::Type::getDoubleTy(ctx);
 			case MioTypeKind::BOOL:	return llvm::Type::getInt1Ty(ctx);
@@ -99,6 +107,7 @@ class CodeGen{
 				return llvm::FunctionType::get(ret,params,false);
 			}
 		}
+		fprintf(stderr,"error: unknown type in code generation\n");
 		return llvm::Type::getVoidTy(ctx);
 	}
 	llvm::Type* resolveExprType(AstNode* node){

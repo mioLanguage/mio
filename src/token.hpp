@@ -45,10 +45,18 @@ typedef enum{
     TOK_AT_ELIF,
     TOK_AT_ELSE,
     TOK_AT_END,
+    TOK_I8,
+    TOK_I16,
     TOK_I32,
     TOK_I64,
+    TOK_I128,
+    TOK_U8,
+    TOK_U16,
     TOK_U32,
     TOK_U64,
+    TOK_U128,
+    TOK_USIZE,
+    TOK_ISIZE,
     TOK_F32,
     TOK_F64,
     TOK_BOOL,
@@ -138,10 +146,18 @@ const std::string tok_name(TokenKind kind){
         case TOK_AT_ELIF: return "@elif";
         case TOK_AT_ELSE: return "@else";
         case TOK_AT_END: return "@end";
+        case TOK_I8: return "i8";
+        case TOK_I16: return "i16";
         case TOK_I32: return "i32";
         case TOK_I64: return "i64";
+        case TOK_I128: return "i128";
+        case TOK_U8: return "u8";
+        case TOK_U16: return "u16";
         case TOK_U32: return "u32";
         case TOK_U64: return "u64";
+        case TOK_U128: return "u128";
+        case TOK_USIZE: return "usize";
+        case TOK_ISIZE: return "isize";
         case TOK_F32: return "f32";
         case TOK_F64: return "f64";
         case TOK_BOOL: return "bool";
