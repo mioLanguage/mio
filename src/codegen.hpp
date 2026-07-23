@@ -668,27 +668,39 @@ class CodeGen{
 		}
 	}
 	llvm::Value* genUnaryExpr(AstNode* node){
-		llvm::Value* op=genExpr(node->unary.operand);
-		if(!op)return nullptr;
 		switch(node->unary.op){
-			case TOK_MINUS:
-				if(op->getType()->isFloatingPointTy())return b.CreateFNeg(op);
-				return b.CreateNeg(op);
-			case TOK_NOT:
-				return b.CreateNot(op);
-			case TOK_BIT_NOT:
-				return b.CreateNot(op);
 			case TOK_STAR:{
+				llvm::Value* op=genExpr(node->unary.operand);
+				if(!op)return nullptr;
 				if(op->getType()->isPointerTy()){
 					llvm::Type* elemTy=resolveExprType(node->unary.operand);
 					return b.CreateLoad(elemTy,op);
 				}
 				return op;
 			}
-			case TOK_BIT_AND:
-				return op;
+			case TOK_BIT_AND:{
+				llvm::Value* ptr=genLValue(node->unary.operand);
+				if(!ptr)return nullptr;
+				return ptr;
+			}
+			case TOK_MINUS:{
+				llvm::Value* op=genExpr(node->unary.operand);
+				if(!op)return nullptr;
+				if(op->getType()->isFloatingPointTy())return b.CreateFNeg(op);
+				return b.CreateNeg(op);
+			}
+			case TOK_NOT:{
+				llvm::Value* op=genExpr(node->unary.operand);
+				if(!op)return nullptr;
+				return b.CreateNot(op);
+			}
+			case TOK_BIT_NOT:{
+				llvm::Value* op=genExpr(node->unary.operand);
+				if(!op)return nullptr;
+				return b.CreateNot(op);
+			}
 			default:
-				return op;
+				return genExpr(node->unary.operand);
 		}
 	}
 	llvm::Value* genCallExpr(AstNode* node){
