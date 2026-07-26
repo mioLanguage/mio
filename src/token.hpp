@@ -114,6 +114,7 @@ typedef enum{
 	TOK_VARARG,
 	TOK_TEMPLATE,
 	TOK_TYPENAME,
+	TOK_SIZEOF,
 }TokenKind;
 typedef struct{
 	TokenKind kind;

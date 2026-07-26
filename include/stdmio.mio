@@ -1,0 +1,108 @@
+@if !STDMIO
+macro STDMIO;
+import "stdlib";
+import "string";
+extern i32 stdmio_strlen(s: char*);
+extern i32 stdmio_strcmp(a: char*, b: char*);
+extern char* stdmio_strcpy(dst: char*, src: char*);
+extern char* stdmio_strcat(dst: char*, src: char*);
+extern i32 stdmio_is_alpha(c: i32);
+extern i32 stdmio_is_digit(c: i32);
+extern i32 stdmio_is_alnum(c: i32);
+extern i32 stdmio_is_space(c: i32);
+extern i32 stdmio_is_upper(c: i32);
+extern i32 stdmio_is_lower(c: i32);
+extern i32 stdmio_to_upper(c: i32);
+extern i32 stdmio_to_lower(c: i32);
+extern char* stdmio_itoa(val: i32, buf: char*, base: i32);
+extern i32 stdmio_atoi(s: char*);
+extern char* stdmio_reverse_str(s: char*);
+class String {
+public:
+	String() {
+		this.data = "";
+		this.len = 0;
+	}
+	String(s: char*) {
+		this.len = strlen(s);
+		this.data = malloc(this.len + 1);
+		if: (this.data != 0) {
+			memcpy(this.data, s, this.len + 1);
+		}
+	}
+	~String() {
+		if: (this.data != 0 && this.len > 0) {
+			free(this.data);
+		}
+	}
+	c_str() -> char* {
+		return this.data;
+	}
+	size() -> u64 {
+		return this.len;
+	}
+	empty() -> i32 {
+		if: (this.len == 0) {
+			return 1;
+		}
+		return 0;
+	}
+	append(s: char*) {
+		var new_len: u64 = this.len + strlen(s);
+		var new_data: char* = malloc(new_len + 1);
+		if: (new_data != 0) {
+			memcpy(new_data, this.data, this.len);
+			memcpy(new_data + this.len, s, strlen(s) + 1);
+			if: (this.data != 0 && this.len > 0) {
+				free(this.data);
+			}
+			this.data = new_data;
+			this.len = new_len;
+		}
+	}
+	compare(s: char*) -> i32 {
+		return strcmp(this.data, s);
+	}
+	equals(s: char*) -> i32 {
+		if: (strcmp(this.data, s) == 0) {
+			return 1;
+		}
+		return 0;
+	}
+	contains(sub: char*) -> i32 {
+		if: (strstr(this.data, sub) != 0) {
+			return 1;
+		}
+		return 0;
+	}
+	char_at(idx: u64) -> char {
+		if: (idx < this.len) {
+			return this.data[idx];
+		}
+		return 0;
+	}
+private:
+	data: char*;
+	len: u64;
+};
+template<T:typename>
+void swap(a: T*, b: T*) {
+	var tmp: T = *a;
+	*a = *b;
+	*b = tmp;
+}
+template<T:typename>
+T* min_ptr(a: T*, b: T*) -> T* {
+	if: (*a < *b) {
+		return a;
+	}
+	return b;
+}
+template<T:typename>
+T* max_ptr(a: T*, b: T*) -> T* {
+	if: (*a > *b) {
+		return a;
+	}
+	return b;
+}
+@end

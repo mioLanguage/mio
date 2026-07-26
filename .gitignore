@@ -19,3 +19,5 @@ src/llvm-project/build/
 
 # Build artifacts
 build/
+bin/
+lib/

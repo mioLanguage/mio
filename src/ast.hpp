@@ -46,6 +46,7 @@ enum class AstNodeKind{
 	ASSIGN_EXPR,
 	MACRO_DEF,
 	TEMPLATE_DEF,
+	SIZEOF_EXPR,
 };
 enum class Access{
 	PUBLIC,
@@ -142,7 +143,7 @@ public:
 		std::string base_access;
 		std::vector<Field> fields;
 		std::vector<AstNode*> methods;
-		AstNode* constructor;
+		std::vector<AstNode*> constructors;
 		AstNode* destructor;
 	} class_def;
 	struct{
@@ -238,6 +239,9 @@ public:
 		std::vector<TemplateParam> type_params;
 		AstNode* def;
 	} template_def;
+	struct{
+		MioType* target_type;
+	} sizeof_expr;
 	AstNode(AstNodeKind k,int l,int c):kind(k),type(nullptr),line(l),col(c){}
 	~AstNode();
 };
@@ -282,7 +286,7 @@ inline AstNode::~AstNode(){
 			delete f.init;
 		}
 		for(auto*m:class_def.methods)delete m;
-		delete class_def.constructor;
+		for(auto* ctor:class_def.constructors)delete ctor;
 		delete class_def.destructor;
 		break;
 		case AstNodeKind::BLOCK:
@@ -361,6 +365,9 @@ inline AstNode::~AstNode(){
 			}
 			delete template_def.def;
 			break;
+		case AstNodeKind::SIZEOF_EXPR:
+			mio_type_free(sizeof_expr.target_type);
+			break;
 		default:
 			break;
 	}
@@ -423,7 +430,6 @@ inline AstNode*ast_new_class_def(const std::string& name,const std::string& base
 	n->class_def.name=name;
 	n->class_def.base_name=base_name;
 	n->class_def.base_access=base_access;
-	n->class_def.constructor=nullptr;
 	n->class_def.destructor=nullptr;
 	return n;
 }
@@ -586,6 +592,11 @@ inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_param
 	auto*n=new AstNode(AstNodeKind::TEMPLATE_DEF,line,col);
 	n->template_def.type_params=type_params;
 	n->template_def.def=def;
+	return n;
+}
+inline AstNode*ast_new_sizeof_expr(MioType* target_type,int line,int col){
+	auto*n=new AstNode(AstNodeKind::SIZEOF_EXPR,line,col);
+	n->sizeof_expr.target_type=target_type;
 	return n;
 }
 inline void ast_call_add_arg(AstNode*call,AstNode*arg){

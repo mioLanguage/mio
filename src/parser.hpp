@@ -29,7 +29,7 @@ public:
 	std::unordered_map<std::string,std::string> class_base_map;
 	std::unordered_map<std::string,std::unordered_set<std::string>> class_method_names;
 	bool in_template_param;
-	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),filename(f),include_paths(paths),error_count(0),in_template_param(false){
+	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),error_count(0),filename(f),include_paths(paths),in_template_param(false){
 		cur=lexer->current;
 		peek=lexer->peek();
 	}
@@ -37,6 +37,7 @@ public:
 	AstNode* parse(){
 		auto* program=new AstNode(AstNodeKind::PROGRAM,0,0);
 		while(!check(TOK_EOF)){
+			if(check(TOK_AT_END)){advance();continue;}
 			auto* decl=parse_decl();
 			if(decl)program->program.nodes.push_back(decl);
 		}
@@ -203,8 +204,9 @@ private:
 		cur=new_lexer->current;
 		peek=new_lexer->peek();
 		auto* block=new AstNode(AstNodeKind::BLOCK,line,col);
-		while(!check(TOK_EOF)){
-			auto* decl=parse_decl();
+	while(!check(TOK_EOF)){
+		if(check(TOK_AT_END)){advance();continue;}
+		auto* decl=parse_decl();
 			if(decl)add_import_to_block(block,decl);
 		}
 		delete new_lexer;
@@ -266,9 +268,31 @@ private:
 					}
 					std::string fullName=name+"::"+cur->lexeme;
 					advance();
-					return mio_type_new_named(MioTypeKind::STRUCT,fullName);
+					auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
+					if(match(TOK_LT)){
+						lexer->in_template_type_args=true;
+						do{
+							mt->param_types.push_back(parse_type());
+						}while(match(TOK_COMMA));
+						if(!match(TOK_GT)){
+							error_expected("'>'");
+						}
+						lexer->in_template_type_args=false;
+					}
+					return mt;
 				}
-				return mio_type_new_named(MioTypeKind::STRUCT,name);
+				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
+				if(match(TOK_LT)){
+					lexer->in_template_type_args=true;
+					do{
+						mt->param_types.push_back(parse_type());
+					}while(match(TOK_COMMA));
+					if(!match(TOK_GT)){
+						error_expected("'>'");
+					}
+					lexer->in_template_type_args=false;
+				}
+				return mt;
 			}
 			default:
 				error_expected("type");
@@ -310,6 +334,13 @@ private:
 				advance();
 				return ast_new_char_lit(t->char_val,t->line,t->col);
 			}
+			case TOK_SIZEOF:{
+				advance();
+				expect(TOK_LPAREN);
+				auto* target_type=parse_type();
+				expect(TOK_RPAREN);
+				return ast_new_sizeof_expr(target_type,t->line,t->col);
+			}
 			case TOK_TRUE:{
 				advance();
 				return ast_new_bool_lit(true,t->line,t->col);
@@ -326,6 +357,13 @@ private:
 				std::string name=t->lexeme;
 				int line=t->line,col=t->col;
 				advance();
+				if(cur->kind==TOK_STAR&&peek->kind==TOK_LPAREN){
+					advance();
+					advance();
+					auto* expr=parse_expr();
+					expect(TOK_RPAREN);
+					return ast_new_cast(mio_type_new_pointer(mio_type_new_named(MioTypeKind::STRUCT,name)),expr,line,col);
+				}
 				if(match(TOK_DOUBLE_COLON)){
 					if(cur->kind!=TOK_IDENT){
 						error_expected("identifier after '::'");
@@ -385,6 +423,13 @@ private:
 					default: k=MioTypeKind::VOID;break;
 				}
 				advance();
+				if(check(TOK_STAR)&&peek->kind==TOK_LPAREN){
+					advance();
+					advance();
+					auto* expr=parse_expr();
+					expect(TOK_RPAREN);
+					return ast_new_cast(mio_type_new_pointer(mio_type_new(k)),expr,t->line,t->col);
+				}
 				if(check(TOK_LPAREN)){
 					advance();
 					auto* expr=parse_expr();
@@ -404,8 +449,7 @@ private:
 		auto* expr=parse_primary();
 		while(true){
 			if(expr->kind==AstNodeKind::IDENT_EXPR&&cur->kind==TOK_LT){
-				Token* peekTok=lexer->peek();
-				if(is_type_token(peekTok->kind)||peekTok->kind==TOK_INT_LIT||peekTok->kind==TOK_FLOAT_LIT||peekTok->kind==TOK_STRING_LIT||peekTok->kind==TOK_CHAR_LIT||peekTok->kind==TOK_TRUE||peekTok->kind==TOK_FALSE){
+				if(lexer->is_template_instantiation()){
 					advance();
 					auto* call=ast_new_call(expr,expr->line,expr->col);
 					in_template_param=true;
@@ -674,17 +718,20 @@ private:
 		int line=cur->line,col=cur->col;
 		advance();
 		expect(TOK_COLON);
+		bool has_paren=match(TOK_LPAREN);
 		AstNode* init=nullptr;
 		AstNode* cond=nullptr;
 		AstNode* update=nullptr;
 		if(!check(TOK_SEMICOLON))
 			init=parse_expr();
 		expect(TOK_SEMICOLON);
-		if(!check(TOK_SEMICOLON))
+		if(!check(TOK_SEMICOLON)&&!check(TOK_RPAREN))
 			cond=parse_expr();
 		expect(TOK_SEMICOLON);
-		if(!check(TOK_LBRACE))
+		if(!check(TOK_LBRACE)&&!check(TOK_RPAREN))
 			update=parse_expr();
+		if(has_paren)
+			expect(TOK_RPAREN);
 		auto* body=parse_stmt();
 		return ast_new_for(init,cond,update,body,line,col);
 	}
@@ -1031,10 +1078,7 @@ private:
 						}
 						class_method_names[name].insert(method->func_def.name);
 						if(method->func_def.name==name){
-							if(c->class_def.constructor){
-								error("constructor is already defined");
-							}
-							c->class_def.constructor=method;
+							c->class_def.constructors.push_back(method);
 						}else{
 							ast_class_add_method(c,method);
 						}
@@ -1087,10 +1131,7 @@ private:
 							method->func_def.class_name=c->class_def.name;
 							method->func_def.access=cur_access;
 							if(method->func_def.name==name){
-								if(c->class_def.constructor){
-									error("constructor is already defined");
-								}
-								c->class_def.constructor=method;
+								c->class_def.constructors.push_back(method);
 							}else{
 								if(class_method_names[name].count(method->func_def.name)){
 									char buf[256];
@@ -1111,6 +1152,7 @@ private:
 			}
 		}
 		expect(TOK_RBRACE);
+		match(TOK_SEMICOLON);
 		return c;
 	}
 	AstNode* parse_namespace_def(){
@@ -1358,6 +1400,7 @@ private:
 			case TOK_TEMPLATE:
 				return parse_template_def();
 			case TOK_EOF:
+			case TOK_AT_END:
 				return nullptr;
 			default:{
 				bool mv=match(TOK_VIRTUAL);

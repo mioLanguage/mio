@@ -58,6 +58,7 @@ class CodeGen{
 	std::vector<llvm::BasicBlock*>breakStack;
 	std::vector<llvm::BasicBlock*>continueStack;
 	std::unordered_map<std::string,llvm::AllocaInst*>locals;
+	std::unordered_map<std::string,MioType*>localMioTypes;
 	std::unordered_map<std::string,llvm::StructType*>structTypes;
 	std::unordered_map<std::string,std::unordered_map<std::string,unsigned>>structFieldIdx;
 	std::unordered_map<std::string,llvm::Function*>funcDecls;
@@ -76,6 +77,8 @@ class CodeGen{
 	std::vector<std::pair<std::string,llvm::AllocaInst*>>cleanupStack;
 	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>>templateMap;
 	std::unordered_map<std::string,std::pair<std::string,std::vector<TemplateArg>>>templateInstances;
+	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>>classTemplateMap;
+	std::unordered_set<std::string>classTemplateInstances;
 	std::unordered_map<std::string,AstNode*>funcDefMap;
 	int optLevel;
 	std::string modName;
@@ -111,8 +114,23 @@ class CodeGen{
 			}
 			case MioTypeKind::STRUCT:{
 				if(!mt->name.empty()){
+					if(!mt->param_types.empty()){
+						std::string instName=resolveStructName(mt->name);
+						for(auto* pt:mt->param_types)
+							instName+="_"+mio_type_str(pt);
+						if(structTypes.count(instName))
+							return structTypes[instName];
+						instantiateClassTemplate(mt->name,mt->param_types,instName);
+						if(structTypes.count(instName))
+							return structTypes[instName];
+					}
 					if(structTypes.count(mt->name))
 						return structTypes[mt->name];
+					if(!currentNamespace.empty()){
+						std::string nsFullName=currentNamespace+"::"+mt->name;
+						if(structTypes.count(nsFullName))
+							return structTypes[nsFullName];
+					}
 					for(auto& impNs:importedNamespaces){
 						std::string fullName=impNs+"::"+mt->name;
 						if(structTypes.count(fullName))
@@ -186,8 +204,14 @@ class CodeGen{
 				if(lt->isFloatTy()||rt->isFloatTy())return llvm::Type::getFloatTy(ctx);
 				return lt;
 			}
-			case AstNodeKind::UNARY_EXPR:
+			case AstNodeKind::UNARY_EXPR:{
+				if(node->unary.op==TOK_STAR){
+					MioType* operandMio=resolveExprMioType(node->unary.operand);
+					if(operandMio&&operandMio->kind==MioTypeKind::POINTER&&operandMio->base_type)
+						return convertType(operandMio->base_type);
+				}
 				return resolveExprType(node->unary.operand);
+			}
 			case AstNodeKind::CALL_EXPR:
 				if(node->type)return convertType(node->type);
 				return llvm::Type::getInt64Ty(ctx);
@@ -332,17 +356,85 @@ class CodeGen{
 					registerTemplate(node);
 					break;
 				case AstNodeKind::BLOCK:
-					for(auto* stmt:node->block.stmts){
-						switch(stmt->kind){
-							case AstNodeKind::VAR_DECL:		genGlobalVar(stmt);break;
-							case AstNodeKind::CONST_DECL:	genGlobalVar(stmt);break;
-							case AstNodeKind::FUNC_DEF:		genFuncDef(stmt);break;
-							case AstNodeKind::STRUCT_DEF:	genStructDef(stmt);break;
-							case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
-							case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
-							case AstNodeKind::CLASS_DEF:	genClassDef(stmt);break;
-							case AstNodeKind::TEMPLATE_DEF:	registerTemplate(stmt);break;
-							case AstNodeKind::NAMESPACE_IMPORT:
+				for(auto* stmt:node->block.stmts){
+					switch(stmt->kind){
+						case AstNodeKind::BLOCK:{
+							auto* saved=node;
+							node=stmt;
+							for(auto* s:stmt->block.stmts){
+								switch(s->kind){
+									case AstNodeKind::VAR_DECL:		genGlobalVar(s);break;
+									case AstNodeKind::CONST_DECL:	genGlobalVar(s);break;
+									case AstNodeKind::FUNC_DEF:		genFuncDef(s);break;
+									case AstNodeKind::STRUCT_DEF:	genStructDef(s);break;
+									case AstNodeKind::ENUM_DEF:		genEnumDef(s);break;
+									case AstNodeKind::UNION_DEF:	genUnionDef(s);break;
+									case AstNodeKind::CLASS_DEF:	genClassDef(s);break;
+									case AstNodeKind::TEMPLATE_DEF:	registerTemplate(s);break;
+									case AstNodeKind::NAMESPACE_DEF:{
+										std::string savedNs=currentNamespace;
+										if(!currentNamespace.empty())
+											currentNamespace=currentNamespace+"::"+s->namespace_def.name;
+										else
+											currentNamespace=s->namespace_def.name;
+										for(auto* decl:s->namespace_def.body){
+											switch(decl->kind){
+												case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
+												case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
+												case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
+												case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
+												case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
+												case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
+												case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
+												case AstNodeKind::TEMPLATE_DEF:	registerTemplate(decl);break;
+												case AstNodeKind::NAMESPACE_DEF:	genProgram(decl);break;
+												default:break;
+											}
+										}
+										currentNamespace=savedNs;
+										break;
+									}
+									case AstNodeKind::NAMESPACE_IMPORT:
+										importedNamespaces.insert(s->namespace_import.namespace_name);
+										break;
+									default:break;
+								}
+							}
+							node=saved;
+							break;
+						}
+						case AstNodeKind::VAR_DECL:		genGlobalVar(stmt);break;
+						case AstNodeKind::CONST_DECL:	genGlobalVar(stmt);break;
+						case AstNodeKind::FUNC_DEF:		genFuncDef(stmt);break;
+						case AstNodeKind::STRUCT_DEF:	genStructDef(stmt);break;
+						case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
+						case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
+						case AstNodeKind::CLASS_DEF:	genClassDef(stmt);break;
+						case AstNodeKind::TEMPLATE_DEF:	registerTemplate(stmt);break;
+						case AstNodeKind::NAMESPACE_DEF:{
+							std::string savedNs=currentNamespace;
+							if(!currentNamespace.empty())
+								currentNamespace=currentNamespace+"::"+stmt->namespace_def.name;
+							else
+								currentNamespace=stmt->namespace_def.name;
+							for(auto* decl:stmt->namespace_def.body){
+								switch(decl->kind){
+									case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
+									case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
+									case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
+									case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
+									case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
+									case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
+									case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
+									case AstNodeKind::TEMPLATE_DEF:	registerTemplate(decl);break;
+									case AstNodeKind::NAMESPACE_DEF:	genProgram(decl);break;
+									default:break;
+								}
+							}
+							currentNamespace=savedNs;
+							break;
+						}
+						case AstNodeKind::NAMESPACE_IMPORT:
 								importedNamespaces.insert(stmt->namespace_import.namespace_name);
 								break;
 							default:break;
@@ -359,11 +451,16 @@ class CodeGen{
 			name=node->template_def.def->func_def.name;
 			if(!currentNamespace.empty())
 				name=currentNamespace+"::"+name;
+			templateMap[name]={node->template_def.type_params,node->template_def.def};
+		}else if(node->template_def.def->kind==AstNodeKind::CLASS_DEF){
+			name=node->template_def.def->class_def.name;
+			if(!currentNamespace.empty())
+				name=currentNamespace+"::"+name;
+			classTemplateMap[name]={node->template_def.type_params,node->template_def.def};
 		}else{
-			error(node->line,node->col,"template only supports functions");
+			error(node->line,node->col,"template only supports functions and classes");
 			return;
 		}
-		templateMap[name]={node->template_def.type_params,node->template_def.def};
 	}
 	int64_t evalConstExpr(AstNode* node){
 		if(!node)return 0;
@@ -396,6 +493,12 @@ class CodeGen{
 			error(node->line,node->col,"template '"+calleeName+"' not found");
 			return nullptr;
 		}
+		std::string templateNs=ns;
+		if(!ns.empty()&&ns!="::"){
+			templateNs=ns;
+		}else{
+			templateNs="";
+		}
 		auto& params=it->second.first;
 		auto& templateDef=it->second.second;
 		if(node->call.template_args.size()!=params.size()){
@@ -422,10 +525,11 @@ class CodeGen{
 		auto savedThis=thisAlloca;
 		auto savedClassName=currentClassName;
 		auto savedLocals=std::move(locals);
+		auto savedMioTypes=std::move(localMioTypes);
 		auto savedCleanup=std::move(cleanupStack);
 		locals.clear();
+		localMioTypes.clear();
 		cleanupStack.clear();
-		currentNamespace="";
 		std::unordered_map<std::string,MioType*> typeSubst;
 		std::unordered_map<std::string,int64_t> valueSubst;
 		for(size_t i=0;i<params.size();i++){
@@ -448,6 +552,7 @@ class CodeGen{
 		if(!instDef){
 			currentNamespace=savedNs;
 			locals=std::move(savedLocals);
+			localMioTypes=std::move(savedMioTypes);
 			cleanupStack=std::move(savedCleanup);
 			curFn=savedFn;
 			curBB=savedBB;
@@ -456,8 +561,10 @@ class CodeGen{
 			currentClassName=savedClassName;
 			return nullptr;
 		}
+		currentNamespace=templateNs;
 		genFuncDef(instDef);
 		locals=std::move(savedLocals);
+		localMioTypes=std::move(savedMioTypes);
 		cleanupStack=std::move(savedCleanup);
 		curFn=savedFn;
 		curBB=savedBB;
@@ -480,7 +587,7 @@ class CodeGen{
 		if(ty->isFloatTy())return mio_type_new(MioTypeKind::F32);
 		if(ty->isDoubleTy())return mio_type_new(MioTypeKind::F64);
 		if(ty->isPointerTy()){
-			return nullptr;
+			return mio_type_new_pointer(mio_type_new(MioTypeKind::VOID));
 		}
 		if(auto* st=llvm::dyn_cast<llvm::StructType>(ty)){
 			std::string name=st->getName().str();
@@ -488,23 +595,108 @@ class CodeGen{
 		}
 		return nullptr;
 	}
+	MioType* resolveExprMioType(AstNode* node){
+		if(!node)return nullptr;
+		if(node->type)return node->type;
+		switch(node->kind){
+			case AstNodeKind::UNARY_EXPR:
+				if(node->unary.op==TOK_BIT_AND){
+					MioType* inner=resolveExprMioType(node->unary.operand);
+					return inner?mio_type_new_pointer(inner):nullptr;
+				}
+				if(node->unary.op==TOK_STAR){
+					MioType* inner=resolveExprMioType(node->unary.operand);
+					if(inner&&inner->kind==MioTypeKind::POINTER)return inner->base_type;
+					return nullptr;
+				}
+				return resolveExprMioType(node->unary.operand);
+			case AstNodeKind::INT_LIT:	return mio_type_new(MioTypeKind::I32);
+			case AstNodeKind::FLOAT_LIT:return mio_type_new(MioTypeKind::F64);
+			case AstNodeKind::BOOL_LIT:	return mio_type_new(MioTypeKind::BOOL);
+			case AstNodeKind::CHAR_LIT:	return mio_type_new(MioTypeKind::CHAR);
+			case AstNodeKind::MEMBER_EXPR:{
+				std::string structName;
+				if(node->member.base->type&&!node->member.base->type->name.empty())
+					structName=node->member.base->type->name;
+				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
+						structName=currentClassName;
+					}else{
+						std::string vname=node->member.base->ident.name;
+						if(!node->member.base->ident.namespace_name.empty())
+							vname=node->member.base->ident.namespace_name+"::"+vname;
+						auto it=locals.find(vname);
+						if(it!=locals.end()){
+							llvm::Type* at=it->second->getAllocatedType();
+							if(at->isStructTy())structName=std::string(at->getStructName());
+							else if(at->isPointerTy()){
+								MioType* bm=resolveExprMioType(node->member.base);
+								if(bm&&bm->kind==MioTypeKind::POINTER&&bm->base_type&&bm->base_type->kind==MioTypeKind::STRUCT)
+									structName=bm->base_type->name;
+							}
+						}
+					}
+				}
+				if(!structName.empty()&&structFieldIdx.count(structName)){
+					auto fit=structFieldIdx.find(structName);
+					auto fi=fit->second.find(node->member.member);
+					if(fi!=fit->second.end()){
+						auto sit=structTypes.find(structName);
+						if(sit!=structTypes.end()){
+							auto* st=sit->second;
+							llvm::Type* elemTy=st->getElementType(fi->second);
+							return llvmTypeToMioType(elemTy);
+						}
+					}
+				}
+				return nullptr;
+			}
+			case AstNodeKind::IDENT_EXPR:{
+				std::string name=node->ident.name;
+				if(!node->ident.namespace_name.empty())
+					name=node->ident.namespace_name+"::"+name;
+				auto mit=localMioTypes.find(name);
+				if(mit!=localMioTypes.end()&&mit->second){
+					return mio_type_clone(mit->second);
+				}
+				auto it=locals.find(name);
+				if(it!=locals.end()){
+					llvm::Type* at=it->second->getAllocatedType();
+					return llvmTypeToMioType(at);
+				}
+				auto git=globalVars.find(name);
+				if(git!=globalVars.end()){
+					llvm::Type* gt=git->second->getValueType();
+					return llvmTypeToMioType(gt);
+				}
+				return nullptr;
+			}
+			default:
+				return nullptr;
+		}
+	}
 	std::vector<TemplateArg> tryDeduceTemplateArgs(const std::string& calleeName,AstNode* node){
 		auto it=templateMap.find(calleeName);
 		if(it==templateMap.end())return {};
 		auto& typeParams=it->second.first;
 		auto* templateDef=it->second.second;
-		if(templateDef->kind!=AstNodeKind::FUNC_DEF)return {};
+		if(templateDef->kind!=AstNodeKind::FUNC_DEF){
+			return {};
+		}
 		auto& params=templateDef->func_def.params;
-		if(params.size()!=node->call.args.size())return {};
+		if(params.size()!=node->call.args.size()){
+			return {};
+		}
 		size_t typeParamCount=0;
 		for(auto& p:typeParams)if(p.is_type)typeParamCount++;
 		std::vector<MioType*> deduced(typeParamCount,nullptr);
 		for(size_t i=0;i<params.size();i++){
 			MioType* paramType=params[i].type;
 			if(!paramType)continue;
-			llvm::Type* argTy=resolveExprType(node->call.args[i]);
-			if(!argTy)continue;
-			deduceTemplateArg(paramType,argTy,typeParams,deduced);
+			MioType* argType=resolveExprMioType(node->call.args[i]);
+			if(!argType)continue;
+			deduceTemplateArg(paramType,argType,typeParams,deduced);
+			if(argType!=node->call.args[i]->type)mio_type_free(argType);
 		}
 		for(size_t i=0;i<deduced.size();i++){
 			if(!deduced[i])return {};
@@ -522,27 +714,27 @@ class CodeGen{
 		}
 		return result;
 	}
-	void deduceTemplateArg(MioType* paramType,llvm::Type* argTy,const std::vector<TemplateParam>& typeParams,std::vector<MioType*>& deduced){
-		if(!paramType)return;
+	void deduceTemplateArg(MioType* paramType, MioType* argType, const std::vector<TemplateParam>& typeParams, std::vector<MioType*>& deduced){
+		if(!paramType||!argType)return;
 		if(paramType->kind==MioTypeKind::POINTER){
+			if(argType->kind==MioTypeKind::POINTER){
+				deduceTemplateArg(paramType->base_type, argType->base_type, typeParams, deduced);
+			}
 			return;
 		}
 		if(paramType->kind==MioTypeKind::ARRAY){
-			deduceTemplateArg(paramType->base_type,argTy,typeParams,deduced);
+			deduceTemplateArg(paramType->base_type, argType, typeParams, deduced);
 			return;
 		}
 		size_t dedIdx=0;
 		for(size_t i=0;i<typeParams.size();i++){
 			if(!typeParams[i].is_type)continue;
 			if(paramType->name==typeParams[i].name){
-				MioType* deducedType=llvmTypeToMioType(argTy);
-				if(!deducedType)return;
-				if(deduced[dedIdx]&&(deduced[dedIdx]->name!=deducedType->name||deduced[dedIdx]->kind!=deducedType->kind)){
-					mio_type_free(deducedType);
+				if(deduced[dedIdx]&&(deduced[dedIdx]->name!=argType->name||deduced[dedIdx]->kind!=argType->kind)){
 					return;
 				}
 				if(deduced[dedIdx])mio_type_free(deduced[dedIdx]);
-				deduced[dedIdx]=deducedType;
+				deduced[dedIdx]=mio_type_clone(argType);
 				return;
 			}
 			dedIdx++;
@@ -559,6 +751,12 @@ class CodeGen{
 		auto* inst=ast_new_func_def(instName,retType,nullptr,def->func_def.is_static,def->line,def->col);
 		inst->func_def.is_extern=def->func_def.is_extern;
 		inst->func_def.is_variadic=def->func_def.is_variadic;
+		inst->func_def.is_virtual=def->func_def.is_virtual;
+		inst->func_def.is_override=def->func_def.is_override;
+		inst->func_def.is_pure_virtual=def->func_def.is_pure_virtual;
+		inst->func_def.is_operator=def->func_def.is_operator;
+		inst->func_def.access=def->func_def.access;
+		inst->func_def.class_name=def->func_def.class_name;
 		for(auto& p:def->func_def.params){
 			MioType* pt=substituteType(p.type,typeSubst,valueSubst);
 			ast_func_add_param(inst,p.name,pt);
@@ -654,6 +852,10 @@ class CodeGen{
 			}
 			case AstNodeKind::ASSIGN_EXPR:
 				return ast_new_assign(cloneAst(node->assign.left,typeSubst,valueSubst),node->assign.op,cloneAst(node->assign.right,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::SIZEOF_EXPR:{
+				MioType* tt=substituteType(node->sizeof_expr.target_type,typeSubst,valueSubst);
+				return ast_new_sizeof_expr(tt,node->line,node->col);
+			}
 			case AstNodeKind::IF_STMT:{
 				auto* n=ast_new_if(cloneAst(node->if_stmt.cond,typeSubst,valueSubst),cloneAst(node->if_stmt.then_body,typeSubst,valueSubst),cloneAst(node->if_stmt.else_body,typeSubst,valueSubst),node->line,node->col);
 				for(auto* elif:node->if_stmt.elif_list)
@@ -711,9 +913,27 @@ class CodeGen{
 		globalVars[mangled]=gv;
 	}
 	void genFuncDef(AstNode* def){
+		auto* savedFn=curFn;
+		auto* savedBB=curBB;
+		auto* savedThisAlloca=thisAlloca;
+		std::string savedClassName=currentClassName;
+		std::vector<std::pair<std::string,llvm::AllocaInst*>> savedCleanupStack=cleanupStack;
+		auto savedLocals=locals;
+		auto savedLocalMioTypes=localMioTypes;
+		llvm::IRBuilderBase::InsertPoint savedIP;
+		bool hadInsertPoint=(b.GetInsertBlock()!=nullptr);
+		if(hadInsertPoint){
+			savedIP=b.saveIP();
+		}
+		
 		std::string name=def->func_def.name;
 		bool isMethod=!def->func_def.class_name.empty();
-		bool isCtor=isMethod&&def->func_def.name==def->func_def.class_name;
+		std::string shortClassName=def->func_def.class_name;
+		{
+			auto pos=shortClassName.rfind("::");
+			if(pos!=std::string::npos)shortClassName=shortClassName.substr(pos+2);
+		}
+		bool isCtor=isMethod&&def->func_def.name==shortClassName;
 		bool isDtor=isMethod&&!name.empty()&&name[0]=='~';
 		llvm::Type* retTy=nullptr;
 		if(isCtor){
@@ -735,6 +955,7 @@ class CodeGen{
 			mangledName=currentNamespace+"::"+name;
 			namespaceMembers[name]=mangledName;
 		}
+		
 		auto* fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,mangledName,mod.get());
 		funcDecls[mangledName]=fn;
 		funcDefMap[mangledName]=def;
@@ -756,6 +977,7 @@ class CodeGen{
 		curBB=entry;
 		b.SetInsertPoint(entry);
 		locals.clear();
+		localMioTypes.clear();
 		thisAlloca=nullptr;
 		currentClassName.clear();
 		if(isMethod){
@@ -771,13 +993,14 @@ class CodeGen{
 			auto* alloca=createEntryAlloca(fn,def->func_def.params[i].name,arg.getType());
 			b.CreateStore(&arg,alloca);
 			locals[def->func_def.params[i].name]=alloca;
+			localMioTypes[def->func_def.params[i].name]=def->func_def.params[i].type;
 		}
 		if(isCtor&&isMethod){
 			genConstructorInit(def,fn->getArg(0));
 		}
 		if(def->func_def.body){
-			genBlock(def->func_def.body);
-			if(curBB&&!curBB->getTerminator()){
+		genBlock(def->func_def.body);
+		if(curBB&&!curBB->getTerminator()){
 				genCleanupAll();
 				if(isDtor){
 					auto bit=classBaseMap.find(def->func_def.class_name);
@@ -819,11 +1042,16 @@ class CodeGen{
 			else
 				b.CreateRet(llvm::Constant::getNullValue(retTy));
 		}
-		curFn=nullptr;
-		curBB=nullptr;
-		thisAlloca=nullptr;
-		currentClassName.clear();
-		cleanupStack.clear();
+		curFn=savedFn;
+		curBB=savedBB;
+		thisAlloca=savedThisAlloca;
+		currentClassName=savedClassName;
+		cleanupStack=savedCleanupStack;
+		locals=savedLocals;
+		localMioTypes=savedLocalMioTypes;
+		if(hadInsertPoint){
+			b.restoreIP(savedIP);
+		}
 	}
 	void genStructDef(AstNode* def){
 		std::string name=def->struct_def.name;
@@ -849,11 +1077,82 @@ class CodeGen{
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
 		enumNames.insert(mangled);
-		int val=0;
 		for(auto& v:def->enum_def.variants){
 			enumVariantMap[v.name]=mangled;
-			val++;
 		}
+	}
+	std::string resolveStructName(const std::string& name){
+		if(!currentNamespace.empty()){
+			std::string nsFullName=currentNamespace+"::"+name;
+			if(classTemplateMap.count(nsFullName)||structTypes.count(nsFullName))
+				return nsFullName;
+		}
+		for(auto& impNs:importedNamespaces){
+			std::string fullName=impNs+"::"+name;
+			if(classTemplateMap.count(fullName)||structTypes.count(fullName))
+				return fullName;
+		}
+		return name;
+	}
+	void instantiateClassTemplate(const std::string& name,std::vector<MioType*>& typeArgs,const std::string& instName){
+		std::string fullName=resolveStructName(name);
+		auto it=classTemplateMap.find(fullName);
+		if(it==classTemplateMap.end())return;
+		if(classTemplateInstances.count(instName))return;
+		classTemplateInstances.insert(instName);
+		auto& typeParams=it->second.first;
+		auto* classDef=it->second.second;
+		if(typeArgs.size()!=typeParams.size()){
+			error(classDef->line,classDef->col,"class template argument count mismatch");
+			return;
+		}
+		std::unordered_map<std::string,MioType*> typeSubst;
+		for(size_t i=0;i<typeParams.size();i++)
+			typeSubst[typeParams[i].name]=mio_type_clone(typeArgs[i]);
+		AstNode* instClass=instantiateClassTemplateAst(classDef,typeSubst,instName);
+		if(!instClass)return;
+		std::string savedNs=currentNamespace;
+		size_t pos=instName.rfind("::");
+		if(pos!=std::string::npos){
+			currentNamespace=instName.substr(0,pos);
+			instClass->class_def.name=instName.substr(pos+2);
+		}else{
+			currentNamespace="";
+			instClass->class_def.name=instName;
+		}
+		genClassDef(instClass);
+		currentNamespace=savedNs;
+	}
+	AstNode* instantiateClassTemplateAst(AstNode* classDef,std::unordered_map<std::string,MioType*>& typeSubst,const std::string& instName){
+		std::unordered_map<std::string,int64_t> emptyVS;
+		auto* c=ast_new_class_def(instName,classDef->class_def.base_name,classDef->class_def.base_access,classDef->line,classDef->col);
+		for(auto& f:classDef->class_def.fields){
+			MioType* ft=substituteType(f.type,typeSubst,emptyVS);
+			AstNode* init=f.init?cloneAst(f.init,typeSubst,emptyVS):nullptr;
+			ast_class_add_field(c,f.name,ft,init,f.access);
+		}
+		for(auto* m:classDef->class_def.methods){
+			AstNode* instM=instantiateTemplate(m,typeSubst,emptyVS);
+			if(instM){
+				instM->func_def.class_name=instName;
+				ast_class_add_method(c,instM);
+			}
+		}
+		for(auto* ctor:classDef->class_def.constructors){
+			AstNode* instCtor=instantiateTemplate(ctor,typeSubst,emptyVS);
+			if(instCtor){
+				instCtor->func_def.class_name=instName;
+				ast_class_add_method(c,instCtor);
+			}
+		}
+		if(classDef->class_def.destructor){
+			AstNode* instDtor=instantiateTemplate(classDef->class_def.destructor,typeSubst,emptyVS);
+			if(instDtor){
+				instDtor->func_def.class_name=instName;
+				c->class_def.destructor=instDtor;
+			}
+		}
+		return c;
 	}
 	void genUnionDef(AstNode* def){
 		std::string name=def->union_def.name;
@@ -873,6 +1172,7 @@ class CodeGen{
 	void genClassDef(AstNode* def){
 		std::string name=def->class_def.name;
 		std::string mangled=mangleName(name);
+		
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
 		std::string base_mangled=def->class_def.base_name;
@@ -962,10 +1262,11 @@ class CodeGen{
 			}
 		}
 		if(hasVTable) genVTable(mangled);
-		if(def->class_def.constructor){
-			auto* ctor=def->class_def.constructor;
-			ctor->func_def.class_name=mangled;
-			genFuncDef(ctor);
+		if(!def->class_def.constructors.empty()){
+			for(auto* ctor:def->class_def.constructors){
+				ctor->func_def.class_name=mangled;
+				genFuncDef(ctor);
+			}
 		}
 		if(def->class_def.destructor){
 			auto* dtor=def->class_def.destructor;
@@ -1109,7 +1410,7 @@ class CodeGen{
 			case AstNodeKind::GOTO_STMT:	break;
 			case AstNodeKind::LABEL_STMT:	break;
 			default:{
-				llvm::Value* v=genExpr(stmt);
+				genExpr(stmt);
 				break;
 			}
 		}
@@ -1122,6 +1423,7 @@ class CodeGen{
 		llvm::Type* ty=convertType(mt);
 		auto* alloca=createEntryAlloca(curFn,name,ty);
 		locals[name]=alloca;
+		localMioTypes[name]=mt;
 		if(initExpr){
 			llvm::Value* val=genExpr(initExpr);
 			if(val){
@@ -1294,6 +1596,9 @@ class CodeGen{
 				llvm::Type* elemTy=resolveExprType(node);
 				if(!idx->getType()->isIntegerTy(64))
 					idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+				MioType* baseMio=resolveExprMioType(node->index_expr.base);
+				if(baseMio&&baseMio->kind==MioTypeKind::POINTER)
+					return b.CreateGEP(elemTy,base,idx);
 				return b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),idx});
 			}
 			case AstNodeKind::MEMBER_EXPR:{
@@ -1330,6 +1635,12 @@ class CodeGen{
 				}
 				return b.CreateGEP(st,ptr,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)});
 			}
+			case AstNodeKind::UNARY_EXPR:
+				if(node->unary.op==TOK_STAR){
+					llvm::Value* op=genExpr(node->unary.operand);
+					if(op&&op->getType()->isPointerTy())return op;
+				}
+				return nullptr;
 			default:return nullptr;
 		}
 	}
@@ -1364,6 +1675,11 @@ class CodeGen{
 				return genCastExpr(node);
 			case AstNodeKind::ASSIGN_EXPR:
 				return genAssignExpr(node);
+			case AstNodeKind::SIZEOF_EXPR:{
+				llvm::Type* ty=convertType(node->sizeof_expr.target_type);
+				uint64_t sz=mod->getDataLayout().getTypeAllocSize(ty);
+				return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),sz);
+			}
 			default:
 				return nullptr;
 		}
@@ -1436,14 +1752,42 @@ class CodeGen{
 			if(!lt->isFloatingPointTy())l=genCastValue(l,rt);
 			if(!rt->isFloatingPointTy())r=genCastValue(r,lt);
 			if(lt!=rt)r=genCastValue(r,lt);
+		}else if(lt->isPointerTy()&&rt->isPointerTy()){
+			if(lt!=rt)r=b.CreatePointerCast(r,lt);
 		}else if(lt->isIntegerTy()&&rt->isIntegerTy()){
 			if(lt->getIntegerBitWidth()<rt->getIntegerBitWidth())l=genCastValue(l,rt);
 			else r=genCastValue(r,lt);
 		}
 		switch(node->binary.op){
 			case TOK_PLUS:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){
+					llvm::Type* elemTy=llvm::Type::getInt8Ty(ctx);
+					MioType* lmt=resolveExprMioType(node->binary.left);
+					if(lmt&&lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind!=MioTypeKind::VOID)
+						elemTy=convertType(lmt->base_type);
+					return b.CreateGEP(elemTy,l,r);
+				}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){
+					llvm::Type* elemTy=llvm::Type::getInt8Ty(ctx);
+					MioType* rmt=resolveExprMioType(node->binary.right);
+					if(rmt&&rmt->kind==MioTypeKind::POINTER&&rmt->base_type&&rmt->base_type->kind!=MioTypeKind::VOID)
+						elemTy=convertType(rmt->base_type);
+					return b.CreateGEP(elemTy,r,l);
+				}
 				return isFloat?b.CreateFAdd(l,r):b.CreateAdd(l,r);
 			case TOK_MINUS:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){
+					llvm::Type* elemTy=llvm::Type::getInt8Ty(ctx);
+					MioType* lmt=resolveExprMioType(node->binary.left);
+					if(lmt&&lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind!=MioTypeKind::VOID)
+						elemTy=convertType(lmt->base_type);
+					return b.CreateGEP(elemTy,l,b.CreateNeg(r));
+				}
+				if(lt->isPointerTy()&&rt->isPointerTy()){
+					l=b.CreatePtrToInt(l,llvm::Type::getInt64Ty(ctx));
+					r=b.CreatePtrToInt(r,llvm::Type::getInt64Ty(ctx));
+					return b.CreateSDiv(b.CreateSub(l,r),llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),1));
+				}
 				return isFloat?b.CreateFSub(l,r):b.CreateSub(l,r);
 			case TOK_STAR:
 				return isFloat?b.CreateFMul(l,r):b.CreateMul(l,r);
@@ -1452,16 +1796,28 @@ class CodeGen{
 			case TOK_PERCENT:
 				return isFloat?b.CreateFRem(l,r):b.CreateSRem(l,r);
 			case TOK_EQ:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpEQ(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpEQ(l,r);}
 				return isFloat?b.CreateFCmpOEQ(l,r):b.CreateICmpEQ(l,r);
 			case TOK_NEQ:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpNE(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpNE(l,r);}
 				return isFloat?b.CreateFCmpONE(l,r):b.CreateICmpNE(l,r);
 			case TOK_LT:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSLT(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSLT(l,r);}
 				return isFloat?b.CreateFCmpOLT(l,r):b.CreateICmpSLT(l,r);
 			case TOK_GT:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSGT(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSGT(l,r);}
 				return isFloat?b.CreateFCmpOGT(l,r):b.CreateICmpSGT(l,r);
 			case TOK_LTE:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSLE(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSLE(l,r);}
 				return isFloat?b.CreateFCmpOLE(l,r):b.CreateICmpSLE(l,r);
 			case TOK_GTE:
+				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSGE(l,r);}
+				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSGE(l,r);}
 				return isFloat?b.CreateFCmpOGE(l,r):b.CreateICmpSGE(l,r);
 			case TOK_AND:
 				return b.CreateLogicalAnd(l,r);
@@ -1487,6 +1843,11 @@ class CodeGen{
 				llvm::Value* op=genExpr(node->unary.operand);
 				if(!op)return nullptr;
 				if(op->getType()->isPointerTy()){
+					MioType* operandMio=resolveExprMioType(node->unary.operand);
+					if(operandMio&&operandMio->kind==MioTypeKind::POINTER&&operandMio->base_type){
+						llvm::Type* elemTy=convertType(operandMio->base_type);
+						return b.CreateLoad(elemTy,op);
+					}
 					llvm::Type* elemTy=resolveExprType(node->unary.operand);
 					return b.CreateLoad(elemTy,op);
 				}
@@ -1586,8 +1947,21 @@ class CodeGen{
 			}
 			
 						if(!calleeVal&&structTypes.count(calleeName)){
-				std::string ctorName=calleeName+"::"+calleeName;
-				llvm::Function* ctor=mod->getFunction(ctorName);
+				std::string className=calleeName;
+				auto pos=calleeName.rfind("::");
+				if(pos!=std::string::npos)className=calleeName.substr(pos+2);
+				std::string ctorName=calleeName+"::"+className;
+				llvm::Function* ctor=nullptr;
+				unsigned expectedArgs=1+node->call.args.size();
+				for(auto& f:mod->functions()){
+					std::string fnName=f.getName().str();
+					if(fnName==ctorName||fnName.rfind(ctorName+".",0)==0){
+						if(f.arg_size()==expectedArgs){
+							ctor=&f;
+							break;
+						}
+					}
+				}
 				
 				if(ctor){
 					funcDecls[ctorName]=ctor;
@@ -1608,8 +1982,13 @@ class CodeGen{
 			auto* base=node->call.callee->member.base;
 			std::string method=node->call.callee->member.member;
 			std::string className;
-			if(base->type&&!base->type->name.empty())
-				className=base->type->name;
+			if(base->type&&!base->type->name.empty()){
+				className=resolveStructName(base->type->name);
+				if(!base->type->param_types.empty()){
+					for(auto* pt:base->type->param_types)
+						className+="_"+mio_type_str(pt);
+				}
+			}
 			else if(base->kind==AstNodeKind::IDENT_EXPR){
 				if(base->ident.name=="this"&&!currentClassName.empty()){
 					className=currentClassName;
@@ -1765,7 +2144,24 @@ class CodeGen{
 		}
 		std::vector<llvm::Value*> args;
 		for(size_t i=0;i<node->call.args.size();i++){
-			llvm::Value* av=genExpr(node->call.args[i]);
+			llvm::Value* av=nullptr;
+			if(i<fn->arg_size()){
+				llvm::Type* paramTy=fn->getArg(i)->getType();
+				MioType* argMio=resolveExprMioType(node->call.args[i]);
+				if(paramTy->isPointerTy()&&argMio&&argMio->kind==MioTypeKind::ARRAY){
+					llvm::Value* lv=genLValue(node->call.args[i]);
+					if(lv){
+						llvm::Type* arrTy=convertType(argMio);
+						av=b.CreateGEP(arrTy,lv,{
+							llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+							llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0)
+						});
+						if(av->getType()!=paramTy)av=b.CreateBitCast(av,paramTy);
+					}
+				}
+				mio_type_free(argMio);
+			}
+			if(!av)av=genExpr(node->call.args[i]);
 			if(!av)continue;
 			if(i<fn->arg_size()){
 				llvm::Type* paramTy=fn->getArg(i)->getType();
@@ -1803,7 +2199,12 @@ class CodeGen{
 		llvm::Type* elemTy=resolveExprType(node);
 		if(!idx->getType()->isIntegerTy(64))
 			idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
-		llvm::Value* ptr=b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),idx});
+		MioType* baseMio=resolveExprMioType(node->index_expr.base);
+		llvm::Value* ptr;
+		if(baseMio&&baseMio->kind==MioTypeKind::POINTER)
+			ptr=b.CreateGEP(elemTy,base,idx);
+		else
+			ptr=b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),idx});
 		return b.CreateLoad(elemTy,ptr);
 	}
 	llvm::Value* genMemberExpr(AstNode* node){
@@ -1892,8 +2293,28 @@ class CodeGen{
 				if(node->assign.op!=TOK_ASSIGN){
 					llvm::Value* lhs=b.CreateLoad(elemTy,ptr);
 					switch(node->assign.op){
-						case TOK_PLUS_ASSIGN:rhs=b.CreateAdd(lhs,rhs);break;
-						case TOK_MINUS_ASSIGN:rhs=b.CreateSub(lhs,rhs);break;
+						case TOK_PLUS_ASSIGN:
+							if(elemTy->isPointerTy()){
+								MioType* lmio=resolveExprMioType(node->assign.left);
+								llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
+								if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
+									gepElemTy=convertType(lmio->base_type);
+								rhs=b.CreateGEP(gepElemTy,lhs,rhs);
+							}else{
+								rhs=b.CreateAdd(lhs,rhs);
+							}
+							break;
+						case TOK_MINUS_ASSIGN:
+							if(elemTy->isPointerTy()){
+								MioType* lmio=resolveExprMioType(node->assign.left);
+								llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
+								if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
+									gepElemTy=convertType(lmio->base_type);
+								rhs=b.CreateGEP(gepElemTy,lhs,b.CreateNeg(rhs));
+							}else{
+								rhs=b.CreateSub(lhs,rhs);
+							}
+							break;
 						case TOK_STAR_ASSIGN:rhs=b.CreateMul(lhs,rhs);break;
 						case TOK_SLASH_ASSIGN:rhs=elemTy->isFloatingPointTy()?b.CreateFDiv(lhs,rhs):b.CreateSDiv(lhs,rhs);break;
 						case TOK_PERCENT_ASSIGN:rhs=b.CreateSRem(lhs,rhs);break;
@@ -1911,7 +2332,7 @@ class CodeGen{
 		return rhs;
 	}
 public:
-	CodeGen(const std::string& name,const std::string& srcfile="",int opt=0):modName(name),filename(srcfile),stringCounter(0),curFn(nullptr),curBB(nullptr),thisAlloca(nullptr),optLevel(opt),b(ctx){
+	CodeGen(const std::string& name,const std::string& srcfile="",int opt=0):b(ctx),curFn(nullptr),curBB(nullptr),thisAlloca(nullptr),optLevel(opt),modName(name),filename(srcfile),stringCounter(0){
 		mod=std::make_unique<llvm::Module>(name,ctx);
 	}
 	void error(int line,int col,const std::string& msg){
@@ -2028,7 +2449,7 @@ public:
 		LLVMDisposeTargetMachine(tm);
 		return true;
 	}
-		bool linkExecutable(const std::string& objPath,const std::string& exePath,bool staticLink=false){
+		bool linkExecutable(const std::string& objPath,const std::string& exePath,bool staticLink=false,const std::vector<std::string>& linkLibs={},const std::string& bundledLibPath=""){
 		std::string triple=llvm::sys::getProcessTriple();
 		llvm::Triple t(triple);
 		std::deque<std::string> strStorage;
@@ -2043,6 +2464,9 @@ public:
 				addArg(objPath);
 				addArg("/out:"+exePath);
 				addArg("/subsystem:console");
+				if(!bundledLibPath.empty()){
+					addArg("/libpath:"+bundledLibPath);
+				}
 				if(staticLink){
 					addArg("/entry:mainCRTStartup");
 					addArg("/defaultlib:libcmt");
@@ -2050,11 +2474,15 @@ public:
 					addArg("/defaultlib:libvcruntime");
 					addArg("/defaultlib:legacy_stdio_definitions");
 				}else{
-					addArg("/entry:main");
-					addArg("/defaultlib:msvcrt");
-					addArg("/defaultlib:ucrt");
-					addArg("/defaultlib:legacy_stdio_definitions");
-					addArg("/nodefaultlib:libcmt");
+				addArg("/entry:main");
+				addArg("/defaultlib:msvcrt");
+				addArg("/defaultlib:ucrt");
+				addArg("/defaultlib:libvcruntime");
+				addArg("/defaultlib:legacy_stdio_definitions");
+				addArg("/nodefaultlib:libcmt");
+			}
+				for(const auto& lib:linkLibs){
+					addArg(lib);
 				}
 				return lld::coff::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
@@ -2062,6 +2490,9 @@ public:
 				std::string cmd="cc "+objPath+" -o "+exePath;
 				if(staticLink){
 					cmd+=" -static";
+				}
+				for(const auto& lib:linkLibs){
+					cmd+=" "+lib;
 				}
 				int ret=std::system(cmd.c_str());
 				if(ret!=0){
@@ -2076,6 +2507,9 @@ public:
 				addArg("-o");
 				addArg(exePath);
 				addArg("-lSystem");
+				for(const auto& lib:linkLibs){
+					addArg(lib);
+				}
 				return lld::macho::link(args,llvm::outs(),llvm::errs(),false,false);
 			}
 			default:{

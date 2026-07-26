@@ -14,7 +14,7 @@ struct KeywordEntry{
 class Lexer{
 	friend class Parser;
 public:
-	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0){
+	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0),in_template_type_args(false){
 		current=token();
 		peekToken=token();
 	}
@@ -30,6 +30,30 @@ public:
 	Token* peek(){
 		return peekToken;
 	}
+	bool is_template_instantiation(){
+		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
+		Token* saved_current=current;
+		Token* saved_peek=peekToken;
+		int depth=0;
+		while(true){
+			Token* tok=token();
+			if(tok->kind==TOK_LT)depth++;
+			else if(tok->kind==TOK_GT){
+				if(depth==0){
+					Token* next=token();
+					bool result=(next->kind==TOK_LPAREN);
+					pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
+					current=saved_current;peekToken=saved_peek;
+					return result;
+				}
+				depth--;
+			}else if(tok->kind==TOK_EOF||tok->kind==TOK_ERROR||tok->kind==TOK_RPAREN||tok->kind==TOK_SEMICOLON||tok->kind==TOK_LBRACE||tok->kind==TOK_RBRACE){
+				pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
+				current=saved_current;peekToken=saved_peek;
+				return false;
+			}
+		}
+	}
 private:
 	#define match(c) (cur()==c?(advance(),true):false)
 	#define cur() (source[pos])
@@ -38,6 +62,7 @@ private:
 	int pos,line,col,bol;
 	Token* current;
 	Token* peekToken;
+	bool in_template_type_args;
 	static char* mioStrndup(const char* s,int n){
 		char* buf=(char*)malloc(n+1);
 		if(!buf){
@@ -78,6 +103,8 @@ private:
 					while(cur()!='\n'&&cur()!='\0')
 						advance();
 					break;
+				case '/':
+					return;
 				default:
 					return;
 			}
@@ -274,6 +301,11 @@ private:
 				if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
 				if(match('>')){
 					if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
+					if(in_template_type_args){
+						pos--;
+						col--;
+						return tok_new(TOK_GT,std::string(),lineNum,colNum);
+					}
 					return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
 				}
 				return tok_new(TOK_GT,std::string(),lineNum,colNum);
@@ -329,6 +361,7 @@ const KeywordEntry Lexer::keywords[]={
 	{"true",TOK_TRUE},{"false",TOK_FALSE},
 	{"this",TOK_THIS},{"macro",TOK_MACRO},
 	{"template",TOK_TEMPLATE},{"typename",TOK_TYPENAME},
+	{"sizeof",TOK_SIZEOF},
 	{"i8",TOK_I8},{"i16",TOK_I16},{"i32",TOK_I32},{"i64",TOK_I64},{"i128",TOK_I128},
 	{"u8",TOK_U8},{"u16",TOK_U16},{"u32",TOK_U32},{"u64",TOK_U64},{"u128",TOK_U128},
 	{"usize",TOK_USIZE},{"isize",TOK_ISIZE},

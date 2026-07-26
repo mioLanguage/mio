@@ -66,6 +66,7 @@ static void help(const char* prog){
 	fprintf(stderr,"  -O2         standard optimization (default for --release)\n");
 	fprintf(stderr,"  -O3         aggressive optimization\n");
 	fprintf(stderr,"  --release   release mode (enables -O2 and caching)\n");
+	fprintf(stderr,"  -l <lib>    link with library (e.g. -lstdmio -lm). default: -lstdmio -lm\n");
 	fprintf(stderr,"  -static     link statically (no DLL dependencies)\n");
 }
 int main(int argc,char* argv[]){
@@ -77,7 +78,7 @@ int main(int argc,char* argv[]){
 			exit(0);
 		}
 		std::string input_file,output_file;
-		std::vector<std::string> include_paths,defines;
+		std::vector<std::string> include_paths,defines,link_libs;
 		bool emit_asm=false,compile_only=false,static_link=false,release=false;
 		int opt_level=0;
 		for(int i=1;i<argc;i++){
@@ -87,18 +88,50 @@ int main(int argc,char* argv[]){
 			else if(strcmp(argv[i],"-S")==0)emit_asm=true;
 			else if(strcmp(argv[i],"-c")==0)compile_only=true;
 			else if(strcmp(argv[i],"-static")==0)static_link=true;
+			else if(strcmp(argv[i],"-l")==0&&i+1<argc)link_libs.push_back(argv[++i]);
+			else if(strncmp(argv[i],"-l",2)==0&&strlen(argv[i])>2)link_libs.push_back(argv[i]+2);
 			else if(strcmp(argv[i],"--release")==0){release=true;opt_level=2;}
 			else if(strncmp(argv[i],"-O",2)==0&&strlen(argv[i])==3&&argv[i][2]>='0'&&argv[i][2]<='3')opt_level=argv[i][2]-'0';
 			else if(input_file.empty())input_file=argv[i];
 		}
 		if(input_file.empty()){help(argv[0]);exit(1);}
-		const char* last_sep=nullptr;
-		for(const char* p=argv[0];*p;p++)
-			if(*p=='/'||*p=='\\')last_sep=p;
-		if(last_sep){
-			int dir_len=static_cast<int>(last_sep-argv[0]);
-			std::string default_include(argv[0],dir_len);
-			include_paths.push_back(default_include+="/../include");
+		if(link_libs.empty()){
+			link_libs.push_back("stdmio");
+			link_libs.push_back("m");
+		}
+		std::string compiler_dir;
+		{
+			const char* ls=nullptr;
+			for(const char* p=argv[0];*p;p++)
+				if(*p=='/'||*p=='\\')ls=p;
+			if(ls)compiler_dir=std::string(argv[0],ls-argv[0]);
+		}
+		std::vector<std::string> resolved_libs;
+		for(const auto& lib:link_libs){
+			std::string lib_path=compiler_dir+"/lib/lib"+lib+".a";
+			if(file_exists(lib_path)){
+				resolved_libs.push_back(lib_path);
+			}else{
+				lib_path=compiler_dir+"/../lib/lib"+lib+".a";
+				if(file_exists(lib_path)){
+					resolved_libs.push_back(lib_path);
+				}
+			}
+		}
+		std::string bundled_lib_path=compiler_dir+"/lib/windows";
+		if(!file_exists(bundled_lib_path+"/.")){
+			bundled_lib_path=compiler_dir+"/../lib/windows";
+		}
+		if(!compiler_dir.empty()){
+			std::string inc=compiler_dir+"/include";
+			if(file_exists(inc+"/stdio.mio")){
+				include_paths.push_back(inc);
+			}else{
+				inc=compiler_dir+"/../include";
+				if(file_exists(inc+"/stdio.mio")){
+					include_paths.push_back(inc);
+				}
+			}
 		}
 		std::string source=read_file(input_file);
 		Lexer lexer(source,input_file);
@@ -145,7 +178,7 @@ int main(int argc,char* argv[]){
 				ok=true;
 			}else{
 				std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
-				ok=cg.linkExecutable(obj_path,exe_path,static_link);
+				ok=cg.linkExecutable(obj_path,exe_path,static_link,resolved_libs,bundled_lib_path);
 				if(ok)fprintf(stdout,"Generated: %s\n",exe_path.c_str());
 				else fprintf(stderr,"error: linking failed\n");
 			}
@@ -170,7 +203,7 @@ int main(int argc,char* argv[]){
 				exit(1);
 			}
 			std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
-			ok=cg.linkExecutable(obj_path,exe_path,static_link);
+			ok=cg.linkExecutable(obj_path,exe_path,static_link,resolved_libs,bundled_lib_path);
 			if(ok){
 				fprintf(stdout,"Generated: %s\n",exe_path.c_str());
 				std::remove(obj_path.c_str());
