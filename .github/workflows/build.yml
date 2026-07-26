@@ -213,46 +213,6 @@ jobs:
           ..\bin\mioc.exe --version
 
       # ============================================================
-      # Build STL static libraries
-      # ============================================================
-      - name: Build STL libs (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          mkdir -p lib
-          cd Imp
-          for f in *.mio; do
-            echo "Compiling $f..."
-            ../bin/mioc -c "$f" -I ../include
-          done
-          cd ..
-          $LLVM_DIR/bin/llvm-ar rcs lib/libstdmio.a Imp/stdmio.o
-          $LLVM_DIR/bin/llvm-ar rcs lib/libm.a Imp/math.o
-          $LLVM_DIR/bin/llvm-ar rcs lib/libstd.a Imp/std.o
-          rm -f Imp/*.o
-          echo "STL libs built:"
-          ls -la lib/
-
-      - name: Build STL libs (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path lib -Force | Out-Null
-          cd Imp
-          Get-ChildItem *.mio | ForEach-Object {
-            Write-Host "Compiling $($_.Name)..."
-            ..\bin\mioc.exe -c $_.Name -I ..\include
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          cd ..
-          & "$env:LLVM_DIR\bin\llvm-ar.exe" rcs lib\libstdmio.a Imp\stdmio.o
-          & "$env:LLVM_DIR\bin\llvm-ar.exe" rcs lib\libm.a Imp\math.o
-          & "$env:LLVM_DIR\bin\llvm-ar.exe" rcs lib\libstd.a Imp\std.o
-          Remove-Item Imp\*.o -Force -ErrorAction SilentlyContinue
-          Write-Host "STL libs built:"
-          Get-ChildItem lib\
-
-      # ============================================================
       # Upload
       # ============================================================
       - name: Upload artifact
