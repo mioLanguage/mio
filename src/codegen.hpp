@@ -8,6 +8,8 @@
 #include"llvm/IR/GlobalVariable.h"
 #include"llvm/IR/Constants.h"
 #include"llvm/IR/DerivedTypes.h"
+#include"llvm/IR/Instructions.h"
+#include"llvm/Support/Casting.h"
 #include"llvm/IR/DataLayout.h"
 #include"llvm/Target/TargetMachine.h"
 #include"llvm/Target/TargetOptions.h"
@@ -48,6 +50,11 @@ class CodeGen{
 	llvm::IRBuilder<> b;
 	llvm::Function* curFn;
 	llvm::BasicBlock* curBB;
+	llvm::AllocaInst* thisAlloca;
+	std::string currentClassName;
+	std::string currentNamespace;
+	std::unordered_set<std::string> importedNamespaces;
+	std::unordered_map<std::string,std::string> namespaceMembers;
 	std::vector<llvm::BasicBlock*>breakStack;
 	std::vector<llvm::BasicBlock*>continueStack;
 	std::unordered_map<std::string,llvm::AllocaInst*>locals;
@@ -58,7 +65,21 @@ class CodeGen{
 	std::unordered_map<std::string,llvm::GlobalVariable*>globalVars;
 	std::unordered_set<std::string>enumNames;
 	std::unordered_map<std::string,std::string>enumVariantMap;
+	std::unordered_map<std::string,std::vector<std::pair<std::string,llvm::Function*>>>classVTable;
+	std::unordered_map<std::string,std::string>classBaseMap;
+	std::unordered_map<std::string,std::string>classBaseAccessMap;
+	std::unordered_map<std::string,std::string>classDestructorMap;
+	std::unordered_map<std::string,llvm::StructType*>classVTableTypes;
+	std::unordered_map<std::string,llvm::GlobalVariable*>classVTableGlobals;
+	std::unordered_map<std::string,std::vector<std::string>>classVTableOrder;
+	std::unordered_map<std::string,std::vector<llvm::FunctionType*>>classVTableFuncTypes;
+	std::vector<std::pair<std::string,llvm::AllocaInst*>>cleanupStack;
+	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>>templateMap;
+	std::unordered_map<std::string,std::pair<std::string,std::vector<TemplateArg>>>templateInstances;
+	std::unordered_map<std::string,AstNode*>funcDefMap;
+	int optLevel;
 	std::string modName;
+	std::string filename;
 	int stringCounter;
 	llvm::Type* convertType(MioType* mt){
 		if(!mt)return llvm::Type::getVoidTy(ctx);
@@ -81,23 +102,37 @@ class CodeGen{
 			case MioTypeKind::BOOL:	return llvm::Type::getInt1Ty(ctx);
 			case MioTypeKind::CHAR:	return llvm::Type::getInt8Ty(ctx);
 			case MioTypeKind::POINTER:
-				return llvm::PointerType::get(convertType(mt->base_type),0);
+				return llvm::PointerType::get(ctx,0);
 			case MioTypeKind::ARRAY:{
 				llvm::Type* elem=convertType(mt->base_type);
 				if(mt->array_size>0)
 					return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
-				return llvm::PointerType::get(elem,0);
+				return llvm::PointerType::get(ctx,0);
 			}
 			case MioTypeKind::STRUCT:{
-				if(!mt->name.empty()&&structTypes.count(mt->name))
-					return structTypes[mt->name];
+				if(!mt->name.empty()){
+					if(structTypes.count(mt->name))
+						return structTypes[mt->name];
+					for(auto& impNs:importedNamespaces){
+						std::string fullName=impNs+"::"+mt->name;
+						if(structTypes.count(fullName))
+							return structTypes[fullName];
+					}
+				}
 				return llvm::StructType::create(ctx,mt->name.empty()?"":mt->name);
 			}
 			case MioTypeKind::ENUM:
 				return llvm::Type::getInt32Ty(ctx);
 			case MioTypeKind::UNION:{
-				if(!mt->name.empty()&&structTypes.count(mt->name))
-					return structTypes[mt->name];
+				if(!mt->name.empty()){
+					if(structTypes.count(mt->name))
+						return structTypes[mt->name];
+					for(auto& impNs:importedNamespaces){
+						std::string fullName=impNs+"::"+mt->name;
+						if(structTypes.count(fullName))
+							return structTypes[fullName];
+					}
+				}
 				return llvm::StructType::create(ctx,mt->name.empty()?"":mt->name);
 			}
 			case MioTypeKind::FUNC:{
@@ -107,7 +142,7 @@ class CodeGen{
 				return llvm::FunctionType::get(ret,params,false);
 			}
 		}
-		fprintf(stderr,"error: unknown type in code generation\n");
+		error("unknown type kind "+std::to_string((int)mt->kind)+" in code generation");
 		return llvm::Type::getVoidTy(ctx);
 	}
 	llvm::Type* resolveExprType(AstNode* node){
@@ -120,12 +155,28 @@ class CodeGen{
 			case AstNodeKind::CHAR_LIT:	return llvm::Type::getInt8Ty(ctx);
 			case AstNodeKind::STRING_LIT:return llvm::PointerType::get(ctx,0);
 			case AstNodeKind::IDENT_EXPR:{
-				auto it=locals.find(node->ident.name);
+				std::string name=node->ident.name;
+				if(node->ident.namespace_name=="::"){
+					auto git=globalVars.find(name);
+					if(git!=globalVars.end())
+						return git->second->getValueType();
+					error(node->line,node->col,"undefined global variable '"+name+"'");
+					return llvm::Type::getInt64Ty(ctx);
+				}
+				if(!node->ident.namespace_name.empty())
+					name=node->ident.namespace_name+"::"+name;
+				auto it=locals.find(name);
 				if(it!=locals.end())
 					return it->second->getAllocatedType();
-				auto git=globalVars.find(node->ident.name);
+				auto git=globalVars.find(name);
 				if(git!=globalVars.end())
 					return git->second->getValueType();
+				for(auto& impNs:importedNamespaces){
+					std::string fullName=impNs+"::"+name;
+					auto git2=globalVars.find(fullName);
+					if(git2!=globalVars.end())
+						return git2->second->getValueType();
+				}
 				return llvm::Type::getInt64Ty(ctx);
 			}
 			case AstNodeKind::BINARY_EXPR:{
@@ -235,17 +286,51 @@ class CodeGen{
 			default:return nullptr;
 		}
 	}
+	std::string mangleName(const std::string& name){
+		if(currentNamespace.empty())return name;
+		return currentNamespace+"::"+name;
+	}
 	void genProgram(AstNode* prog){
 		for(auto* node:prog->program.nodes){
 			switch(node->kind){
 				case AstNodeKind::IMPORT:		break;
+				case AstNodeKind::NAMESPACE_IMPORT:
+					importedNamespaces.insert(node->namespace_import.namespace_name);
+					break;
+				case AstNodeKind::NAMESPACE_DEF:{
+					std::string savedNs=currentNamespace;
+					if(!currentNamespace.empty())
+						currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+					else
+						currentNamespace=node->namespace_def.name;
+					for(auto* decl:node->namespace_def.body){
+						switch(decl->kind){
+							case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
+							case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
+							case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
+							case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
+							case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
+							case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
+							case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
+							case AstNodeKind::TEMPLATE_DEF:	registerTemplate(decl);break;
+							case AstNodeKind::NAMESPACE_DEF:	genProgram(decl);break;
+							default:break;
+						}
+					}
+					currentNamespace=savedNs;
+					break;
+				}
 				case AstNodeKind::VAR_DECL:		genGlobalVar(node);break;
 				case AstNodeKind::CONST_DECL:	genGlobalVar(node);break;
 				case AstNodeKind::FUNC_DEF:		genFuncDef(node);break;
 				case AstNodeKind::STRUCT_DEF:	genStructDef(node);break;
 				case AstNodeKind::ENUM_DEF:		genEnumDef(node);break;
 				case AstNodeKind::UNION_DEF:	genUnionDef(node);break;
+				case AstNodeKind::CLASS_DEF:	genClassDef(node);break;
 				case AstNodeKind::MACRO_DEF:	break;
+				case AstNodeKind::TEMPLATE_DEF:
+					registerTemplate(node);
+					break;
 				case AstNodeKind::BLOCK:
 					for(auto* stmt:node->block.stmts){
 						switch(stmt->kind){
@@ -255,6 +340,11 @@ class CodeGen{
 							case AstNodeKind::STRUCT_DEF:	genStructDef(stmt);break;
 							case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
 							case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
+							case AstNodeKind::CLASS_DEF:	genClassDef(stmt);break;
+							case AstNodeKind::TEMPLATE_DEF:	registerTemplate(stmt);break;
+							case AstNodeKind::NAMESPACE_IMPORT:
+								importedNamespaces.insert(stmt->namespace_import.namespace_name);
+								break;
 							default:break;
 						}
 					}
@@ -263,9 +353,350 @@ class CodeGen{
 			}
 		}
 	}
+	void registerTemplate(AstNode* node){
+		std::string name;
+		if(node->template_def.def->kind==AstNodeKind::FUNC_DEF){
+			name=node->template_def.def->func_def.name;
+			if(!currentNamespace.empty())
+				name=currentNamespace+"::"+name;
+		}else{
+			error(node->line,node->col,"template only supports functions");
+			return;
+		}
+		templateMap[name]={node->template_def.type_params,node->template_def.def};
+	}
+	int64_t evalConstExpr(AstNode* node){
+		if(!node)return 0;
+		if(node->kind==AstNodeKind::INT_LIT)return node->int_lit.value;
+		if(node->kind==AstNodeKind::BOOL_LIT)return node->bool_lit.value?1:0;
+		if(node->kind==AstNodeKind::CHAR_LIT)return (int64_t)node->char_lit.value;
+		if(node->kind==AstNodeKind::UNARY_EXPR&&node->unary.op==TOK_MINUS)
+			return -evalConstExpr(node->unary.operand);
+		if(node->kind==AstNodeKind::BINARY_EXPR){
+			int64_t l=evalConstExpr(node->binary.left);
+			int64_t r=evalConstExpr(node->binary.right);
+			switch(node->binary.op){
+				case TOK_PLUS:return l+r;
+				case TOK_MINUS:return l-r;
+				case TOK_STAR:return l*r;
+				case TOK_SLASH:return r!=0?l/r:0;
+				case TOK_PERCENT:return r!=0?l%r:0;
+				default:return 0;
+			}
+		}
+		return 0;
+	}
+	llvm::Value* genTemplateInstantiation(AstNode* node){
+		std::string calleeName=node->call.callee->ident.name;
+		std::string ns=node->call.callee->ident.namespace_name;
+		if(!ns.empty()&&ns!="::")
+			calleeName=ns+"::"+calleeName;
+		auto it=templateMap.find(calleeName);
+		if(it==templateMap.end()){
+			error(node->line,node->col,"template '"+calleeName+"' not found");
+			return nullptr;
+		}
+		auto& params=it->second.first;
+		auto& templateDef=it->second.second;
+		if(node->call.template_args.size()!=params.size()){
+			error(node->line,node->col,"template '"+calleeName+"' expects "+std::to_string(params.size())+" arguments, got "+std::to_string(node->call.template_args.size()));
+			return nullptr;
+		}
+		std::string mangledName=calleeName;
+		for(auto& ta:node->call.template_args){
+			if(ta.is_type)
+				mangledName+="_"+mio_type_str(ta.type_val);
+			else
+				mangledName+="_V";
+		}
+		auto instIt=templateInstances.find(mangledName);
+		if(instIt!=templateInstances.end()){
+			llvm::Function* fn=mod->getFunction(mangledName);
+			if(fn)return fn;
+			fn=funcDecls[mangledName];
+			if(fn)return fn;
+		}
+		std::string savedNs=currentNamespace;
+		auto savedFn=curFn;
+		auto savedBB=curBB;
+		auto savedThis=thisAlloca;
+		auto savedClassName=currentClassName;
+		auto savedLocals=std::move(locals);
+		auto savedCleanup=std::move(cleanupStack);
+		locals.clear();
+		cleanupStack.clear();
+		currentNamespace="";
+		std::unordered_map<std::string,MioType*> typeSubst;
+		std::unordered_map<std::string,int64_t> valueSubst;
+		for(size_t i=0;i<params.size();i++){
+			auto& ta=node->call.template_args[i];
+			if(params[i].is_type){
+				if(!ta.is_type){
+					error(node->line,node->col,"template parameter '"+params[i].name+"' expects a type argument");
+					return nullptr;
+				}
+				typeSubst[params[i].name]=ta.type_val;
+			}else{
+				if(ta.is_type){
+					error(node->line,node->col,"template parameter '"+params[i].name+"' expects a value argument");
+					return nullptr;
+				}
+				valueSubst[params[i].name]=evalConstExpr(ta.expr_val);
+			}
+		}
+		AstNode* instDef=instantiateTemplate(templateDef,typeSubst,valueSubst);
+		if(!instDef){
+			currentNamespace=savedNs;
+			locals=std::move(savedLocals);
+			cleanupStack=std::move(savedCleanup);
+			curFn=savedFn;
+			curBB=savedBB;
+			if(savedBB)b.SetInsertPoint(savedBB);
+			thisAlloca=savedThis;
+			currentClassName=savedClassName;
+			return nullptr;
+		}
+		genFuncDef(instDef);
+		locals=std::move(savedLocals);
+		cleanupStack=std::move(savedCleanup);
+		curFn=savedFn;
+		curBB=savedBB;
+		if(savedBB)b.SetInsertPoint(savedBB);
+		thisAlloca=savedThis;
+		currentClassName=savedClassName;
+		currentNamespace=savedNs;
+		llvm::Function* fn=mod->getFunction(mangledName);
+		if(fn)funcDecls[mangledName]=fn;
+		templateInstances[mangledName]={calleeName,node->call.template_args};
+		return fn;
+	}
+	MioType* llvmTypeToMioType(llvm::Type* ty){
+		if(!ty)return nullptr;
+		if(ty->isIntegerTy(1))return mio_type_new(MioTypeKind::BOOL);
+		if(ty->isIntegerTy(8))return mio_type_new(MioTypeKind::I8);
+		if(ty->isIntegerTy(16))return mio_type_new(MioTypeKind::I16);
+		if(ty->isIntegerTy(32))return mio_type_new(MioTypeKind::I32);
+		if(ty->isIntegerTy(64))return mio_type_new(MioTypeKind::I64);
+		if(ty->isFloatTy())return mio_type_new(MioTypeKind::F32);
+		if(ty->isDoubleTy())return mio_type_new(MioTypeKind::F64);
+		if(ty->isPointerTy()){
+			return nullptr;
+		}
+		if(auto* st=llvm::dyn_cast<llvm::StructType>(ty)){
+			std::string name=st->getName().str();
+			if(!name.empty())return mio_type_new_named(MioTypeKind::STRUCT,name);
+		}
+		return nullptr;
+	}
+	std::vector<TemplateArg> tryDeduceTemplateArgs(const std::string& calleeName,AstNode* node){
+		auto it=templateMap.find(calleeName);
+		if(it==templateMap.end())return {};
+		auto& typeParams=it->second.first;
+		auto* templateDef=it->second.second;
+		if(templateDef->kind!=AstNodeKind::FUNC_DEF)return {};
+		auto& params=templateDef->func_def.params;
+		if(params.size()!=node->call.args.size())return {};
+		size_t typeParamCount=0;
+		for(auto& p:typeParams)if(p.is_type)typeParamCount++;
+		std::vector<MioType*> deduced(typeParamCount,nullptr);
+		for(size_t i=0;i<params.size();i++){
+			MioType* paramType=params[i].type;
+			if(!paramType)continue;
+			llvm::Type* argTy=resolveExprType(node->call.args[i]);
+			if(!argTy)continue;
+			deduceTemplateArg(paramType,argTy,typeParams,deduced);
+		}
+		for(size_t i=0;i<deduced.size();i++){
+			if(!deduced[i])return {};
+		}
+		std::vector<TemplateArg> result;
+		size_t dedIdx=0;
+		for(auto& p:typeParams){
+			if(p.is_type){
+				result.push_back({true,deduced[dedIdx++],nullptr});
+			}else{
+				AstNode* defVal=p.default_val;
+				if(!defVal)return {};
+				result.push_back({false,nullptr,defVal});
+			}
+		}
+		return result;
+	}
+	void deduceTemplateArg(MioType* paramType,llvm::Type* argTy,const std::vector<TemplateParam>& typeParams,std::vector<MioType*>& deduced){
+		if(!paramType)return;
+		if(paramType->kind==MioTypeKind::POINTER){
+			return;
+		}
+		if(paramType->kind==MioTypeKind::ARRAY){
+			deduceTemplateArg(paramType->base_type,argTy,typeParams,deduced);
+			return;
+		}
+		size_t dedIdx=0;
+		for(size_t i=0;i<typeParams.size();i++){
+			if(!typeParams[i].is_type)continue;
+			if(paramType->name==typeParams[i].name){
+				MioType* deducedType=llvmTypeToMioType(argTy);
+				if(!deducedType)return;
+				if(deduced[dedIdx]&&(deduced[dedIdx]->name!=deducedType->name||deduced[dedIdx]->kind!=deducedType->kind)){
+					mio_type_free(deducedType);
+					return;
+				}
+				if(deduced[dedIdx])mio_type_free(deduced[dedIdx]);
+				deduced[dedIdx]=deducedType;
+				return;
+			}
+			dedIdx++;
+		}
+	}
+	AstNode* instantiateTemplate(AstNode* templateDef,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
+		if(templateDef->kind!=AstNodeKind::FUNC_DEF)return nullptr;
+		auto* def=templateDef;
+		MioType* retType=substituteType(def->func_def.return_type,typeSubst,valueSubst);
+		std::string instName=def->func_def.name;
+		for(auto& p:typeSubst){
+			instName+="_"+mio_type_str(p.second);
+		}
+		auto* inst=ast_new_func_def(instName,retType,nullptr,def->func_def.is_static,def->line,def->col);
+		inst->func_def.is_extern=def->func_def.is_extern;
+		inst->func_def.is_variadic=def->func_def.is_variadic;
+		for(auto& p:def->func_def.params){
+			MioType* pt=substituteType(p.type,typeSubst,valueSubst);
+			ast_func_add_param(inst,p.name,pt);
+		}
+		inst->func_def.body=cloneAst(def->func_def.body,typeSubst,valueSubst);
+		return inst;
+	}
+	MioType* substituteType(MioType* mt,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
+		if(!mt)return nullptr;
+		if(mt->kind==MioTypeKind::STRUCT&&!mt->name.empty()){
+			auto it=typeSubst.find(mt->name);
+			if(it!=typeSubst.end()){
+				return mio_type_clone(it->second);
+			}
+		}
+		if(mt->kind==MioTypeKind::POINTER){
+			auto* result=mio_type_new(MioTypeKind::POINTER);
+			result->base_type=substituteType(mt->base_type,typeSubst,valueSubst);
+			return result;
+		}
+		if(mt->kind==MioTypeKind::ARRAY){
+			auto* base=substituteType(mt->base_type,typeSubst,valueSubst);
+			auto* result=new MioType(base,mt->array_size);
+			return result;
+		}
+		return mio_type_clone(mt);
+	}
+	AstNode* cloneAst(AstNode* node,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
+		if(!node)return nullptr;
+		switch(node->kind){
+			case AstNodeKind::BLOCK:{
+				auto* n=ast_new_block(node->line,node->col);
+				n->block.is_scope=node->block.is_scope;
+				for(auto* s:node->block.stmts){
+					auto* cs=cloneAst(s,typeSubst,valueSubst);
+					if(cs)n->block.stmts.push_back(cs);
+				}
+				return n;
+			}
+			case AstNodeKind::RETURN_STMT:
+				return ast_new_return(cloneAst(node->return_stmt.value,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::EXPR_STMT:
+				return ast_new_expr_stmt(cloneAst(node->expr_stmt.expr,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::BINARY_EXPR:{
+				auto* n=ast_new_binary(cloneAst(node->binary.left,typeSubst,valueSubst),node->binary.op,cloneAst(node->binary.right,typeSubst,valueSubst),node->line,node->col);
+				return n;
+			}
+			case AstNodeKind::CALL_EXPR:{
+				auto* callee=cloneAst(node->call.callee,typeSubst,valueSubst);
+				auto* n=ast_new_call(callee,node->line,node->col);
+				for(auto* a:node->call.args)n->call.args.push_back(cloneAst(a,typeSubst,valueSubst));
+				for(auto& ta:node->call.template_args){
+					if(ta.is_type)
+						n->call.template_args.push_back({true,substituteType(ta.type_val,typeSubst,valueSubst),nullptr});
+					else
+						n->call.template_args.push_back({false,nullptr,cloneAst(ta.expr_val,typeSubst,valueSubst)});
+				}
+				return n;
+			}
+			case AstNodeKind::IDENT_EXPR:{
+				auto it=valueSubst.find(node->ident.name);
+				if(it!=valueSubst.end()){
+					return ast_new_int_lit(it->second,node->line,node->col);
+				}
+				auto* n=ast_new_ident(node->ident.name,node->line,node->col);
+				n->ident.namespace_name=node->ident.namespace_name;
+				if(node->type){
+					n->type=substituteType(node->type,typeSubst,valueSubst);
+				}
+				return n;
+			}
+			case AstNodeKind::INT_LIT:
+				return ast_new_int_lit(node->int_lit.value,node->line,node->col);
+			case AstNodeKind::FLOAT_LIT:
+				return ast_new_float_lit(node->float_lit.value,node->line,node->col);
+			case AstNodeKind::STRING_LIT:
+				return ast_new_string_lit(node->string_lit.value,node->line,node->col);
+			case AstNodeKind::BOOL_LIT:
+				return ast_new_bool_lit(node->bool_lit.value,node->line,node->col);
+			case AstNodeKind::CHAR_LIT:
+				return ast_new_char_lit(node->char_lit.value,node->line,node->col);
+			case AstNodeKind::UNARY_EXPR:
+				return ast_new_unary(node->unary.op,cloneAst(node->unary.operand,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::VAR_DECL:{
+				MioType* vt=substituteType(node->var_decl.var_type,typeSubst,valueSubst);
+				auto* n=ast_new_var_decl(node->var_decl.name,vt,cloneAst(node->var_decl.init,typeSubst,valueSubst),node->var_decl.is_static,node->line,node->col);
+				return n;
+			}
+			case AstNodeKind::CONST_DECL:{
+				MioType* vt=substituteType(node->const_decl.var_type,typeSubst,valueSubst);
+				auto* n=ast_new_const_decl(node->const_decl.name,vt,cloneAst(node->const_decl.init,typeSubst,valueSubst),node->const_decl.is_static,node->line,node->col);
+				return n;
+			}
+			case AstNodeKind::ASSIGN_EXPR:
+				return ast_new_assign(cloneAst(node->assign.left,typeSubst,valueSubst),node->assign.op,cloneAst(node->assign.right,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::IF_STMT:{
+				auto* n=ast_new_if(cloneAst(node->if_stmt.cond,typeSubst,valueSubst),cloneAst(node->if_stmt.then_body,typeSubst,valueSubst),cloneAst(node->if_stmt.else_body,typeSubst,valueSubst),node->line,node->col);
+				for(auto* elif:node->if_stmt.elif_list)
+					n->if_stmt.elif_list.push_back(cloneAst(elif,typeSubst,valueSubst));
+				return n;
+			}
+			case AstNodeKind::WHILE_STMT:
+				return ast_new_while(cloneAst(node->while_stmt.cond,typeSubst,valueSubst),cloneAst(node->while_stmt.body,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::FOR_STMT:
+				return ast_new_for(cloneAst(node->for_stmt.init,typeSubst,valueSubst),cloneAst(node->for_stmt.cond,typeSubst,valueSubst),cloneAst(node->for_stmt.update,typeSubst,valueSubst),cloneAst(node->for_stmt.body,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::MEMBER_EXPR:
+				return ast_new_member(cloneAst(node->member.base,typeSubst,valueSubst),node->member.member,node->member.arrow,node->line,node->col);
+			case AstNodeKind::INDEX_EXPR:
+				return ast_new_index(cloneAst(node->index_expr.base,typeSubst,valueSubst),cloneAst(node->index_expr.index,typeSubst,valueSubst),node->line,node->col);
+			case AstNodeKind::CAST_EXPR:{
+				MioType* tt=substituteType(node->cast_expr.target_type,typeSubst,valueSubst);
+				return ast_new_cast(tt,cloneAst(node->cast_expr.expr,typeSubst,valueSubst),node->line,node->col);
+			}
+			case AstNodeKind::BREAK_STMT:
+				return ast_new_break(node->line,node->col);
+			case AstNodeKind::CONTINUE_STMT:
+				return ast_new_continue(node->line,node->col);
+			case AstNodeKind::GOTO_STMT:
+				return ast_new_goto(node->goto_stmt.label,node->line,node->col);
+			case AstNodeKind::LABEL_STMT:
+				return ast_new_label(node->label_stmt.label,node->line,node->col);
+			case AstNodeKind::ARRAY_LIT:{
+				auto* n=ast_new_array_lit(node->line,node->col);
+				for(auto* e:node->array_lit.elements)
+					n->array_lit.elements.push_back(cloneAst(e,typeSubst,valueSubst));
+				return n;
+			}
+			default:
+				error(node->line,node->col,"unsupported node in template instantiation");
+				return nullptr;
+		}
+	}
 	void genGlobalVar(AstNode* decl){
 		bool isConst=(decl->kind==AstNodeKind::CONST_DECL);
 		std::string name=isConst?decl->const_decl.name:decl->var_decl.name;
+		std::string mangled=mangleName(name);
+		if(!currentNamespace.empty())
+			namespaceMembers[name]=mangled;
 		MioType* mt=isConst?decl->const_decl.var_type:decl->var_decl.var_type;
 		llvm::Type* ty=convertType(mt);
 		llvm::Constant* init=nullptr;
@@ -276,22 +707,48 @@ class CodeGen{
 				init=llvm::cast<llvm::Constant>(val);
 		}
 		if(!init)init=llvm::Constant::getNullValue(ty);
-		auto* gv=new llvm::GlobalVariable(*mod,ty,isConst,llvm::GlobalValue::InternalLinkage,init,name);
-		globalVars[name]=gv;
+		auto* gv=new llvm::GlobalVariable(*mod,ty,isConst,llvm::GlobalValue::InternalLinkage,init,mangled);
+		globalVars[mangled]=gv;
 	}
 	void genFuncDef(AstNode* def){
 		std::string name=def->func_def.name;
-		llvm::Type* retTy=convertType(def->func_def.return_type);
+		bool isMethod=!def->func_def.class_name.empty();
+		bool isCtor=isMethod&&def->func_def.name==def->func_def.class_name;
+		bool isDtor=isMethod&&!name.empty()&&name[0]=='~';
+		llvm::Type* retTy=nullptr;
+		if(isCtor){
+			retTy=llvm::Type::getVoidTy(ctx);
+		}else{
+			retTy=convertType(def->func_def.return_type);
+		}
 		std::vector<llvm::Type*> paramTys;
+		if(isMethod){
+			paramTys.push_back(llvm::PointerType::get(ctx,0));
+		}
 		for(auto& p:def->func_def.params)paramTys.push_back(convertType(p.type));
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
-		auto* fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,name,mod.get());
-		funcDecls[name]=fn;
+		std::string mangledName=name;
+		if(isMethod&&!def->func_def.is_static){
+			mangledName=def->func_def.class_name+"::"+name;
+		}
+		if(!isMethod&&!currentNamespace.empty()){
+			mangledName=currentNamespace+"::"+name;
+			namespaceMembers[name]=mangledName;
+		}
+		auto* fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,mangledName,mod.get());
+		funcDecls[mangledName]=fn;
+		funcDefMap[mangledName]=def;
+		if(name!=mangledName&&!isCtor)funcDecls[name]=fn;
 		if(def->func_def.is_extern)return;
+		if(def->func_def.is_pure_virtual)return;
 		size_t idx=0;
+		if(isMethod){
+			fn->getArg(0)->setName("this");
+			idx=1;
+		}
 		for(auto& arg:fn->args()){
-			if(idx<def->func_def.params.size())
-				arg.setName(def->func_def.params[idx].name);
+			if(idx>=(isMethod?1:0)&&idx<(def->func_def.params.size()+(isMethod?1:0)))
+				arg.setName(def->func_def.params[idx-(isMethod?1:0)].name);
 			idx++;
 		}
 		curFn=fn;
@@ -299,20 +756,64 @@ class CodeGen{
 		curBB=entry;
 		b.SetInsertPoint(entry);
 		locals.clear();
-		for(auto& arg:fn->args()){
-			auto* alloca=createEntryAlloca(fn,std::string(arg.getName()),arg.getType());
+		thisAlloca=nullptr;
+		currentClassName.clear();
+		if(isMethod){
+			currentClassName=def->func_def.class_name;
+			auto* thisVal=fn->getArg(0);
+			auto* alloca=createEntryAlloca(fn,"this",thisVal->getType());
+			b.CreateStore(thisVal,alloca);
+			thisAlloca=alloca;
+			locals["this"]=alloca;
+		}
+		for(size_t i=0;i<def->func_def.params.size();i++){
+			auto& arg=*(fn->arg_begin()+(isMethod?1:0)+i);
+			auto* alloca=createEntryAlloca(fn,def->func_def.params[i].name,arg.getType());
 			b.CreateStore(&arg,alloca);
-			locals[std::string(arg.getName())]=alloca;
+			locals[def->func_def.params[i].name]=alloca;
+		}
+		if(isCtor&&isMethod){
+			genConstructorInit(def,fn->getArg(0));
 		}
 		if(def->func_def.body){
 			genBlock(def->func_def.body);
 			if(curBB&&!curBB->getTerminator()){
+				genCleanupAll();
+				if(isDtor){
+					auto bit=classBaseMap.find(def->func_def.class_name);
+					if(bit!=classBaseMap.end()){
+						auto bdit=classDestructorMap.find(bit->second);
+						if(bdit!=classDestructorMap.end()){
+							llvm::Function* baseDtor=mod->getFunction(bdit->second);
+							if(baseDtor){
+								auto* thisPtr=fn->getArg(0);
+								auto* ptr=b.CreateBitCast(thisPtr,llvm::PointerType::get(ctx,0));
+								b.CreateCall(baseDtor,{ptr});
+							}
+						}
+					}
+				}
 				if(retTy->isVoidTy())
 					b.CreateRetVoid();
 				else
 					b.CreateRet(llvm::Constant::getNullValue(retTy));
 			}
 		}else{
+			genCleanupAll();
+			if(isDtor){
+				auto bit=classBaseMap.find(def->func_def.class_name);
+				if(bit!=classBaseMap.end()){
+					auto bdit=classDestructorMap.find(bit->second);
+					if(bdit!=classDestructorMap.end()){
+						llvm::Function* baseDtor=mod->getFunction(bdit->second);
+						if(baseDtor){
+							auto* thisPtr=fn->getArg(0);
+							auto* ptr=b.CreateBitCast(thisPtr,llvm::PointerType::get(ctx,0));
+							b.CreateCall(baseDtor,{ptr});
+						}
+					}
+				}
+			}
 			if(retTy->isVoidTy())
 				b.CreateRetVoid();
 			else
@@ -320,32 +821,45 @@ class CodeGen{
 		}
 		curFn=nullptr;
 		curBB=nullptr;
+		thisAlloca=nullptr;
+		currentClassName.clear();
+		cleanupStack.clear();
 	}
 	void genStructDef(AstNode* def){
 		std::string name=def->struct_def.name;
+		std::string mangled=mangleName(name);
+		if(!currentNamespace.empty())
+			namespaceMembers[name]=mangled;
 		std::vector<llvm::Type*> fieldTys;
 		for(auto& f:def->struct_def.fields)fieldTys.push_back(convertType(f.type));
-		auto* st=llvm::StructType::create(ctx,fieldTys,name);
-		structTypes[name]=st;
+		auto* st=llvm::StructType::create(ctx,fieldTys,mangled);
+		structTypes[mangled]=st;
 		for(unsigned i=0;i<def->struct_def.fields.size();i++)
-			structFieldIdx[name][def->struct_def.fields[i].name]=i;
+			structFieldIdx[mangled][def->struct_def.fields[i].name]=i;
 		for(auto* m:def->struct_def.methods){
 			if(m->kind==AstNodeKind::FUNC_DEF){
-				m->func_def.struct_name=name;
+				m->func_def.struct_name=mangled;
 				genFuncDef(m);
 			}
 		}
 	}
 	void genEnumDef(AstNode* def){
-		enumNames.insert(def->enum_def.name);
+		std::string name=def->enum_def.name;
+		std::string mangled=mangleName(name);
+		if(!currentNamespace.empty())
+			namespaceMembers[name]=mangled;
+		enumNames.insert(mangled);
 		int val=0;
 		for(auto& v:def->enum_def.variants){
-			enumVariantMap[v.name]=def->enum_def.name;
+			enumVariantMap[v.name]=mangled;
 			val++;
 		}
 	}
 	void genUnionDef(AstNode* def){
 		std::string name=def->union_def.name;
+		std::string mangled=mangleName(name);
+		if(!currentNamespace.empty())
+			namespaceMembers[name]=mangled;
 		llvm::Type* maxTy=llvm::Type::getInt8Ty(ctx);
 		size_t maxSize=0;
 		for(auto& f:def->union_def.fields){
@@ -353,11 +867,230 @@ class CodeGen{
 			size_t sz=mod->getDataLayout().getTypeAllocSize(t);
 			if(sz>maxSize){maxSize=sz;maxTy=t;}
 		}
-		auto* st=llvm::StructType::create(ctx,{maxTy,llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),(unsigned)maxSize)},name);
-		structTypes[name]=st;
+		auto* st=llvm::StructType::create(ctx,{maxTy,llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),(unsigned)maxSize)},mangled);
+		structTypes[mangled]=st;
+	}
+	void genClassDef(AstNode* def){
+		std::string name=def->class_def.name;
+		std::string mangled=mangleName(name);
+		if(!currentNamespace.empty())
+			namespaceMembers[name]=mangled;
+		std::string base_mangled=def->class_def.base_name;
+		if(!def->class_def.base_name.empty()&&!currentNamespace.empty()){
+			if(structTypes.count(def->class_def.base_name))
+				base_mangled=def->class_def.base_name;
+			else
+				base_mangled=currentNamespace+"::"+def->class_def.base_name;
+		}
+		if(!def->class_def.base_name.empty()){
+			classBaseMap[mangled]=base_mangled;
+			classBaseAccessMap[mangled]=def->class_def.base_access.empty()?"private":def->class_def.base_access;
+		}
+				classVTableOrder[mangled].clear();
+		if(!def->class_def.base_name.empty()){
+			auto it=classVTableOrder.find(base_mangled);
+			if(it!=classVTableOrder.end()){
+				classVTableOrder[mangled]=it->second;
+			}
+		}
+		for(auto* m:def->class_def.methods){
+			if(m->kind==AstNodeKind::FUNC_DEF){
+				if(m->func_def.is_virtual||m->func_def.is_override||m->func_def.is_pure_virtual){
+					bool found=false;
+					for(auto& vn:classVTableOrder[mangled]){
+						if(vn==m->func_def.name){found=true;break;}
+					}
+					if(!found)classVTableOrder[mangled].push_back(m->func_def.name);
+				}
+			}
+		}
+				if(!def->class_def.base_name.empty()){
+			auto it=classVTableOrder.find(base_mangled);
+			if(it!=classVTableOrder.end()){
+				for(auto& vn:it->second){
+					bool overridden=false;
+					for(auto& mn:classVTableOrder[mangled]){
+						if(mn==vn){overridden=true;break;}
+					}
+					if(!overridden){
+						error("class '"+mangled+"' does not override pure virtual method '"+vn+"' from base class '"+base_mangled+"'");
+					}
+				}
+			}
+		}
+				std::vector<llvm::Type*> fieldTys;
+		bool hasVTable=!classVTableOrder[mangled].empty();
+		bool baseHasVTable=false;
+		unsigned fieldOffset=0;
+		if(hasVTable){
+			fieldTys.push_back(llvm::PointerType::get(ctx,0));
+			fieldOffset=1;
+		}
+				unsigned baseFieldCount=0;
+		if(!def->class_def.base_name.empty()){
+			auto bit=structTypes.find(base_mangled);
+			if(bit!=structTypes.end()){
+				auto* baseST=bit->second;
+				baseHasVTable=!classVTableOrder[base_mangled].empty();
+				unsigned startIdx=baseHasVTable?1:0;
+				for(unsigned i=startIdx;i<baseST->getNumElements();i++){
+					fieldTys.push_back(baseST->getElementType(i));
+					baseFieldCount++;
+				}
+			}
+		}
+		for(auto& f:def->class_def.fields)fieldTys.push_back(convertType(f.type));
+		auto* st=llvm::StructType::create(ctx,fieldTys,mangled);
+		structTypes[mangled]=st;
+				unsigned fidx=fieldOffset+baseFieldCount;
+		for(unsigned i=0;i<def->class_def.fields.size();i++)
+			structFieldIdx[mangled][def->class_def.fields[i].name]=fidx++;
+				if(!def->class_def.base_name.empty()){
+			auto it=structFieldIdx.find(base_mangled);
+			if(it!=structFieldIdx.end()){
+				unsigned baseVOff=baseHasVTable?1:0;
+				unsigned derivedVOff=hasVTable?1:0;
+				for(auto& [fname,idx]:it->second){
+					structFieldIdx[mangled][fname]=idx-baseVOff+derivedVOff;
+				}
+			}
+		}
+		for(auto* m:def->class_def.methods){
+			if(m->kind==AstNodeKind::FUNC_DEF){
+				m->func_def.class_name=mangled;
+				genFuncDef(m);
+			}
+		}
+		if(hasVTable) genVTable(mangled);
+		if(def->class_def.constructor){
+			auto* ctor=def->class_def.constructor;
+			ctor->func_def.class_name=mangled;
+			genFuncDef(ctor);
+		}
+		if(def->class_def.destructor){
+			auto* dtor=def->class_def.destructor;
+			dtor->func_def.class_name=mangled;
+			genFuncDef(dtor);
+			classDestructorMap[mangled]=mangled+"::~"+name;
+		}
+	}
+	void genVTable(const std::string& className){
+		auto& vorder=classVTableOrder[className];
+		if(vorder.empty())return;
+				std::vector<llvm::Type*> vtableFieldTys;
+		std::vector<llvm::Constant*> vtableEntries;
+		std::vector<llvm::FunctionType*> vtableFuncTypes;
+		for(auto& vname:vorder){
+			std::string mangledName=className+"::"+vname;
+			llvm::Function* fn=mod->getFunction(mangledName);
+			if(!fn){
+				fn=mod->getFunction(vname);
+			}
+			if(!fn){
+				error("virtual method '"+className+"::"+vname+"' not found for vtable");
+				vtableFieldTys.push_back(llvm::PointerType::get(ctx,0));
+				vtableEntries.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::get(ctx,0)));
+				vtableFuncTypes.push_back(nullptr);
+				continue;
+			}
+			vtableFieldTys.push_back(llvm::PointerType::get(ctx,0));
+			vtableEntries.push_back(fn);
+			vtableFuncTypes.push_back(fn->getFunctionType());
+			classVTable[className].push_back({vname,fn});
+		}
+		auto* vtableTy=llvm::StructType::create(ctx,vtableFieldTys,className+"_vtable");
+		classVTableTypes[className]=vtableTy;
+		classVTableFuncTypes[className]=vtableFuncTypes;
+		auto* vtableConst=llvm::ConstantStruct::get(vtableTy,vtableEntries);
+		auto* gv=new llvm::GlobalVariable(*mod,vtableTy,true,llvm::GlobalValue::InternalLinkage,vtableConst,className+"_vtable_inst");
+		classVTableGlobals[className]=gv;
+	}
+	void genConstructorInit(AstNode* def,llvm::Value* thisPtr){
+		std::string className=def->func_def.class_name;
+		auto it=classBaseMap.find(className);
+		if(it!=classBaseMap.end()&&!it->second.empty()){
+			std::string baseCtorName=it->second+"::"+it->second;
+			llvm::Function* baseCtor=mod->getFunction(baseCtorName);
+			if(baseCtor){
+				std::vector<llvm::Value*> baseCtorArgs;
+				baseCtorArgs.push_back(thisPtr);
+				for(size_t i=1;i<curFn->arg_size();i++){
+					baseCtorArgs.push_back(curFn->getArg(i));
+				}
+				b.CreateCall(baseCtor,baseCtorArgs);
+			}
+		}
+		if(classVTableGlobals.count(className)){
+			auto* vtableGV=classVTableGlobals[className];
+			auto* st=structTypes[className];
+			if(st){
+				auto* vtablePtr=b.CreateGEP(st,thisPtr,{
+					llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+					llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),0)
+				});
+				b.CreateStore(vtableGV,vtablePtr);
+			}
+		}
+				for(auto& init:def->func_def.init_list){
+			llvm::Value* val=genExpr(init.expr);
+			if(!val)continue;
+			auto fit=structFieldIdx.find(className);
+			if(fit!=structFieldIdx.end()){
+				auto fi=fit->second.find(init.name);
+				if(fi!=fit->second.end()){
+					auto sit=structTypes.find(className);
+					if(sit!=structTypes.end()){
+						auto* st=sit->second;
+						unsigned idx=fi->second;
+						llvm::Value* gep=b.CreateGEP(st,thisPtr,{
+							llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+							llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)
+						});
+						llvm::Type* fieldTy=st->getElementType(idx);
+						if(val->getType()!=fieldTy)val=genCastValue(val,fieldTy);
+						b.CreateStore(val,gep);
+					}
+				}
+			}
+		}
 	}
 	void genBlock(AstNode* block){
+		size_t savedSize=cleanupStack.size();
 		for(auto* stmt:block->block.stmts)genStmt(stmt);
+		if(curBB&&!curBB->getTerminator()&&block->block.is_scope){
+			genScopeExit(savedSize);
+		}
+	}
+	llvm::Function* findDestructor(const std::string& typeName){
+		auto dit=classDestructorMap.find(typeName);
+		if(dit!=classDestructorMap.end())
+			return mod->getFunction(dit->second);
+		for(auto& impNs:importedNamespaces){
+			std::string fullName=impNs+"::"+typeName;
+			auto dit2=classDestructorMap.find(fullName);
+			if(dit2!=classDestructorMap.end())
+				return mod->getFunction(dit2->second);
+		}
+		return nullptr;
+	}
+	void genCleanupAll(){
+		for(int i=(int)cleanupStack.size()-1;i>=0;i--){
+			auto& entry=cleanupStack[i];
+			llvm::Function* dtor=findDestructor(entry.first);
+			if(!dtor)continue;
+			auto* ptr=b.CreateBitCast(entry.second,llvm::PointerType::get(ctx,0));
+			b.CreateCall(dtor,{ptr});
+		}
+	}
+	void genScopeExit(size_t savedSize){
+		for(int i=(int)cleanupStack.size()-1;i>=(int)savedSize;i--){
+			auto& entry=cleanupStack[i];
+			llvm::Function* dtor=findDestructor(entry.first);
+			if(!dtor)continue;
+			auto* ptr=b.CreateBitCast(entry.second,llvm::PointerType::get(ctx,0));
+			b.CreateCall(dtor,{ptr});
+		}
+		cleanupStack.resize(savedSize);
 	}
 	void genStmt(AstNode* stmt){
 		if(!curBB||curBB->getTerminator())return;
@@ -394,6 +1127,19 @@ class CodeGen{
 			if(val){
 				if(val->getType()!=ty)val=genCastValue(val,ty);
 				b.CreateStore(val,alloca);
+			}
+		}
+		if(mt&&mt->kind==MioTypeKind::STRUCT){
+			auto dit=classDestructorMap.find(mt->name);
+			if(dit==classDestructorMap.end()){
+				for(auto& impNs:importedNamespaces){
+					std::string fullName=impNs+"::"+mt->name;
+					dit=classDestructorMap.find(fullName);
+					if(dit!=classDestructorMap.end())break;
+				}
+			}
+			if(dit!=classDestructorMap.end()){
+				cleanupStack.push_back({mt->name,alloca});
 			}
 		}
 	}
@@ -490,6 +1236,7 @@ class CodeGen{
 		if(!continueStack.empty())b.CreateBr(continueStack.back());
 	}
 	void genReturnStmt(AstNode* stmt){
+		genCleanupAll();
 		if(stmt->return_stmt.value){
 			llvm::Value* val=genExpr(stmt->return_stmt.value);
 			llvm::Type* retTy=curFn->getReturnType();
@@ -519,10 +1266,24 @@ class CodeGen{
 	llvm::Value* genLValue(AstNode* node){
 		switch(node->kind){
 			case AstNodeKind::IDENT_EXPR:{
-				auto it=locals.find(node->ident.name);
+				std::string name=node->ident.name;
+				if(node->ident.namespace_name=="::"){
+					auto git=globalVars.find(name);
+					if(git!=globalVars.end())return git->second;
+					error(node->line,node->col,"undefined global variable '"+name+"'");
+					return nullptr;
+				}
+				if(!node->ident.namespace_name.empty())
+					name=node->ident.namespace_name+"::"+name;
+				auto it=locals.find(name);
 				if(it!=locals.end())return it->second;
-				auto git=globalVars.find(node->ident.name);
+				auto git=globalVars.find(name);
 				if(git!=globalVars.end())return git->second;
+				for(auto& impNs:importedNamespaces){
+					std::string fullName=impNs+"::"+name;
+					auto git2=globalVars.find(fullName);
+					if(git2!=globalVars.end())return git2->second;
+				}
 				return nullptr;
 			}
 			case AstNodeKind::INDEX_EXPR:{
@@ -536,22 +1297,38 @@ class CodeGen{
 				return b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),idx});
 			}
 			case AstNodeKind::MEMBER_EXPR:{
-				llvm::Value* base=genExpr(node->member.base);
+				llvm::Value* base=genLValue(node->member.base);
+				if(!base)base=genExpr(node->member.base);
 				if(!base)return nullptr;
 				std::string structName;
 				if(node->member.base->type&&!node->member.base->type->name.empty())
 					structName=node->member.base->type->name;
 				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
-					auto it=locals.find(node->member.base->ident.name);
-					if(it!=locals.end()){
-						llvm::Type* at=it->second->getAllocatedType();
-						if(at->isStructTy())structName=std::string(at->getStructName());
+					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
+						structName=currentClassName;
+					}else{
+						auto it=locals.find(node->member.base->ident.name);
+						if(it!=locals.end()){
+							llvm::Type* at=it->second->getAllocatedType();
+							if(at->isStructTy())structName=std::string(at->getStructName());
+							else if(at->isPointerTy()){
+								if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::STRUCT)
+									structName=node->member.base->type->base_type->name;
+							}
+						}
 					}
 				}
 				if(structName.empty()||!structFieldIdx.count(structName))return nullptr;
 				unsigned idx=structFieldIdx[structName][node->member.member];
-				llvm::Type* elemTy=resolveExprType(node);
-				return b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)});
+				auto sit=structTypes.find(structName);
+				llvm::StructType* st=sit!=structTypes.end()?sit->second:nullptr;
+				if(!st)return nullptr;
+				llvm::Value* ptr=base;
+				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(ptr)){
+					if(ai->getAllocatedType()->isPointerTy())
+						ptr=b.CreateLoad(ai->getAllocatedType(),ptr);
+				}
+				return b.CreateGEP(st,ptr,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)});
 			}
 			default:return nullptr;
 		}
@@ -596,6 +1373,33 @@ class CodeGen{
 	}
 	llvm::Value* genIdentExpr(AstNode* node){
 		std::string name=node->ident.name;
+		std::string ns=node->ident.namespace_name;
+		if(ns=="::"){
+			auto git=globalVars.find(name);
+			if(git!=globalVars.end()){
+				llvm::Type* ty=git->second->getValueType();
+				return b.CreateLoad(ty,git->second,name);
+			}
+			error(node->line,node->col,"undefined global variable '"+name+"'");
+			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+		}
+		if(!ns.empty()){
+			std::string fullName=ns+"::"+name;
+			auto it=locals.find(fullName);
+			if(it!=locals.end()){
+				llvm::Type* ty=it->second->getAllocatedType();
+				return b.CreateLoad(ty,it->second,fullName);
+			}
+			auto git=globalVars.find(fullName);
+			if(git!=globalVars.end()){
+				llvm::Type* ty=git->second->getValueType();
+				return b.CreateLoad(ty,git->second,fullName);
+			}
+			auto fit=funcDecls.find(fullName);
+			if(fit!=funcDecls.end())return fit->second;
+			error(node->line,node->col,"undefined variable '"+fullName+"'");
+			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+		}
 		auto it=locals.find(name);
 		if(it!=locals.end()){
 			llvm::Type* ty=it->second->getAllocatedType();
@@ -608,7 +1412,17 @@ class CodeGen{
 		}
 		auto fit=funcDecls.find(name);
 		if(fit!=funcDecls.end())return fit->second;
-		fprintf(stderr,"error: undefined variable '%s'\n",name.c_str());
+		for(auto& impNs:importedNamespaces){
+			std::string fullName=impNs+"::"+name;
+			auto it2=globalVars.find(fullName);
+			if(it2!=globalVars.end()){
+				llvm::Type* ty=it2->second->getValueType();
+				return b.CreateLoad(ty,it2->second,fullName);
+			}
+			auto fit2=funcDecls.find(fullName);
+			if(fit2!=funcDecls.end())return fit2->second;
+		}
+		error(node->line,node->col,"undefined variable '"+name+"'");
 		return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
 	}
 	llvm::Value* genBinaryExpr(AstNode* node){
@@ -706,23 +1520,242 @@ class CodeGen{
 	llvm::Value* genCallExpr(AstNode* node){
 		std::string calleeName;
 		llvm::Value* calleeVal=nullptr;
+		bool isVirtualCall=false;
+		int vtableIndex=-1;
+		std::string virtualClassName;
+		
 		if(node->call.callee->kind==AstNodeKind::IDENT_EXPR){
 			calleeName=node->call.callee->ident.name;
-			auto fit=funcDecls.find(calleeName);
-			if(fit!=funcDecls.end())calleeVal=fit->second;
-			if(!calleeVal){
-				calleeVal=mod->getFunction(calleeName);
-				if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
+			std::string ns=node->call.callee->ident.namespace_name;
+			if(ns=="::"){
+				auto fit=funcDecls.find(calleeName);
+				if(fit!=funcDecls.end())calleeVal=fit->second;
+				if(!calleeVal){
+					calleeVal=mod->getFunction(calleeName);
+					if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
+				}
+			}else if(!ns.empty()){
+				calleeName=ns+"::"+calleeName;
+			}
+			
+			if(!node->call.template_args.empty()){
+				calleeVal=genTemplateInstantiation(node);
+				if(!calleeVal)return nullptr;
+			}else{
+				if(!calleeVal){
+					auto fit=funcDecls.find(calleeName);
+					if(fit!=funcDecls.end())calleeVal=fit->second;
+					if(!calleeVal){
+						calleeVal=mod->getFunction(calleeName);
+						if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
+					}
+					
+					if(!calleeVal&&ns.empty()){
+						for(auto& impNs:importedNamespaces){
+							std::string fullName=impNs+"::"+calleeName;
+							auto fit2=funcDecls.find(fullName);
+							if(fit2!=funcDecls.end()){
+								calleeVal=fit2->second;
+								calleeName=fullName;
+								break;
+							}
+							llvm::Function* fn=mod->getFunction(fullName);
+							if(fn){
+								calleeVal=fn;
+								funcDecls[fullName]=fn;
+								calleeName=fullName;
+								break;
+							}
+						}
+					}
+				}
+			}
+			
+			if(!calleeVal&&node->call.template_args.empty()){
+				auto deduced=tryDeduceTemplateArgs(calleeName,node);
+				if(!deduced.empty()){
+					node->call.template_args=deduced;
+					calleeVal=genTemplateInstantiation(node);
+					if(!calleeVal)return nullptr;
+				}
+			}
+			
+			if(!calleeVal&&ns=="::"){
+				error(node->line,node->col,"undefined global function '"+calleeName+"'");
+				return nullptr;
+			}
+			
+						if(!calleeVal&&structTypes.count(calleeName)){
+				std::string ctorName=calleeName+"::"+calleeName;
+				llvm::Function* ctor=mod->getFunction(ctorName);
+				
+				if(ctor){
+					funcDecls[ctorName]=ctor;
+					auto* st=structTypes[calleeName];
+					auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
+					std::vector<llvm::Value*> args;
+					args.push_back(alloca);
+					for(auto* a:node->call.args){
+						llvm::Value* av=genExpr(a);
+						if(av)args.push_back(av);
+					}
+					
+					b.CreateCall(ctor,args);
+					return b.CreateLoad(st,alloca);
+				}
+			}
+		}else if(node->call.callee->kind==AstNodeKind::MEMBER_EXPR){
+			auto* base=node->call.callee->member.base;
+			std::string method=node->call.callee->member.member;
+			std::string className;
+			if(base->type&&!base->type->name.empty())
+				className=base->type->name;
+			else if(base->kind==AstNodeKind::IDENT_EXPR){
+				if(base->ident.name=="this"&&!currentClassName.empty()){
+					className=currentClassName;
+				}else{
+					auto it=locals.find(base->ident.name);
+					if(it!=locals.end()){
+						llvm::Type* at=it->second->getAllocatedType();
+						if(at->isStructTy())className=std::string(at->getStructName());
+						else if(at->isPointerTy()){
+							if(base->type&&base->type->base_type&&base->type->base_type->kind==MioTypeKind::STRUCT)
+								className=base->type->base_type->name;
+						}
+					}
+				}
+			}
+			if(!className.empty()){
+				
+				auto vit=classVTableOrder.find(className);
+				if(vit!=classVTableOrder.end()){
+					
+					for(size_t i=0;i<vit->second.size();i++){
+						
+						if(vit->second[i]==method){
+							isVirtualCall=true;
+							virtualClassName=className;
+							vtableIndex=(int)i;
+							
+							break;
+						}
+					}
+				}
+				
+				if(!isVirtualCall){
+					std::string mangledName=className+"::"+method;
+					auto fit=funcDecls.find(mangledName);
+					if(fit!=funcDecls.end())calleeVal=fit->second;
+				}
+				if(!calleeVal&&!isVirtualCall){
+					auto fit=funcDecls.find(method);
+					if(fit!=funcDecls.end())calleeVal=fit->second;
+				}
+				if(isVirtualCall){
+					llvm::Value* thisPtr=genLValue(base);
+					if(!thisPtr){
+						thisPtr=genExpr(base);
+					}
+					if(!thisPtr){
+						error(node->line,node->col,"cannot get 'this' pointer for virtual call");
+						return nullptr;
+					}
+										if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+						if(ai->getAllocatedType()->isPointerTy()){
+							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
+						}
+					}
+					auto* st=structTypes[virtualClassName];
+					if(!st){
+						error(node->line,node->col,"struct type '"+virtualClassName+"' not found for virtual dispatch");
+						return nullptr;
+					}
+					auto* vtablePtrPtr=b.CreateGEP(st,thisPtr,{
+						llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+						llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),0)
+					});
+					auto* vtablePtr=b.CreateLoad(llvm::PointerType::get(ctx,0),vtablePtrPtr);
+										auto* vtableTy=classVTableTypes[virtualClassName];
+					if(!vtableTy){
+						error(node->line,node->col,"vtable type for '"+virtualClassName+"' not found");
+						return nullptr;
+					}
+					auto* fnPtrPtr=b.CreateGEP(vtableTy,vtablePtr,{
+						llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+						llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),(unsigned)vtableIndex)
+					});
+					auto* fnPtr=b.CreateLoad(llvm::PointerType::get(ctx,0),fnPtrPtr);
+										llvm::FunctionType* ft=nullptr;
+					auto ftit=classVTableFuncTypes.find(virtualClassName);
+					if(ftit!=classVTableFuncTypes.end()&&(unsigned)vtableIndex<ftit->second.size()){
+						ft=ftit->second[(unsigned)vtableIndex];
+					}
+					if(!ft){
+						error(node->line,node->col,"virtual function type not found for '"+virtualClassName+"'["+std::to_string(vtableIndex)+"]");
+						return nullptr;
+					}
+										std::vector<llvm::Value*> args;
+					args.push_back(thisPtr);
+					for(auto* a:node->call.args){
+						llvm::Value* av=genExpr(a);
+						if(av)args.push_back(av);
+					}
+					return b.CreateCall(ft,fnPtr,args);
+				}
+				if(calleeVal){
+					auto* fn=llvm::dyn_cast<llvm::Function>(calleeVal);
+					if(fn&&!fn->arg_empty()&&fn->getArg(0)->getType()->isPointerTy()){
+						llvm::Value* thisPtr=genLValue(base);
+						if(!thisPtr)thisPtr=genExpr(base);
+						std::vector<llvm::Value*> args;
+						if(thisPtr){
+							llvm::Type* expectedThisTy=fn->getArg(0)->getType();
+							if(thisPtr->getType()==expectedThisTy){
+								args.push_back(thisPtr);
+							}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+								if(ai->getAllocatedType()->isPointerTy()){
+									thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
+								}
+								if(thisPtr->getType()!=expectedThisTy)
+									thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
+								args.push_back(thisPtr);
+							}else{
+								if(thisPtr->getType()!=expectedThisTy)
+									thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
+								args.push_back(thisPtr);
+							}
+						}
+						for(auto* a:node->call.args){
+							llvm::Value* av=genExpr(a);
+							if(av)args.push_back(av);
+						}
+						for(size_t i=args.size()-(node->call.args.size());i<args.size();i++){
+							size_t paramIdx=i;
+							if(paramIdx<fn->arg_size()){
+								llvm::Type* paramTy=fn->getArg(paramIdx)->getType();
+								if(args[i]->getType()!=paramTy)
+									args[i]=genCastValue(args[i],paramTy);
+							}
+						}
+						return b.CreateCall(fn,args);
+					}
+				}
 			}
 		}
 		if(!calleeVal){
 			calleeVal=genExpr(node->call.callee);
-			if(!calleeVal)return nullptr;
+			if(!calleeVal){
+				error(node->line,node->col,"cannot resolve call target");
+				return nullptr;
+			}
 		}
 		auto* fn=llvm::dyn_cast<llvm::Function>(calleeVal);
 		if(!fn){
 			auto* ft=llvm::dyn_cast<llvm::FunctionType>(calleeVal->getType());
-			if(!ft)return nullptr;
+			if(!ft){
+				error(node->line,node->col,"called value is not a function");
+				return nullptr;
+			}
 			std::vector<llvm::Value*> args;
 			for(auto* a:node->call.args){
 				llvm::Value* av=genExpr(a);
@@ -740,6 +1773,26 @@ class CodeGen{
 			}
 			args.push_back(av);
 		}
+		if(node->call.args.size()<fn->arg_size()){
+			std::string lookupName=calleeName.empty()?fn->getName().str():calleeName;
+			auto defIt=funcDefMap.find(lookupName);
+			if(defIt==funcDefMap.end()&&!calleeName.empty()){
+				defIt=funcDefMap.find(fn->getName().str());
+			}
+			if(defIt!=funcDefMap.end()){
+				auto* funcDef=defIt->second;
+				for(size_t i=node->call.args.size();i<funcDef->func_def.params.size()&&i<fn->arg_size();i++){
+					if(funcDef->func_def.params[i].default_val){
+						llvm::Value* dv=genExpr(funcDef->func_def.params[i].default_val);
+						if(dv){
+							llvm::Type* paramTy=fn->getArg(i)->getType();
+							if(dv->getType()!=paramTy)dv=genCastValue(dv,paramTy);
+							args.push_back(dv);
+						}
+					}
+				}
+			}
+		}
 		return b.CreateCall(fn,args);
 	}
 	llvm::Value* genIndexExpr(AstNode* node){
@@ -754,24 +1807,44 @@ class CodeGen{
 		return b.CreateLoad(elemTy,ptr);
 	}
 	llvm::Value* genMemberExpr(AstNode* node){
-		llvm::Value* base=genExpr(node->member.base);
+		llvm::Value* base=genLValue(node->member.base);
+		if(!base)base=genExpr(node->member.base);
 		if(!base)return nullptr;
 		std::string structName;
 		if(node->member.base->type&&!node->member.base->type->name.empty())
 			structName=node->member.base->type->name;
 		else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
-			auto it=locals.find(node->member.base->ident.name);
-			if(it!=locals.end()){
-				llvm::Type* at=it->second->getAllocatedType();
-				if(at->isStructTy())structName=std::string(at->getStructName());
+			if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
+				structName=currentClassName;
+			}else{
+				auto it=locals.find(node->member.base->ident.name);
+				if(it!=locals.end()){
+					llvm::Type* at=it->second->getAllocatedType();
+					if(at->isStructTy())structName=std::string(at->getStructName());
+					else if(at->isPointerTy()){
+						if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::STRUCT)
+							structName=node->member.base->type->base_type->name;
+					}
+				}
 			}
 		}
 		if(!structName.empty()&&structFieldIdx.count(structName)){
 			unsigned idx=structFieldIdx[structName][node->member.member];
-			llvm::Type* elemTy=resolveExprType(node);
-			llvm::Value* ptr=b.CreateGEP(elemTy,base,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)});
-			return b.CreateLoad(elemTy,ptr);
+			auto sit=structTypes.find(structName);
+			llvm::StructType* st=sit!=structTypes.end()?sit->second:nullptr;
+			if(!st){
+				error(node->line,node->col,"struct type '"+structName+"' not found");
+				return nullptr;
+			}
+						llvm::Value* ptr=base;
+			if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(ptr)){
+				if(ai->getAllocatedType()->isPointerTy())
+					ptr=b.CreateLoad(ai->getAllocatedType(),ptr);
+			}
+			llvm::Value* gep=b.CreateGEP(st,ptr,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx)});
+			return b.CreateLoad(st->getElementType(idx),gep);
 		}
+		error(node->line,node->col,"cannot access member '"+node->member.member+"' on type '"+structName+"'");
 		return nullptr;
 	}
 	llvm::Value* genArrayLit(AstNode* node){
@@ -816,24 +1889,49 @@ class CodeGen{
 			if(valTy->isPointerTy()){
 				llvm::Type* elemTy=resolveExprType(node->assign.left);
 				if(rhs->getType()!=elemTy)rhs=genCastValue(rhs,elemTy);
+				if(node->assign.op!=TOK_ASSIGN){
+					llvm::Value* lhs=b.CreateLoad(elemTy,ptr);
+					switch(node->assign.op){
+						case TOK_PLUS_ASSIGN:rhs=b.CreateAdd(lhs,rhs);break;
+						case TOK_MINUS_ASSIGN:rhs=b.CreateSub(lhs,rhs);break;
+						case TOK_STAR_ASSIGN:rhs=b.CreateMul(lhs,rhs);break;
+						case TOK_SLASH_ASSIGN:rhs=elemTy->isFloatingPointTy()?b.CreateFDiv(lhs,rhs):b.CreateSDiv(lhs,rhs);break;
+						case TOK_PERCENT_ASSIGN:rhs=b.CreateSRem(lhs,rhs);break;
+						case TOK_AND_ASSIGN:rhs=b.CreateAnd(lhs,rhs);break;
+						case TOK_OR_ASSIGN:rhs=b.CreateOr(lhs,rhs);break;
+						case TOK_XOR_ASSIGN:rhs=b.CreateXor(lhs,rhs);break;
+						case TOK_LSHIFT_ASSIGN:rhs=b.CreateShl(lhs,rhs);break;
+						case TOK_RSHIFT_ASSIGN:rhs=b.CreateAShr(lhs,rhs);break;
+						default:break;
+					}
+				}
 			}
 			b.CreateStore(rhs,ptr);
 		}
 		return rhs;
 	}
 public:
-	CodeGen(const std::string& name):modName(name),stringCounter(0),curFn(nullptr),curBB(nullptr),b(ctx){
+	CodeGen(const std::string& name,const std::string& srcfile="",int opt=0):modName(name),filename(srcfile),stringCounter(0),curFn(nullptr),curBB(nullptr),thisAlloca(nullptr),optLevel(opt),b(ctx){
 		mod=std::make_unique<llvm::Module>(name,ctx);
+	}
+	void error(int line,int col,const std::string& msg){
+		if(!filename.empty())
+			fprintf(stderr,"%s:%d:%d: error: %s\n",filename.c_str(),line,col,msg.c_str());
+		else
+			fprintf(stderr,"error:%d:%d: %s\n",line,col,msg.c_str());
+	}
+	void error(const std::string& msg){
+		fprintf(stderr,"error: %s\n",msg.c_str());
 	}
 	~CodeGen()=default;
 	bool generate(AstNode* program){
 		if(!program){
-			fprintf(stderr,"error: null program\n");
+			error("null program");
 			return false;
 		}
 		genProgram(program);
 		if(llvm::verifyModule(*mod,&llvm::errs())){
-			fprintf(stderr,"Error verifying module\n");
+			error("Error verifying module");
 			return false;
 		}
 		return true;
@@ -858,22 +1956,30 @@ public:
 		char* errMsg=nullptr;
 		LLVMTargetRef targetRef=nullptr;
 		if(LLVMGetTargetFromTriple(targetTriple.c_str(),&targetRef,&errMsg)){
-			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			fprintf(stderr,"error: failed to get target for triple '%s': %s\n",targetTriple.c_str(),errMsg?errMsg:"unknown target error");
 			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			return false;
 		}
+		LLVMCodeGenOptLevel cgLevel=LLVMCodeGenLevelDefault;
+		switch(optLevel){
+			case 0: cgLevel=LLVMCodeGenLevelNone;break;
+			case 1: cgLevel=LLVMCodeGenLevelLess;break;
+			case 2: cgLevel=LLVMCodeGenLevelDefault;break;
+			case 3: cgLevel=LLVMCodeGenLevelAggressive;break;
+			default: cgLevel=LLVMCodeGenLevelDefault;break;
+		}
 		LLVMTargetMachineRef tm=LLVMCreateTargetMachine(
 			targetRef,targetTriple.c_str(),"generic","",
-			LLVMCodeGenLevelDefault,LLVMRelocPIC,LLVMCodeModelDefault);
+			cgLevel,LLVMRelocPIC,LLVMCodeModelDefault);
 		if(!tm){
-			fprintf(stderr,"error: cannot create target machine\n");
+			fprintf(stderr,"error: cannot create target machine for triple '%s'\n",targetTriple.c_str());
 			return false;
 		}
 		auto* targetMachine=reinterpret_cast<llvm::TargetMachine*>(tm);
 		mod->setDataLayout(targetMachine->createDataLayout());
 		mod->setTargetTriple(llvm::Triple(targetTriple));
 		if(LLVMTargetMachineEmitToFile(tm,reinterpret_cast<LLVMModuleRef>(mod.get()),const_cast<char*>(path.c_str()),LLVMObjectFile,&errMsg)){
-			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			fprintf(stderr,"error: failed to emit object file '%s': %s\n",path.c_str(),errMsg?errMsg:"unknown emit error");
 			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			LLVMDisposeTargetMachine(tm);
 			return false;
@@ -891,22 +1997,30 @@ public:
 		char* errMsg=nullptr;
 		LLVMTargetRef targetRef=nullptr;
 		if(LLVMGetTargetFromTriple(targetTriple.c_str(),&targetRef,&errMsg)){
-			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			fprintf(stderr,"error: failed to get target for triple '%s': %s\n",targetTriple.c_str(),errMsg?errMsg:"unknown target error");
 			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			return false;
 		}
+		LLVMCodeGenOptLevel cgLevel=LLVMCodeGenLevelDefault;
+		switch(optLevel){
+			case 0: cgLevel=LLVMCodeGenLevelNone;break;
+			case 1: cgLevel=LLVMCodeGenLevelLess;break;
+			case 2: cgLevel=LLVMCodeGenLevelDefault;break;
+			case 3: cgLevel=LLVMCodeGenLevelAggressive;break;
+			default: cgLevel=LLVMCodeGenLevelDefault;break;
+		}
 		LLVMTargetMachineRef tm=LLVMCreateTargetMachine(
 			targetRef,targetTriple.c_str(),"generic","",
-			LLVMCodeGenLevelDefault,LLVMRelocPIC,LLVMCodeModelDefault);
+			cgLevel,LLVMRelocPIC,LLVMCodeModelDefault);
 		if(!tm){
-			fprintf(stderr,"error: cannot create target machine\n");
+			fprintf(stderr,"error: cannot create target machine for triple '%s'\n",targetTriple.c_str());
 			return false;
 		}
 		auto* targetMachine=reinterpret_cast<llvm::TargetMachine*>(tm);
 		mod->setDataLayout(targetMachine->createDataLayout());
 		mod->setTargetTriple(llvm::Triple(targetTriple));
 		if(LLVMTargetMachineEmitToFile(tm,reinterpret_cast<LLVMModuleRef>(mod.get()),const_cast<char*>(path.c_str()),LLVMAssemblyFile,&errMsg)){
-			fprintf(stderr,"error: %s\n",errMsg?errMsg:"unknown error");
+			fprintf(stderr,"error: failed to emit assembly file '%s': %s\n",path.c_str(),errMsg?errMsg:"unknown emit error");
 			if(errMsg)LLVMDisposeErrorMessage(errMsg);
 			LLVMDisposeTargetMachine(tm);
 			return false;

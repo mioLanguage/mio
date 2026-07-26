@@ -1,0 +1,4 @@
+@echo off
+for /f "delims=" %%i in ('"D:\github\clang+llvm-22.1.8-x86_64-pc-windows-msvc\bin\llvm-config.exe" --libs') do set LLVM_LIBS=%%i
+"D:\github\clang+llvm-22.1.8-x86_64-pc-windows-msvc\bin\clang++.exe" -std=c++17 -I "D:\github\clang+llvm-22.1.8-x86_64-pc-windows-msvc\include" -L "D:\github\clang+llvm-22.1.8-x86_64-pc-windows-msvc\lib" "f:\github\mio\src\main.cpp" -o "f:\github\mio\mioc.exe" -fno-lto -Wl,/FORCE:MULTIPLE -Wl,/LTCG:OFF "f:\github\mio\src\libxml2_stub.lib" %LLVM_LIBS% -llldCOFF -llldCommon -llldMachO -llldELF -llldMinGW -llldWasm -lpsapi -lshell32 -lole32 -luuid -ladvapi32 -lws2_32 -lntdll 2>&1
+exit /b %ERRORLEVEL%

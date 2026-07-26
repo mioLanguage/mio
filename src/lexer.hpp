@@ -110,7 +110,9 @@ private:
 		int start=pos;
 		int startCol=col;
 		bool isFloat=false;
-		if(cur()=='0'&&(cur()=='x'||cur()=='X')){
+		bool isHex=false;
+		if(cur()=='0'&&(source[pos+1]=='x'||source[pos+1]=='X')){
+			isHex=true;
 			advance();
 			advance();
 			while(isxdigit(cur()))advance();
@@ -130,7 +132,8 @@ private:
 			t->float_val=atof(text);
 		}else{
 			t=tok_new(TOK_INT_LIT,text,line,startCol);
-			t->int_val=atoll(text);
+			if(isHex)t->int_val=strtoll(text,nullptr,16);
+			else t->int_val=atoll(text);
 		}
 		free(text);
 		return t;
@@ -224,13 +227,22 @@ private:
 		switch(c){
 			case '"': pos--;col--;return stringLit();
 			case '\'': pos--;col--;return charLit();
-			case '+': return tok_new(TOK_PLUS,std::string(),lineNum,colNum);
+			case '+': 
+				if(match('='))return tok_new(TOK_PLUS_ASSIGN,"+=",lineNum,colNum);
+				return tok_new(TOK_PLUS,std::string(),lineNum,colNum);
 			case '-':
+				if(match('='))return tok_new(TOK_MINUS_ASSIGN,"-=",lineNum,colNum);
 				if(match('>'))return tok_new(TOK_ARROW,std::string(),lineNum,colNum);
 				return tok_new(TOK_MINUS,std::string(),lineNum,colNum);
-			case '*': return tok_new(TOK_STAR,std::string(),lineNum,colNum);
-			case '/': return tok_new(TOK_SLASH,std::string(),lineNum,colNum);
-			case '%': return tok_new(TOK_PERCENT,std::string(),lineNum,colNum);
+			case '*': 
+				if(match('='))return tok_new(TOK_STAR_ASSIGN,"*=",lineNum,colNum);
+				return tok_new(TOK_STAR,std::string(),lineNum,colNum);
+			case '/': 
+				if(match('='))return tok_new(TOK_SLASH_ASSIGN,"/=",lineNum,colNum);
+				return tok_new(TOK_SLASH,std::string(),lineNum,colNum);
+			case '%': 
+				if(match('='))return tok_new(TOK_PERCENT_ASSIGN,"%=",lineNum,colNum);
+				return tok_new(TOK_PERCENT,std::string(),lineNum,colNum);
 			case '(': return tok_new(TOK_LPAREN,std::string(),lineNum,colNum);
 			case ')': return tok_new(TOK_RPAREN,std::string(),lineNum,colNum);
 			case '{': return tok_new(TOK_LBRACE,std::string(),lineNum,colNum);
@@ -238,7 +250,9 @@ private:
 			case '[': return tok_new(TOK_LBRACKET,std::string(),lineNum,colNum);
 			case ']': return tok_new(TOK_RBRACKET,std::string(),lineNum,colNum);
 			case ';': return tok_new(TOK_SEMICOLON,std::string(),lineNum,colNum);
-			case ':': return tok_new(TOK_COLON,std::string(),lineNum,colNum);
+			case ':': 
+				if(match(':'))return tok_new(TOK_DOUBLE_COLON,"::",lineNum,colNum);
+				return tok_new(TOK_COLON,std::string(),lineNum,colNum);
 			case ',': return tok_new(TOK_COMMA,std::string(),lineNum,colNum);
 			case '.': 
 				if(match('.')&&match('.'))return tok_new(TOK_VARARG,"...",lineNum,colNum);
@@ -251,19 +265,29 @@ private:
 				return tok_new(TOK_NOT,std::string(),lineNum,colNum);
 			case '<':
 				if(match('='))return tok_new(TOK_LTE,std::string(),lineNum,colNum);
-				if(match('<'))return tok_new(TOK_LSHIFT,std::string(),lineNum,colNum);
+				if(match('<')){
+					if(match('='))return tok_new(TOK_LSHIFT_ASSIGN,"<<=",lineNum,colNum);
+					return tok_new(TOK_LSHIFT,std::string(),lineNum,colNum);
+				}
 				return tok_new(TOK_LT,std::string(),lineNum,colNum);
 			case '>':
 				if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
-				if(match('>'))return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
+				if(match('>')){
+					if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
+					return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
+				}
 				return tok_new(TOK_GT,std::string(),lineNum,colNum);
 			case '&':
 				if(match('&'))return tok_new(TOK_AND,std::string(),lineNum,colNum);
+				if(match('='))return tok_new(TOK_AND_ASSIGN,"&=",lineNum,colNum);
 				return tok_new(TOK_BIT_AND,std::string(),lineNum,colNum);
 			case '|':
 				if(match('|'))return tok_new(TOK_OR,std::string(),lineNum,colNum);
+				if(match('='))return tok_new(TOK_OR_ASSIGN,"|=",lineNum,colNum);
 				return tok_new(TOK_BIT_OR,std::string(),lineNum,colNum);
-			case '^': return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
+			case '^': 
+				if(match('='))return tok_new(TOK_XOR_ASSIGN,"^=",lineNum,colNum);
+				return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
 			case '~': return tok_new(TOK_BIT_NOT,std::string(),lineNum,colNum);
 			case '@':{
 				int start=pos;
@@ -293,19 +317,23 @@ private:
 #undef cur
 #undef match
 const KeywordEntry Lexer::keywords[]={
-	{"import",TOK_IMPORT},{"extern",TOK_EXTERN},{"var",TOK_VAR},{"def",TOK_DEF},
+	{"import",TOK_IMPORT},{"extern",TOK_EXTERN},{"var",TOK_VAR},
 	{"const",TOK_CONST},{"if",TOK_IF},{"else",TOK_ELSE},
 	{"elif",TOK_ELIF},{"while",TOK_WHILE},{"for",TOK_FOR},
 	{"break",TOK_BREAK},{"continue",TOK_CONTINUE},{"goto",TOK_GOTO},
 	{"return",TOK_RETURN},{"struct",TOK_STRUCT},{"enum",TOK_ENUM},
-	{"union",TOK_UNION},{"static",TOK_STATIC},{"operator",TOK_OPERATOR},
+	{"union",TOK_UNION},{"class",TOK_CLASS},{"namespace",TOK_NAMESPACE},
+	{"public",TOK_PUBLIC},{"private",TOK_PRIVATE},{"protected",TOK_PROTECTED},
+	{"virtual",TOK_VIRTUAL},{"override",TOK_OVERRIDE},
+	{"static",TOK_STATIC},{"operator",TOK_OPERATOR},
 	{"true",TOK_TRUE},{"false",TOK_FALSE},
 	{"this",TOK_THIS},{"macro",TOK_MACRO},
+	{"template",TOK_TEMPLATE},{"typename",TOK_TYPENAME},
 	{"i8",TOK_I8},{"i16",TOK_I16},{"i32",TOK_I32},{"i64",TOK_I64},{"i128",TOK_I128},
 	{"u8",TOK_U8},{"u16",TOK_U16},{"u32",TOK_U32},{"u64",TOK_U64},{"u128",TOK_U128},
 	{"usize",TOK_USIZE},{"isize",TOK_ISIZE},
 	{"f32",TOK_F32},{"f64",TOK_F64},
-	{"bool",TOK_BOOL},{"char",TOK_CHAR},
+	{"bool",TOK_BOOL},{"char",TOK_CHAR},{"void",TOK_VOID},
 	{NULL,TOK_EOF}
 };
 #endif

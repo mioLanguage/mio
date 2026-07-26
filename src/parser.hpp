@@ -5,6 +5,8 @@
 #include"token.hpp"
 #include<string>
 #include<vector>
+#include<unordered_set>
+#include<unordered_map>
 #include<cstdio>
 #include<cstdlib>
 #include<cstring>
@@ -22,7 +24,12 @@ public:
 	std::vector<std::string> include_paths;
 	std::vector<std::string> imported_files;
 	std::vector<Macro> macros;
-	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),filename(f),include_paths(paths),error_count(0){
+	std::unordered_set<std::string> class_names;
+	std::unordered_map<std::string,std::unordered_map<std::string,bool>> class_virtual_methods;
+	std::unordered_map<std::string,std::string> class_base_map;
+	std::unordered_map<std::string,std::unordered_set<std::string>> class_method_names;
+	bool in_template_param;
+	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),filename(f),include_paths(paths),error_count(0),in_template_param(false){
 		cur=lexer->current;
 		peek=lexer->peek();
 	}
@@ -165,6 +172,9 @@ private:
 				if(!resolved.empty()){
 					return parse_import_file(resolved,path,line,col);
 				}
+				if(path.find('.')==std::string::npos){
+					return ast_new_namespace_import(path,line,col);
+				}
 				char buf[512];
 				snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
 				error(buf);
@@ -245,9 +255,19 @@ private:
 			case TOK_F64: advance(); return mio_type_new(MioTypeKind::F64);
 			case TOK_BOOL: advance(); return mio_type_new(MioTypeKind::BOOL);
 			case TOK_CHAR: advance(); return mio_type_new(MioTypeKind::CHAR);
+			case TOK_VOID: advance(); return mio_type_new(MioTypeKind::VOID);
 			case TOK_IDENT:{
 				std::string name=cur->lexeme;
 				advance();
+				if(match(TOK_DOUBLE_COLON)){
+					if(cur->kind!=TOK_IDENT){
+						error_expected("type name after '::'");
+						return mio_type_new(MioTypeKind::VOID);
+					}
+					std::string fullName=name+"::"+cur->lexeme;
+					advance();
+					return mio_type_new_named(MioTypeKind::STRUCT,fullName);
+				}
 				return mio_type_new_named(MioTypeKind::STRUCT,name);
 			}
 			default:
@@ -303,8 +323,31 @@ private:
 				return ast_new_ident("this",t->line,t->col);
 			}
 			case TOK_IDENT:{
+				std::string name=t->lexeme;
+				int line=t->line,col=t->col;
 				advance();
-				return ast_new_ident(t->lexeme,t->line,t->col);
+				if(match(TOK_DOUBLE_COLON)){
+					if(cur->kind!=TOK_IDENT){
+						error_expected("identifier after '::'");
+						return nullptr;
+					}
+					auto* n=ast_new_ident(cur->lexeme,cur->line,cur->col);
+					n->ident.namespace_name=name;
+					advance();
+					return n;
+				}
+				return ast_new_ident(name,line,col);
+			}
+			case TOK_DOUBLE_COLON:{
+				advance();
+				if(cur->kind!=TOK_IDENT){
+					error_expected("identifier after '::'");
+					return nullptr;
+				}
+				auto* n=ast_new_ident(cur->lexeme,cur->line,cur->col);
+				n->ident.namespace_name="::";
+				advance();
+				return n;
 			}
 			case TOK_LPAREN:{
 				advance();
@@ -360,6 +403,35 @@ private:
 	AstNode* parse_postfix(){
 		auto* expr=parse_primary();
 		while(true){
+			if(expr->kind==AstNodeKind::IDENT_EXPR&&cur->kind==TOK_LT){
+				Token* peekTok=lexer->peek();
+				if(is_type_token(peekTok->kind)||peekTok->kind==TOK_INT_LIT||peekTok->kind==TOK_FLOAT_LIT||peekTok->kind==TOK_STRING_LIT||peekTok->kind==TOK_CHAR_LIT||peekTok->kind==TOK_TRUE||peekTok->kind==TOK_FALSE){
+					advance();
+					auto* call=ast_new_call(expr,expr->line,expr->col);
+					in_template_param=true;
+					do{
+						if(is_type_token(cur->kind)){
+							call->call.template_args.push_back({true,parse_type(),nullptr});
+						}else{
+							call->call.template_args.push_back({false,nullptr,parse_expr()});
+						}
+					}while(match(TOK_COMMA));
+					in_template_param=false;
+					if(!match(TOK_GT)){
+						error_expected("'>'");
+					}
+					if(match(TOK_LPAREN)){
+						if(!check(TOK_RPAREN)){
+							ast_call_add_arg(call,parse_expr());
+							while(match(TOK_COMMA))
+								ast_call_add_arg(call,parse_expr());
+						}
+						expect(TOK_RPAREN);
+					}
+					expr=call;
+					continue;
+				}
+			}
 			if(match(TOK_LPAREN)){
 				auto* call=ast_new_call(expr,expr->line,expr->col);
 				if(!check(TOK_RPAREN)){
@@ -450,7 +522,7 @@ private:
 		auto* left=parse_shift();
 		while(true){
 			TokenKind op=cur->kind;
-			if(op==TOK_LT||op==TOK_GT||op==TOK_LTE||op==TOK_GTE){
+			if(op==TOK_LT||(op==TOK_GT&&!in_template_param)||op==TOK_LTE||op==TOK_GTE){
 				advance();
 				left=ast_new_binary(left,op,parse_shift(),left->line,left->col);
 			}else{
@@ -504,9 +576,12 @@ private:
 	}
 	AstNode* parse_assignment(){
 		auto* left=parse_logical_or();
-		if(match(TOK_ASSIGN)){
+		TokenKind assignOp=TOK_EOF;
+		if(cur->kind==TOK_ASSIGN||cur->kind==TOK_PLUS_ASSIGN||cur->kind==TOK_MINUS_ASSIGN||cur->kind==TOK_STAR_ASSIGN||cur->kind==TOK_SLASH_ASSIGN||cur->kind==TOK_PERCENT_ASSIGN||cur->kind==TOK_AND_ASSIGN||cur->kind==TOK_OR_ASSIGN||cur->kind==TOK_XOR_ASSIGN||cur->kind==TOK_LSHIFT_ASSIGN||cur->kind==TOK_RSHIFT_ASSIGN){
+			assignOp=cur->kind;
+			advance();
 			auto* right=parse_assignment();
-			return ast_new_assign(left,right,left->line,left->col);
+			return ast_new_assign(left,assignOp,right,left->line,left->col);
 		}
 		return left;
 	}
@@ -562,6 +637,7 @@ private:
 	AstNode* parse_var_decl(bool is_const,bool is_static){
 		advance();
 		auto* block=ast_new_block(cur->line,cur->col);
+		block->block.is_scope=false;
 		block->block.stmts.push_back(parse_var_items(is_const,is_static));
 		while(match(TOK_COMMA))
 			block->block.stmts.push_back(parse_var_items(is_const,is_static));
@@ -671,9 +747,17 @@ private:
 			}
 		}
 	}
-	AstNode* parse_func_def(bool is_static,bool is_extern=false){
-		int line=cur->line,col=cur->col;
-		auto* return_type=parse_type();
+	AstNode* parse_func_def(bool is_static,bool is_extern=false,AstNode* pre_parsed_return_type=nullptr){
+		int line=pre_parsed_return_type?pre_parsed_return_type->line:cur->line;
+		int col=pre_parsed_return_type?pre_parsed_return_type->col:cur->col;
+		MioType* return_type=nullptr;
+		if(pre_parsed_return_type){
+			return_type=pre_parsed_return_type->func_def.return_type;
+			pre_parsed_return_type->func_def.return_type=nullptr;
+			delete pre_parsed_return_type;
+		}else{
+			return_type=parse_type();
+		}
 		bool is_operator=false;
 		std::string func_name;
 		std::string op_name;
@@ -706,13 +790,29 @@ private:
 				expect(TOK_IDENT);
 				expect(TOK_COLON);
 				auto* ptype=parse_type();
-				ast_func_add_param(func,pname,ptype);
+				AstNode* default_val=nullptr;
+				if(match(TOK_ASSIGN)){
+					default_val=parse_expr();
+					if(!default_val){
+						error("expected default value after '='");
+						mio_type_free(ptype);
+						return nullptr;
+					}
+				}
+				ast_func_add_param(func,pname,ptype,default_val);
 			}while(match(TOK_COMMA));
 		}
 		expect(TOK_RPAREN);
-		if(!is_operator&&match(TOK_COLON)){
-			func->func_def.struct_name=func->func_def.name;
-			while(!check(TOK_LBRACE)&&!check(TOK_EOF)){
+		if(match(TOK_ASSIGN)){
+			if(cur->kind==TOK_INT_LIT && cur->int_val==0){
+				func->func_def.is_pure_virtual=true;
+				advance();
+			}else{
+				error("expected '0' after '=' for pure virtual function");
+			}
+		}
+		if(!is_operator&&!func->func_def.is_pure_virtual&&match(TOK_COLON)){
+			while(!check(TOK_LBRACE)&&!check(TOK_SEMICOLON)&&!check(TOK_EOF)){
 				if(cur->kind==TOK_IDENT){
 					std::string field_name=cur->lexeme;
 					advance();
@@ -723,13 +823,22 @@ private:
 					}else if(match(TOK_ASSIGN)){
 						auto* init_expr=parse_expr();
 						ast_func_add_init(func,field_name,init_expr);
+					}else{
+						char buf[128];
+						snprintf(buf,sizeof(buf),"expected '(' or '=' after field name '%s' in initializer list",field_name.c_str());
+						error(buf);
 					}
+				}else{
+					char buf[128];
+					snprintf(buf,sizeof(buf),"expected field name in initializer list, got '%s'",tok_name(cur->kind).c_str());
+					error(buf);
+					advance();
 				}
 				if(!match(TOK_COMMA))break;
 			}
 		}
 		func->func_def.is_extern=is_extern;
-		if(is_extern){
+		if(is_extern||func->func_def.is_pure_virtual){
 			expect(TOK_SEMICOLON);
 		}else{
 			func->func_def.body=parse_block();
@@ -744,19 +853,17 @@ private:
 		expect(TOK_LBRACE);
 		auto* s=ast_new_struct_def(name,line,col);
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
-			if(match(TOK_DEF)){
-				if(match(TOK_STATIC)){
-					auto* method=parse_func_def(true);
-					if(method){
-						method->func_def.struct_name=s->struct_def.name;
-						ast_struct_add_method(s,method);
-					}
-				}else{
-					auto* method=parse_func_def(false);
-					if(method){
-						method->func_def.struct_name=s->struct_def.name;
-						ast_struct_add_method(s,method);
-					}
+			if(match(TOK_STATIC)){
+				auto* method=parse_func_def(true);
+				if(method){
+					method->func_def.struct_name=s->struct_def.name;
+					ast_struct_add_method(s,method);
+				}
+			}else if(is_type_token(cur->kind)){
+								auto* method=parse_func_def(false);
+				if(method){
+					method->func_def.struct_name=s->struct_def.name;
+					ast_struct_add_method(s,method);
 				}
 			}else if(cur->kind==TOK_IDENT){
 				std::string fname=cur->lexeme;
@@ -813,6 +920,279 @@ private:
 		}
 		expect(TOK_RBRACE);
 		return u;
+	}
+	bool is_type_token(TokenKind kind){
+		switch(kind){
+			case TOK_I8: case TOK_I16: case TOK_I32: case TOK_I64: case TOK_I128:
+			case TOK_U8: case TOK_U16: case TOK_U32: case TOK_U64: case TOK_U128:
+			case TOK_USIZE: case TOK_ISIZE: case TOK_F32: case TOK_F64:
+			case TOK_BOOL: case TOK_CHAR: case TOK_VOID: case TOK_IDENT:
+				return true;
+			default: return false;
+		}
+	}
+	AstNode* parse_class_def(){
+		int line=cur->line,col=cur->col;
+		advance();
+		if(cur->kind!=TOK_IDENT){
+			error("expected class name");
+			return nullptr;
+		}
+		std::string name=cur->lexeme;
+		advance();
+		if(class_names.count(name)){
+			char buf[256];
+			snprintf(buf,sizeof(buf),"class '%s' is already defined",name.c_str());
+			error(buf);
+		}
+		class_names.insert(name);
+		std::string base_name;
+		std::string base_access;
+		if(match(TOK_LPAREN)){
+			if(cur->kind!=TOK_IDENT){
+				error("expected base class name after '('");
+				return nullptr;
+			}
+			base_name=cur->lexeme;
+			advance();
+			if(!class_names.count(base_name)){
+				char buf[256];
+				snprintf(buf,sizeof(buf),"base class '%s' is not defined (forward declaration not supported)",base_name.c_str());
+				error(buf);
+			}
+			if(match(TOK_COLON)){
+				if(cur->kind==TOK_PUBLIC||cur->kind==TOK_PRIVATE||cur->kind==TOK_PROTECTED){
+					base_access=tok_name(cur->kind);
+					advance();
+				}else{
+					error("expected 'public', 'private', or 'protected' after ':' in base class declaration");
+					return nullptr;
+				}
+			}
+			expect(TOK_RPAREN);
+		}
+		expect(TOK_LBRACE);
+		auto* c=ast_new_class_def(name,base_name,base_access,line,col);
+		class_base_map[name]=base_name;
+		Access cur_access=Access::PUBLIC;
+		std::unordered_set<std::string> field_names;
+		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
+			if(match(TOK_PUBLIC)){
+				expect(TOK_COLON);
+				cur_access=Access::PUBLIC;
+			}else if(match(TOK_PRIVATE)){
+				expect(TOK_COLON);
+				cur_access=Access::PRIVATE;
+			}else if(match(TOK_PROTECTED)){
+				expect(TOK_COLON);
+				cur_access=Access::PROTECTED;
+			}else{
+				bool matched_virtual=match(TOK_VIRTUAL);
+				bool matched_override=false;
+				if(!matched_virtual)matched_override=match(TOK_OVERRIDE);
+				bool matched_static=false;
+				if(!matched_virtual&&!matched_override)matched_static=match(TOK_STATIC);
+				if(matched_override){
+					if(base_name.empty()){
+						error("'override' can only be used in a class that inherits from a base class");
+					}
+				}
+				if(matched_virtual||matched_override||matched_static){
+					if(matched_override&&!matched_virtual){
+						matched_virtual=true;
+					}
+					auto* method=parse_func_def(matched_static);
+					if(method){
+						method->func_def.is_virtual=matched_virtual;
+						method->func_def.is_override=matched_override;
+						method->func_def.class_name=c->class_def.name;
+						method->func_def.access=cur_access;
+						if(matched_override&&!base_name.empty()){
+							auto it=class_virtual_methods.find(base_name);
+							if(it!=class_virtual_methods.end()&&!it->second.count(method->func_def.name)){
+								char buf[256];
+								snprintf(buf,sizeof(buf),"method '%s' marked 'override' but does not override any base class virtual method",method->func_def.name.c_str());
+								error(buf);
+							}
+						}
+						if(matched_virtual&&!method->func_def.is_pure_virtual){
+							class_virtual_methods[name][method->func_def.name]=true;
+						}
+						if(method->func_def.is_pure_virtual){
+							class_virtual_methods[name][method->func_def.name]=true;
+						}
+						if(matched_override&&!method->func_def.is_pure_virtual){
+							class_virtual_methods[name][method->func_def.name]=true;
+						}
+						if(class_method_names[name].count(method->func_def.name)){
+							char buf[256];
+							snprintf(buf,sizeof(buf),"method '%s' is already defined in class '%s'",method->func_def.name.c_str(),name.c_str());
+							error(buf);
+						}
+						class_method_names[name].insert(method->func_def.name);
+						if(method->func_def.name==name){
+							if(c->class_def.constructor){
+								error("constructor is already defined");
+							}
+							c->class_def.constructor=method;
+						}else{
+							ast_class_add_method(c,method);
+						}
+					}
+				}else if(match(TOK_BIT_NOT)){
+					int dline=cur->line,dcol=cur->col;
+					if(cur->kind!=TOK_IDENT){
+						error("expected destructor name after '~'");
+						advance();
+						continue;
+					}
+					std::string dname=cur->lexeme;
+					if(dname!=name){
+						char buf[256];
+						snprintf(buf,sizeof(buf),"destructor name '%s' must match class name '%s'",dname.c_str(),name.c_str());
+						error(buf);
+						advance();
+						if(match(TOK_LPAREN)){match(TOK_RPAREN);}
+						if(check(TOK_LBRACE))parse_block();
+						continue;
+					}
+					advance();
+					expect(TOK_LPAREN);
+					expect(TOK_RPAREN);
+					auto* dtor=ast_new_func_def("~"+name,mio_type_new(MioTypeKind::VOID),nullptr,false,dline,dcol);
+					dtor->func_def.class_name=name;
+					dtor->func_def.access=cur_access;
+					dtor->func_def.body=parse_block();
+					c->class_def.destructor=dtor;
+				}else if(is_type_token(cur->kind)){
+										if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
+						std::string fname=cur->lexeme;
+						advance();
+						if(field_names.count(fname)){
+							char buf[256];
+							snprintf(buf,sizeof(buf),"field '%s' is already defined in class '%s'",fname.c_str(),name.c_str());
+							error(buf);
+						}
+						field_names.insert(fname);
+						expect(TOK_COLON);
+						auto* ftype=parse_type();
+						AstNode* init=nullptr;
+						if(match(TOK_ASSIGN))
+							init=parse_expr();
+						expect(TOK_SEMICOLON);
+						ast_class_add_field(c,fname,ftype,init,cur_access);
+					}else{
+						auto* method=parse_func_def(false);
+						if(method){
+							method->func_def.class_name=c->class_def.name;
+							method->func_def.access=cur_access;
+							if(method->func_def.name==name){
+								if(c->class_def.constructor){
+									error("constructor is already defined");
+								}
+								c->class_def.constructor=method;
+							}else{
+								if(class_method_names[name].count(method->func_def.name)){
+									char buf[256];
+									snprintf(buf,sizeof(buf),"method '%s' is already defined in class '%s'",method->func_def.name.c_str(),name.c_str());
+									error(buf);
+								}
+								class_method_names[name].insert(method->func_def.name);
+								ast_class_add_method(c,method);
+							}
+						}
+					}
+				}else{
+					char buf[128];
+					snprintf(buf,sizeof(buf),"expected field, method, or access specifier in class '%s', got '%s'",name.c_str(),tok_name(cur->kind).c_str());
+					error(buf);
+					advance();
+				}
+			}
+		}
+		expect(TOK_RBRACE);
+		return c;
+	}
+	AstNode* parse_namespace_def(){
+		int line=cur->line,col=cur->col;
+		advance();
+		if(cur->kind!=TOK_IDENT){
+			error("expected namespace name");
+			return nullptr;
+		}
+		std::string name=cur->lexeme;
+		advance();
+		auto* n=ast_new_namespace_def(name,line,col);
+		expect(TOK_LBRACE);
+		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
+			auto* decl=parse_decl();
+			if(decl)n->namespace_def.body.push_back(decl);
+		}
+		expect(TOK_RBRACE);
+		return n;
+	}
+	AstNode* parse_template_def(){
+		int line=cur->line,col=cur->col;
+		advance();
+		if(!match(TOK_LT)){
+			error_expected("'<' after 'template'");
+			return nullptr;
+		}
+		std::vector<TemplateParam> type_params;
+		do{
+			TemplateParam tp;
+			tp.is_type=false;
+			tp.type=nullptr;
+			tp.default_type=nullptr;
+			tp.default_val=nullptr;
+			if(cur->kind!=TOK_IDENT){
+				error_expected("template parameter name");
+				return nullptr;
+			}
+			tp.name=cur->lexeme;
+			advance();
+			if(match(TOK_COLON)){
+				if(match(TOK_TYPENAME)){
+					tp.is_type=true;
+				}else{
+					tp.type=parse_type();
+					if(!tp.type){
+						error("expected type after ':' in template parameter");
+						return nullptr;
+					}
+				}
+			}else{
+				tp.is_type=true;
+			}
+			if(match(TOK_ASSIGN)){
+				if(tp.is_type){
+					tp.default_type=parse_type();
+					if(!tp.default_type){
+						error("expected default type after '=' in template parameter");
+						return nullptr;
+					}
+				}else{
+					in_template_param=true;
+					tp.default_val=parse_expr();
+					in_template_param=false;
+					if(!tp.default_val){
+						error("expected default value after '=' in template parameter");
+						return nullptr;
+					}
+				}
+			}
+			type_params.push_back(tp);
+		}while(match(TOK_COMMA));
+		if(!match(TOK_GT)){
+			error_expected("'>' after template parameters");
+			return nullptr;
+		}
+		auto* def=parse_decl();
+		if(!def){
+			error("expected declaration after template");
+			return nullptr;
+		}
+		return ast_new_template_def(type_params,def,line,col);
 	}
 	bool is_macro_defined(const std::string& name){
 		for(const auto& m:macros)
@@ -908,28 +1288,19 @@ private:
 			}
 			case TOK_EXTERN:{
 				advance();
-				if(match(TOK_DEF))
-					return parse_func_def(false,true);
-				error("expected 'def' after 'extern'");
-				return nullptr;
+				return parse_func_def(false,true);
 			}
 			case TOK_VAR:
 				return parse_var_decl(false,false);
 			case TOK_CONST:
 				return parse_var_decl(true,false);
-			case TOK_DEF:
-				advance();
-				return parse_func_def(false);
 			case TOK_STATIC:{
 				advance();
-				if(match(TOK_DEF))
-					return parse_func_def(true);
 				if(match(TOK_VAR))
 					return parse_var_decl(false,true);
 				if(match(TOK_CONST))
 					return parse_var_decl(true,true);
-				error("expected 'def','var',or 'const' after 'static'");
-				return nullptr;
+				return parse_func_def(true);
 			}
 			case TOK_STRUCT:
 				return parse_struct_def();
@@ -937,6 +1308,10 @@ private:
 				return parse_enum_def();
 			case TOK_UNION:
 				return parse_union_def();
+			case TOK_CLASS:
+				return parse_class_def();
+			case TOK_NAMESPACE:
+				return parse_namespace_def();
 			case TOK_MACRO:{
 				advance();
 				if(cur->kind!=TOK_IDENT){
@@ -980,9 +1355,16 @@ private:
 			}
 			case TOK_AT_IF:
 				return parse_cond_comp(cur->line,cur->col);
+			case TOK_TEMPLATE:
+				return parse_template_def();
 			case TOK_EOF:
 				return nullptr;
 			default:{
+				bool mv=match(TOK_VIRTUAL);
+				if(!mv)mv=match(TOK_OVERRIDE);
+				if(mv||is_type_token(cur->kind)){
+					return parse_func_def(false);
+				}
 				error("expected declaration");
 				while(!check(TOK_EOF)&&!check(TOK_SEMICOLON)&&!check(TOK_RBRACE))
 					advance();

@@ -1,5 +1,5 @@
 # mio 编程语言
-mio 是一种编译型编程语言，是 mio 解释器的进化版。首个编译版本使用 C 语言实现。第二版使用 c++ 语言实现。编译器将 `.mio` 源文件翻译为 llvm 代码，再由 lld 生成可执行文件。
+mio 是一种编译型编程语言，是 mio 解释器的进化版。首个编译版本使用 C 语言实现，第二版使用 C++ 语言实现。编译器将 `.mio` 源文件翻译为 LLVM IR，再直接生成原生可执行文件。当前版本：2.1.2。
 ## 获取
 ### 下载预编译二进制文件
 访问 [Releases](https://github.com/mioLanguage/mio/releases) 页面下载对应平台的二进制文件。
@@ -7,22 +7,33 @@ mio 是一种编译型编程语言，是 mio 解释器的进化版。首个编�
 >如果遇到依赖库缺失问题，建议从源代码编译。
 
 ### 从源代码编译
-**环境要求：** c++17 兼容编译器（GCC / Clang / MSVC）
+**环境要求：** c++17 兼容编译器（GCC / Clang / MSVC），LLVM 22.1.x
 ```bash
-g++ -std=c++17 -o mioc src/main.c
+g++ -std=c++17 -o mioc src/main.cpp -lLLVM
 ```
 ## 使用方法
 ```bash
 # 查看版本与许可证
 mioc -v
 mioc --version
-# 编译 mio 源文件（自动生成同名的 .c 文件）
+# 编译 mio 源文件（自动生成同名可执行文件）
 mioc hello.mio
-# 指定输出的 C 文件
-mioc hello.mio -o output.c
-# 编译生成的 C 代码
-gcc output.c -o hello
-./hello
+# 指定输出文件
+mioc hello.mio -o hello.exe
+# 仅生成汇编代码
+mioc hello.mio -S
+# 仅编译为目标文件（不链接）
+mioc hello.mio -c
+# 添加头文件搜索路径
+mioc hello.mio -I ./include
+# 定义宏
+mioc hello.mio -D DEBUG
+# 优化级别（-O0 / -O1 / -O2 / -O3）
+mioc hello.mio -O2
+# 发布模式（自动 -O2 + 缓存）
+mioc hello.mio --release
+# 静态链接
+mioc hello.mio -static
 ```
 # 鸣谢
 - [HZY1618yzh](https://hzy1618yzh.github.io)
@@ -46,7 +57,7 @@ var x = 10;  # 行末注释
 
 **使用方法：** 导入 C 头文件或其他 mio 文件，必须写在文件顶层。可以用 -I 命令指定头文件路径。
 ```bash
-mioc -I./include hello.mio -o hello.o
+mioc hello.mio -I ./include
 ```
 ```mio
 import stdio.h;              # 导入 C 标准库
@@ -59,7 +70,7 @@ import stdio.h, "lib.mio";   # 同时导入多个
 
 **使用方法：** 定义宏来替换代码和条件编译防止重复引入。可以用 -D 命令定义宏。
 ```bash
-mioc -DDEBUG hello.mio -o hello.o
+mioc hello.mio -D DEBUG
 ```
 ```mio
 macro DEBUG;
@@ -86,6 +97,7 @@ const 常量名: 类型 = 初始值;    # 常量（不可修改）
 |------|------|
 | `i8` / `i16` / `i32` / `i64` / `i128` | 有符号整数 |
 | `u8` / `u16` / `u32` / `u64` / `u128` | 无符号整数 |
+| `isize` / `usize` | 指针宽度整数（32/64 位自适应）|
 | `f32` / `f64` | 浮点数 |
 | `bool` | 布尔值（`true` / `false`）|
 | `char` | 单个字符 |
@@ -110,6 +122,25 @@ var x = 42;          # i32
 var pi = 3.14;       # f64
 var flag = true;     # bool
 var nums = {1, 2, 3};  # i32[3]
+```
+### 字符串与字符
+```mio
+var s: char* = "hello";    # 字符串字面量
+var ch: char = 'A';        # 字符字面量
+```
+### 全局变量与命名空间访问
+用 `::` 前缀访问全局变量（避免与局部变量同名冲突）：
+```mio
+var x: i32 = 10;
+void foo() {
+    var x: i32 = 20;
+    printf("%d\n", ::x);   # 访问全局 x，输出 10
+    printf("%d\n", x);     # 访问局部 x，输出 20
+}
+```
+用 `命名空间::标识符` 访问命名空间内成员：
+```mio
+math::add(10, 20);         # 调用 math 命名空间中的 add 函数
 ```
 ## 控制流（if）
 **关键字：** `if`、`elif`、`else`
@@ -197,11 +228,61 @@ var i: i32 = 0;
         goto loop;
     }
 ```
+## 运算符
+### 算术运算符
+| 运算符 | 说明 |
+|--------|------|
+| `+` `-` `*` `/` `%` | 加减乘除取模 |
+| `-` | 取负（一元）|
+| `~` | 按位取反 |
+
+### 比较运算符
+| 运算符 | 说明 |
+|--------|------|
+| `==` `!=` | 等于 / 不等于 |
+| `<` `>` `<=` `>=` | 小于 / 大于 / 小于等于 / 大于等于 |
+
+### 逻辑运算符
+| 运算符 | 说明 |
+|--------|------|
+| `&&` `\|\|` `!` | 逻辑与 / 逻辑或 / 逻辑非 |
+
+### 位运算符
+| 运算符 | 说明 |
+|--------|------|
+| `&` `\|` `^` | 按位与 / 按位或 / 按位异或 |
+| `<<` `>>` | 左移 / 右移 |
+
+### 赋值运算符
+| 运算符 | 说明 |
+|--------|------|
+| `=` | 赋值 |
+| `+=` `-=` `*=` `/=` `%=` | 复合赋值 |
+| `&=` `\|=` `^=` `<<=` `>>=` | 位复合赋值 |
+
+### 运算符重载（结构体/类）
+在结构体或类中定义 `operator+`、`operator-` 等方法实现运算符重载：
+```mio
+struct Point {
+    x: f64;
+    y: f64;
+    Point operator+(other: Point) {
+        return Point(this.x + other.x, this.y + other.y);
+    }
+}
+```
+## 类型转换
+使用 C 风格的类型转换语法：
+```mio
+var x: f64 = 3.14;
+var y: i32 = i32(x);        # 浮点数转整数（截断）
+var z: i64 = i64(y);        # 整数扩展
+var n: u32 = u32(-1);       # 有符号转无符号
+```
 ## 函数
-**关键字：** `def`、`static`
 ### 定义格式
 ```mio
-def 返回类型 函数名(参数名: 参数类型, ...) {
+返回类型 函数名(参数名: 参数类型, ...) {
     函数体
 }
 ```
@@ -209,24 +290,27 @@ def 返回类型 函数名(参数名: 参数类型, ...) {
 
 ```mio
 # 显式返回
-def i32 add(a: i32, b: i32) {
+i32 add(a: i32, b: i32) {
     return a + b;
 }
 
 # 隐式返回（最后一行不加分号）
-def i32 add(a: i32, b: i32) {
+i32 add(a: i32, b: i32) {
     a + b
 }
 
 # 无返回值
-def void say_hello() {
+void say_hello() {
     printf("hello\n");
 }
 
 # 静态函数（仅当前文件可见）
-static def void helper() {
+static void helper() {
     printf("helper\n");
 }
+
+# 仅声明函数（其他文件定义）
+extern i32 printf(fmt: char*, ...);
 ```
 ### 函数调用
 ```mio
@@ -242,20 +326,20 @@ struct 结构体名 {
     字段名: 类型;
 
     # 构造函数（成员初始化列表）
-    def 结构体名(参数列表): 字段名(参数), ... {}
+    结构体名(参数列表): 字段名(参数), ... {}
 
     # 方法（this 为指针）
-    def 返回类型 方法名(其他参数) {
+    返回类型 方法名(其他参数) {
         函数体
     }
 
     # 静态方法
-    static def 返回类型 方法名(参数) {
+    static 返回类型 方法名(参数) {
         函数体
     }
 
     # 运算符重载
-    def 结构体名 operator+(other: 结构体名) {
+    结构体名 operator+(other: 结构体名) {
         函数体
     }
 }
@@ -267,20 +351,20 @@ struct Point {
     y: f64;
 
     # 构造函数
-    def Point(xx: f64, yy: f64): x(xx), y(yy) {}
+    Point(xx: f64, yy: f64): x(xx), y(yy) {}
 
     # 方法
-    def f64 distance() {
+    f64 distance() {
         return this.x * this.x + this.y * this.y;
     }
 
     # 运算符重载
-    def Point operator+(other: Point) {
+    Point operator+(other: Point) {
         return Point(this.x + other.x, this.y + other.y);
     }
 
     # 静态方法
-    static def void info() {
+    static void info() {
         printf("Point struct\n");
     }
 }
@@ -294,6 +378,108 @@ Point.info();                # 静态方法
 ```
 > [!NOTE]
 > 方法中的 `this` 是指针，成员访问会自动使用 `->`，无需手动区分。
+
+## 类
+**关键字：** `class`
+
+类与结构体类似，但支持继承、虚函数和访问控制。类默认使用引用语义（通过指针操作）。
+
+### 定义
+```mio
+class 类名 {
+    访问控制:
+    字段名: 类型;
+    方法定义...
+}
+```
+### 访问控制
+| 关键字 | 说明 |
+|--------|------|
+| `public:` | 公开成员，外部可访问 |
+| `private:` | 私有成员，仅类内部可访问 |
+| `protected:` | 受保护成员，类及其子类可访问 |
+
+### 构造函数与析构函数
+构造函数名与类名相同，析构函数以 `~` 开头：
+```mio
+class Animal {
+public:
+    name: char*;
+
+    Animal(name: char*) {
+        this.name = name;
+    }
+    ~Animal() {
+        printf("Animal destroyed\n");
+    }
+}
+```
+### 继承
+使用 `类名(父类:访问控制)` 语法继承父类：
+```mio
+class Dog(Animal:public) {
+public:
+    Dog(name: char*) {
+        this.name = name;
+    }
+}
+```
+### 虚函数与重写
+用 `virtual` 声明虚函数，子类用 `override` 重写：
+```mio
+class Animal {
+public:
+    virtual void speak() {
+        printf("Animal speak\n");
+    }
+};
+
+class Dog(Animal:public) {
+public:
+    override void speak() {
+        printf("Dog: woof!\n");
+    }
+};
+```
+### 完整示例
+```mio
+class Animal {
+public:
+    name: char*;
+
+    Animal(name: char*) {
+        this.name = name;
+        printf("Animal ctor: %s\n", name);
+    }
+    ~Animal() {
+        printf("Animal dtor: %s\n", this.name);
+    }
+    virtual void speak() {
+        printf("Animal speak\n");
+    }
+};
+
+class Cat(Animal:public) {
+public:
+    Cat(name: char*) {
+        this.name = name;
+        printf("Cat ctor: %s\n", name);
+    }
+    override void speak() {
+        printf("Cat %s: meow!\n", this.name);
+    }
+};
+
+i32 main() {
+    var dog = Dog("Buddy");
+    var cat = Cat("Kitty");
+    dog.speak();   # Dog: woof!
+    cat.speak();   # Cat: meow!
+    return 0;
+}
+```
+> [!NOTE]
+> 类与结构体的主要区别：类支持继承和虚函数，默认使用引用语义；结构体不支持继承，默认使用值语义。
 
 ## 枚举
 **关键字：** `enum`
@@ -353,18 +539,92 @@ printf("%f\n", v.float_val);
 > [!NOTE]
 > 联合体所有字段共享同一块内存，一次只能使用其中一个字段。
 
+## 命名空间
+**关键字：** `namespace`
+
+命名空间用于组织代码，避免名称冲突。命名空间可以嵌套。
+```mio
+namespace math {
+    i32 add(a: i32, b: i32) {
+        return a + b;
+    }
+    i32 sub(a: i32, b: i32) {
+        return a - b;
+    }
+}
+
+i32 main() {
+    var x = math::add(10, 20);   # 用 :: 访问命名空间成员
+    return x;
+}
+```
+> [!NOTE]
+> 命名空间必须在文件顶层定义，不能出现在函数内部。
+
+## 模板
+**关键字：** `template`、`typename`
+
+模板用于编写泛型代码，支持多个模板参数、指定类型和默认值，以及自动类型推导和显式类型参数。
+
+### 语法
+```
+template<T:typename>
+template<T:typename, len:i32=100>
+```
+
+- `T:typename` — 类型参数（简写：`T` 等同于 `T:typename`）
+- `len:i32=100` — 值参数，类型为 `i32`，默认值为 `100`
+
+### 定义
+```mio
+template<T:typename>
+T max(a: T, b: T) {
+    if: a > b {
+        return a;
+    }
+    return b;
+}
+```
+### 使用
+```mio
+i32 main() {
+    var x = max(10, 20);           # 自动推导 T = i32
+    var y = max<f64>(3.14, 2.71);  # 显式指定 T = f64
+    return 0;
+}
+```
+> [!NOTE]
+> 模板目前仅支持函数模板。当调用参数类型一致时，编译器会自动推导模板参数类型。
+
+## 函数参数默认值
+函数参数可以指定默认值，调用时可以省略有默认值的参数：
+```mio
+i32 add(a: i32, b: i32 = 10) {
+    return a + b;
+}
+
+i32 main() {
+    var x = add(5);       # x = 15 (b 使用默认值 10)
+    var y = add(5, 20);   # y = 25
+    return 0;
+}
+```
+
 ## 作用域规则
 ### 顶层作用域（文件级别）
 以下内容只能出现在文件顶层，不能在函数内部定义：
 - `import`
 - `struct`
+- `class`
 - `enum`
 - `union`
+- `namespace`
+- `template`
 - `def`
 ### 块作用域（函数内部）
 用 `{}` 包围的代码块可以嵌套，内部定义的变量在块结束后销毁：
 ```mio
-def void test() {
+void test() {
     var x = 10;
     {
         var y = 20;   # y 只在此块内有效

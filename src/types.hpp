@@ -137,4 +137,31 @@ inline const char* mio_type_c_name(const MioType* type){
 	if(!type) return "void";
 	return type->c_name();
 }
+inline std::string mio_type_str(const MioType* type){
+	if(!type) return "void";
+	switch(type->kind){
+		case MioTypeKind::VOID: return "void";
+		case MioTypeKind::I8: return "i8";
+		case MioTypeKind::I16: return "i16";
+		case MioTypeKind::I32: return "i32";
+		case MioTypeKind::I64: return "i64";
+		case MioTypeKind::I128: return "i128";
+		case MioTypeKind::U8: return "u8";
+		case MioTypeKind::U16: return "u16";
+		case MioTypeKind::U32: return "u32";
+		case MioTypeKind::U64: return "u64";
+		case MioTypeKind::U128: return "u128";
+		case MioTypeKind::USIZE: return "usize";
+		case MioTypeKind::ISIZE: return "isize";
+		case MioTypeKind::F32: return "f32";
+		case MioTypeKind::F64: return "f64";
+		case MioTypeKind::BOOL: return "bool";
+		case MioTypeKind::CHAR: return "char";
+		case MioTypeKind::STRUCT:
+		case MioTypeKind::ENUM:
+		case MioTypeKind::UNION:
+			return type->name.empty()?"void":type->name;
+		default: return "void";
+	}
+}
 #endif

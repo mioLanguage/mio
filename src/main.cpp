@@ -8,6 +8,15 @@
 #include<fstream>
 #include<new>
 #include<memory>
+#include<sys/stat.h>
+
+#ifdef _WIN32
+#define mio_stat _stat64
+#define mio_stat_t struct _stat64
+#else
+#define mio_stat stat
+#define mio_stat_t struct stat
+#endif
 #include"token.hpp"
 #include"lexer.hpp"
 #include"parser.hpp"
@@ -35,14 +44,28 @@ static std::string read_file(const std::string& path){
 		fprintf(stderr,"fatal: out of memory\n"),exit(1);
 	}
 }
+static uint64_t file_mtime(const std::string& path){
+	mio_stat_t st;
+	if(mio_stat(path.c_str(),&st)!=0)return 0;
+	return (uint64_t)st.st_mtime;
+}
+static bool file_exists(const std::string& path){
+	mio_stat_t st;
+	return mio_stat(path.c_str(),&st)==0;
+}
 static void help(const char* prog){
-	fprintf(stderr,"Usage: %s <input.mio> [-o <output>] [-I <include_path>] [-D <macro>[=<value>]] [-S] [-c]\n",prog);
+	fprintf(stderr,"Usage: %s <input.mio> [-o <output>] [-I <include_path>] [-D <macro>[=<value>]] [-S] [-c] [-O<0|1|2|3>] [--release]\n",prog);
 	fprintf(stderr,"  Mio compiler - compiles Mio source to native code\n");
 	fprintf(stderr,"  -o <file>   specify output file (.ll/.s/.o/.exe or no extension)\n");
 	fprintf(stderr,"  -S          emit assembly (.s) instead of executable\n");
 	fprintf(stderr,"  -c          compile only, emit object file (.o) instead of executable\n");
 	fprintf(stderr,"  -I <path>   add include path for .mio file resolution\n");
 	fprintf(stderr,"  -D <macro>  define a macro (e.g. -D DEBUG or -D VERSION=2)\n");
+	fprintf(stderr,"  -O0         no optimization\n");
+	fprintf(stderr,"  -O1         basic optimization\n");
+	fprintf(stderr,"  -O2         standard optimization (default for --release)\n");
+	fprintf(stderr,"  -O3         aggressive optimization\n");
+	fprintf(stderr,"  --release   release mode (enables -O2 and caching)\n");
 	fprintf(stderr,"  -static     link statically (no DLL dependencies)\n");
 }
 int main(int argc,char* argv[]){
@@ -55,7 +78,8 @@ int main(int argc,char* argv[]){
 		}
 		std::string input_file,output_file;
 		std::vector<std::string> include_paths,defines;
-		bool emit_asm=false,compile_only=false,static_link=false;
+		bool emit_asm=false,compile_only=false,static_link=false,release=false;
+		int opt_level=0;
 		for(int i=1;i<argc;i++){
 			if(strcmp(argv[i],"-o")==0&&i+1<argc)output_file=argv[++i];
 			else if(strcmp(argv[i],"-I")==0&&i+1<argc)include_paths.push_back(argv[++i]);
@@ -63,6 +87,8 @@ int main(int argc,char* argv[]){
 			else if(strcmp(argv[i],"-S")==0)emit_asm=true;
 			else if(strcmp(argv[i],"-c")==0)compile_only=true;
 			else if(strcmp(argv[i],"-static")==0)static_link=true;
+			else if(strcmp(argv[i],"--release")==0){release=true;opt_level=2;}
+			else if(strncmp(argv[i],"-O",2)==0&&strlen(argv[i])==3&&argv[i][2]>='0'&&argv[i][2]<='3')opt_level=argv[i][2]-'0';
 			else if(input_file.empty())input_file=argv[i];
 		}
 		if(input_file.empty()){help(argv[0]);exit(1);}
@@ -94,14 +120,36 @@ int main(int argc,char* argv[]){
 			size_t dot=base_name.find_last_of('.');
 			if(dot!=std::string::npos)base_name=base_name.substr(0,dot);
 		}
-		CodeGen cg(base_name);
+		CodeGen cg(base_name,input_file,opt_level);
 		if(!cg.generate(program)){
 			fprintf(stderr,"error: code generation failed\n");
 			delete program;
 			exit(1);
 		}
 		bool ok=true;
-		if(CodeGen::isLLVMFile(output_file)){
+		bool useCache=false;
+		if(release){
+			std::string cache_obj_path=base_name+".o";
+			if(file_exists(cache_obj_path)){
+				uint64_t src_mtime=file_mtime(input_file);
+				uint64_t obj_mtime=file_mtime(cache_obj_path);
+				if(obj_mtime>=src_mtime){
+					useCache=true;
+					fprintf(stdout,"[cache] using cached object file '%s'\n",cache_obj_path.c_str());
+				}
+			}
+		}
+		if(useCache){
+			std::string obj_path=base_name+".o";
+			if(emit_asm||compile_only||CodeGen::isLLVMFile(output_file)||CodeGen::isAssemblyFile(output_file)||CodeGen::isObjectFile(output_file)){
+				ok=true;
+			}else{
+				std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
+				ok=cg.linkExecutable(obj_path,exe_path,static_link);
+				if(ok)fprintf(stdout,"Generated: %s\n",exe_path.c_str());
+				else fprintf(stderr,"error: linking failed\n");
+			}
+		}else if(CodeGen::isLLVMFile(output_file)){
 			std::string ll_path=output_file.empty()?base_name+".ll":output_file;
 			ok=cg.emitLLVM(ll_path);
 			if(ok)fprintf(stdout,"Generated: %s\n",ll_path.c_str());
@@ -117,7 +165,7 @@ int main(int argc,char* argv[]){
 			std::string obj_path=base_name+".o";
 			ok=cg.emitObject(obj_path);
 			if(!ok){
-				fprintf(stderr,"error: failed to emit object file\n");
+				fprintf(stderr,"error: failed to emit object file '%s'\n",obj_path.c_str());
 				delete program;
 				exit(1);
 			}
@@ -127,7 +175,7 @@ int main(int argc,char* argv[]){
 				fprintf(stdout,"Generated: %s\n",exe_path.c_str());
 				std::remove(obj_path.c_str());
 			}else{
-				fprintf(stderr,"error: linking failed\n");
+				fprintf(stderr,"error: linking failed for '%s'\n",exe_path.c_str());
 			}
 		}
 		delete program;
@@ -136,7 +184,7 @@ int main(int argc,char* argv[]){
 		fprintf(stderr,"fatal error: %s\n",e.what());
 		exit(1);
 	}catch(...){
-		fprintf(stderr,"fatal: unknown error\n");
+		fprintf(stderr,"fatal: unknown error (exception not derived from std::exception)\n");
 		exit(1);
 	}
 	return 0;

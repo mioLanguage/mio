@@ -17,6 +17,9 @@ enum class AstNodeKind{
 	STRUCT_DEF,
 	ENUM_DEF,
 	UNION_DEF,
+	CLASS_DEF,
+	NAMESPACE_DEF,
+	NAMESPACE_IMPORT,
 	BLOCK,
 	IF_STMT,
 	WHILE_STMT,
@@ -42,16 +45,36 @@ enum class AstNodeKind{
 	CAST_EXPR,
 	ASSIGN_EXPR,
 	MACRO_DEF,
+	TEMPLATE_DEF,
+};
+enum class Access{
+	PUBLIC,
+	PRIVATE,
+	PROTECTED,
 };
 class AstNode;
+struct TemplateArg{
+	bool is_type;
+	MioType* type_val;
+	AstNode* expr_val;
+};
+struct TemplateParam{
+	std::string name;
+	bool is_type;
+	MioType* type;
+	MioType* default_type;
+	AstNode* default_val;
+};
 struct Param{
 	std::string name;
 	MioType*type;
+	AstNode*default_val;
 };
 struct Field{
 	std::string name;
 	MioType*type;
 	AstNode*init;
+	Access access;
 };
 struct Variant{
 	std::string name;
@@ -95,7 +118,9 @@ public:
 		std::vector<Param> params;
 		AstNode*body;
 		bool is_static,is_operator,is_extern,is_variadic;
-		std::string op_name,struct_name;
+		bool is_virtual,is_override,is_pure_virtual;
+		Access access;
+		std::string op_name,struct_name,class_name;
 		std::vector<InitField> init_list;
 	} func_def;
 	struct{
@@ -112,7 +137,24 @@ public:
 		std::vector<UnionField> fields;
 	} union_def;
 	struct{
+		std::string name;
+		std::string base_name;
+		std::string base_access;
+		std::vector<Field> fields;
+		std::vector<AstNode*> methods;
+		AstNode* constructor;
+		AstNode* destructor;
+	} class_def;
+	struct{
+		std::string name;
+		std::vector<AstNode*> body;
+	} namespace_def;
+	struct{
+		std::string namespace_name;
+	} namespace_import;
+	struct{
 		std::vector<AstNode*> stmts;
+		bool is_scope;
 	} block;
 	struct{
 		AstNode*cond,*then_body,*else_body;
@@ -148,6 +190,7 @@ public:
 	struct{
 		AstNode*callee;
 		std::vector<AstNode*> args;
+		std::vector<TemplateArg> template_args;
 	} call;
 	struct{
 		AstNode*base;
@@ -160,6 +203,7 @@ public:
 	} member;
 	struct{
 		std::string name;
+		std::string namespace_name;
 	} ident;
 	struct{
 		int64_t value;
@@ -185,10 +229,15 @@ public:
 	} cast_expr;
 	struct{
 		AstNode*left,*right;
+		TokenKind op;
 	} assign;
 	struct{
 		std::string name,value;
 	} macro_def;
+	struct{
+		std::vector<TemplateParam> type_params;
+		AstNode* def;
+	} template_def;
 	AstNode(AstNodeKind k,int l,int c):kind(k),type(nullptr),line(l),col(c){}
 	~AstNode();
 };
@@ -210,7 +259,7 @@ inline AstNode::~AstNode(){
 			break;
 		case AstNodeKind::FUNC_DEF:
 			mio_type_free(func_def.return_type);
-			for(auto& p:func_def.params)mio_type_free(p.type);
+			for(auto& p:func_def.params){mio_type_free(p.type);delete p.default_val;}
 			delete func_def.body;
 			for(auto& f:func_def.init_list)delete f.expr;
 			break;
@@ -227,6 +276,15 @@ inline AstNode::~AstNode(){
 		case AstNodeKind::UNION_DEF:
 			for(auto& f:union_def.fields)mio_type_free(f.type);
 			break;
+		case AstNodeKind::CLASS_DEF:
+			for(auto& f:class_def.fields){
+			mio_type_free(f.type);
+			delete f.init;
+		}
+		for(auto*m:class_def.methods)delete m;
+		delete class_def.constructor;
+		delete class_def.destructor;
+		break;
 		case AstNodeKind::BLOCK:
 			for(auto*s:block.stmts)delete s;
 			break;
@@ -266,6 +324,10 @@ inline AstNode::~AstNode(){
 		case AstNodeKind::CALL_EXPR:
 			delete call.callee;
 			for(auto*a:call.args)delete a;
+			for(auto& t:call.template_args){
+				if(t.is_type)mio_type_free(t.type_val);
+				else delete t.expr_val;
+			}
 			break;
 		case AstNodeKind::INDEX_EXPR:
 			delete index_expr.base;
@@ -290,6 +352,14 @@ inline AstNode::~AstNode(){
 			delete assign.right;
 			break;
 		case AstNodeKind::MACRO_DEF:
+			break;
+		case AstNodeKind::TEMPLATE_DEF:
+			for(auto& tp:template_def.type_params){
+				mio_type_free(tp.type);
+				mio_type_free(tp.default_type);
+				delete tp.default_val;
+			}
+			delete template_def.def;
 			break;
 		default:
 			break;
@@ -328,7 +398,7 @@ inline AstNode*ast_new_const_decl(const std::string& name,MioType*type,AstNode*i
 	n->const_decl.is_static=is_static;
 	return n;
 }
-inline AstNode*ast_new_func_def(const std::string& name,MioType*return_type,AstNode*body,bool is_static,int line,int col){
+inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,AstNode* body,bool is_static,int line,int col){
 	auto*n=new AstNode(AstNodeKind::FUNC_DEF,line,col);
 	n->func_def.name=name;
 	n->func_def.return_type=return_type;
@@ -337,11 +407,34 @@ inline AstNode*ast_new_func_def(const std::string& name,MioType*return_type,AstN
 	n->func_def.is_operator=false;
 	n->func_def.is_extern=false;
 	n->func_def.is_variadic=false;
+	n->func_def.is_virtual=false;
+	n->func_def.is_override=false;
+	n->func_def.is_pure_virtual=false;
+	n->func_def.access=Access::PUBLIC;
 	return n;
 }
 inline AstNode*ast_new_struct_def(const std::string& name,int line,int col){
 	auto*n=new AstNode(AstNodeKind::STRUCT_DEF,line,col);
 	n->struct_def.name=name;
+	return n;
+}
+inline AstNode*ast_new_class_def(const std::string& name,const std::string& base_name,const std::string& base_access,int line,int col){
+	auto*n=new AstNode(AstNodeKind::CLASS_DEF,line,col);
+	n->class_def.name=name;
+	n->class_def.base_name=base_name;
+	n->class_def.base_access=base_access;
+	n->class_def.constructor=nullptr;
+	n->class_def.destructor=nullptr;
+	return n;
+}
+inline AstNode*ast_new_namespace_def(const std::string& name,int line,int col){
+	auto*n=new AstNode(AstNodeKind::NAMESPACE_DEF,line,col);
+	n->namespace_def.name=name;
+	return n;
+}
+inline AstNode*ast_new_namespace_import(const std::string& name,int line,int col){
+	auto*n=new AstNode(AstNodeKind::NAMESPACE_IMPORT,line,col);
+	n->namespace_import.namespace_name=name;
 	return n;
 }
 inline AstNode*ast_new_enum_def(const std::string& name,int line,int col){
@@ -355,7 +448,9 @@ inline AstNode*ast_new_union_def(const std::string& name,int line,int col){
 	return n;
 }
 inline AstNode*ast_new_block(int line,int col){
-	return new AstNode(AstNodeKind::BLOCK,line,col);
+	auto*n=new AstNode(AstNodeKind::BLOCK,line,col);
+	n->block.is_scope=true;
+	return n;
 }
 inline AstNode*ast_new_if(AstNode*cond,AstNode*then_body,AstNode*else_body,int line,int col){
 	auto*n=new AstNode(AstNodeKind::IF_STMT,line,col);
@@ -474,9 +569,10 @@ inline AstNode*ast_new_cast(MioType*type,AstNode*expr,int line,int col){
 	n->cast_expr.expr=expr;
 	return n;
 }
-inline AstNode*ast_new_assign(AstNode*left,AstNode*right,int line,int col){
+inline AstNode*ast_new_assign(AstNode*left,TokenKind op,AstNode*right,int line,int col){
 	auto*n=new AstNode(AstNodeKind::ASSIGN_EXPR,line,col);
 	n->assign.left=left;
+	n->assign.op=op;
 	n->assign.right=right;
 	return n;
 }
@@ -486,6 +582,12 @@ inline AstNode*ast_new_macro_def(const std::string& name,const std::string& valu
 	n->macro_def.value=value.empty()?"1":value;
 	return n;
 }
+inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_params,AstNode* def,int line,int col){
+	auto*n=new AstNode(AstNodeKind::TEMPLATE_DEF,line,col);
+	n->template_def.type_params=type_params;
+	n->template_def.def=def;
+	return n;
+}
 inline void ast_call_add_arg(AstNode*call,AstNode*arg){
 	call->call.args.push_back(arg);
 }
@@ -493,11 +595,18 @@ inline void ast_array_add(AstNode*array,AstNode*elem){
 	array->array_lit.elements.push_back(elem);
 }
 inline void ast_struct_add_field(AstNode*s,const std::string& name,MioType*type,AstNode*init){
-	Field f{name,type,init};
+	Field f{name,type,init,Access::PUBLIC};
 	s->struct_def.fields.push_back(f);
 }
 inline void ast_struct_add_method(AstNode*s,AstNode*method){
 	s->struct_def.methods.push_back(method);
+}
+inline void ast_class_add_field(AstNode*c,const std::string& name,MioType*type,AstNode*init,Access access){
+	Field f{name,type,init,access};
+	c->class_def.fields.push_back(f);
+}
+inline void ast_class_add_method(AstNode*c,AstNode*method){
+	c->class_def.methods.push_back(method);
 }
 inline void ast_enum_add_variant(AstNode*e,const std::string& name,AstNode*init){
 	Variant v{name,init};
@@ -507,8 +616,8 @@ inline void ast_union_add_field(AstNode*u,const std::string& name,MioType*type){
 	UnionField f{name,type};
 	u->union_def.fields.push_back(f);
 }
-inline void ast_func_add_param(AstNode*func,const std::string& name,MioType*type){
-	Param p{name,type};
+inline void ast_func_add_param(AstNode*func,const std::string& name,MioType*type,AstNode*default_val=nullptr){
+	Param p{name,type,default_val};
 	func->func_def.params.push_back(p);
 }
 inline void ast_func_add_init(AstNode*func,const std::string& field_name,AstNode*expr){
