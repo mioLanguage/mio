@@ -1330,17 +1330,22 @@ class CodeGen{
 		if(classVTableGlobals.count(className)){
 			auto* vtableGV=classVTableGlobals[className];
 			auto* st=structTypes[className];
-			if(st){
-				auto* vtablePtr=b.CreateGEP(st,thisPtr,{
-					llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
-					llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),0)
-				});
-				b.CreateStore(vtableGV,vtablePtr);
+			if(!st){
+				error("struct type '"+className+"' not found for vtable initialization");
+				return;
 			}
+			auto* vtablePtr=b.CreateGEP(st,thisPtr,{
+				llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),
+				llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),0)
+			});
+			b.CreateStore(vtableGV,vtablePtr);
 		}
-				for(auto& init:def->func_def.init_list){
+		for(auto& init:def->func_def.init_list){
 			llvm::Value* val=genExpr(init.expr);
-			if(!val)continue;
+			if(!val){
+				error("failed to generate initializer for field '"+init.name+"'");
+				return;
+			}
 			auto fit=structFieldIdx.find(className);
 			if(fit!=structFieldIdx.end()){
 				auto fi=fit->second.find(init.name);
@@ -1416,7 +1421,8 @@ class CodeGen{
 			case AstNodeKind::GOTO_STMT:	break;
 			case AstNodeKind::LABEL_STMT:	break;
 			default:{
-				genExpr(stmt);
+				llvm::Value* v=genExpr(stmt);
+				if(!v)error(stmt->line,stmt->col,"failed to generate expression statement");
 				break;
 			}
 		}
@@ -1432,10 +1438,12 @@ class CodeGen{
 		localMioTypes[name]=mt;
 		if(initExpr){
 			llvm::Value* val=genExpr(initExpr);
-			if(val){
-				if(val->getType()!=ty)val=genCastValue(val,ty);
-				b.CreateStore(val,alloca);
+			if(!val){
+				error(decl->line,decl->col,"failed to generate initializer for '"+name+"'");
+				return;
 			}
+			if(val->getType()!=ty)val=genCastValue(val,ty);
+			b.CreateStore(val,alloca);
 		}
 		if(mt&&mt->kind==MioTypeKind::STRUCT){
 			auto dit=classDestructorMap.find(mt->name);
@@ -1555,21 +1563,29 @@ class CodeGen{
 		}
 	}
 	void genExprStmt(AstNode* stmt){
-		genExpr(stmt->expr_stmt.expr);
+		llvm::Value* v=genExpr(stmt->expr_stmt.expr);
+		if(!v&&stmt->expr_stmt.expr->kind!=AstNodeKind::CALL_EXPR){
+			error(stmt->line,stmt->col,"failed to generate expression");
+		}
 	}
 	void genAssign(AstNode* expr){
 		llvm::Value* rhs=genExpr(expr->assign.right);
-		if(!rhs)return;
+		if(!rhs){
+			error(expr->line,expr->col,"failed to generate right-hand side of assignment");
+			return;
+		}
 		AstNode* lhs=expr->assign.left;
 		llvm::Value* ptr=genLValue(lhs);
-		if(ptr){
-			llvm::Type* valTy=ptr->getType();
-			if(valTy->isPointerTy()){
-				llvm::Type* elemTy=resolveExprType(lhs);
-				if(rhs->getType()!=elemTy)rhs=genCastValue(rhs,elemTy);
-			}
-			b.CreateStore(rhs,ptr);
+		if(!ptr){
+			error(expr->line,expr->col,"failed to generate left-hand side of assignment");
+			return;
 		}
+		llvm::Type* valTy=ptr->getType();
+		if(valTy->isPointerTy()){
+			llvm::Type* elemTy=resolveExprType(lhs);
+			if(rhs->getType()!=elemTy)rhs=genCastValue(rhs,elemTy);
+		}
+		b.CreateStore(rhs,ptr);
 	}
 	llvm::Value* genLValue(AstNode* node){
 		switch(node->kind){
@@ -1687,6 +1703,7 @@ class CodeGen{
 				return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),sz);
 			}
 			default:
+				error(node->line,node->col,"unsupported expression kind");
 				return nullptr;
 		}
 	}
@@ -1750,7 +1767,14 @@ class CodeGen{
 	llvm::Value* genBinaryExpr(AstNode* node){
 		llvm::Value* l=genExpr(node->binary.left);
 		llvm::Value* r=genExpr(node->binary.right);
-		if(!l||!r)return nullptr;
+		if(!l){
+			error(node->line,node->col,"failed to generate left operand of binary expression");
+			return nullptr;
+		}
+		if(!r){
+			error(node->line,node->col,"failed to generate right operand of binary expression");
+			return nullptr;
+		}
 		llvm::Type* lt=l->getType();
 		llvm::Type* rt=r->getType();
 		bool isFloat=lt->isFloatingPointTy()||rt->isFloatingPointTy();
@@ -1847,7 +1871,10 @@ class CodeGen{
 		switch(node->unary.op){
 			case TOK_STAR:{
 				llvm::Value* op=genExpr(node->unary.operand);
-				if(!op)return nullptr;
+				if(!op){
+					error(node->line,node->col,"failed to generate operand of dereference");
+					return nullptr;
+				}
 				if(op->getType()->isPointerTy()){
 					MioType* operandMio=resolveExprMioType(node->unary.operand);
 					if(operandMio&&operandMio->kind==MioTypeKind::POINTER&&operandMio->base_type){
@@ -1861,23 +1888,35 @@ class CodeGen{
 			}
 			case TOK_BIT_AND:{
 				llvm::Value* ptr=genLValue(node->unary.operand);
-				if(!ptr)return nullptr;
+				if(!ptr){
+					error(node->line,node->col,"failed to generate operand of address-of");
+					return nullptr;
+				}
 				return ptr;
 			}
 			case TOK_MINUS:{
 				llvm::Value* op=genExpr(node->unary.operand);
-				if(!op)return nullptr;
+				if(!op){
+					error(node->line,node->col,"failed to generate operand of unary minus");
+					return nullptr;
+				}
 				if(op->getType()->isFloatingPointTy())return b.CreateFNeg(op);
 				return b.CreateNeg(op);
 			}
 			case TOK_NOT:{
 				llvm::Value* op=genExpr(node->unary.operand);
-				if(!op)return nullptr;
+				if(!op){
+					error(node->line,node->col,"failed to generate operand of logical not");
+					return nullptr;
+				}
 				return b.CreateNot(op);
 			}
 			case TOK_BIT_NOT:{
 				llvm::Value* op=genExpr(node->unary.operand);
-				if(!op)return nullptr;
+				if(!op){
+					error(node->line,node->col,"failed to generate operand of bitwise not");
+					return nullptr;
+				}
 				return b.CreateNot(op);
 			}
 			default:
@@ -1996,7 +2035,11 @@ class CodeGen{
 				args.push_back(alloca);
 				for(auto* a:node->call.args){
 					llvm::Value* av=genExpr(a);
-					if(av)args.push_back(av);
+					if(!av){
+						error(node->line,node->col,"failed to generate constructor argument");
+						return nullptr;
+					}
+					args.push_back(av);
 				}
 				
 				b.CreateCall(ctor,args);
@@ -2162,7 +2205,11 @@ class CodeGen{
 			std::vector<llvm::Value*> args;
 			for(auto* a:node->call.args){
 				llvm::Value* av=genExpr(a);
-				if(av)args.push_back(av);
+				if(!av){
+					error(node->line,node->col,"failed to generate constructor argument");
+					return nullptr;
+				}
+				args.push_back(av);
 			}
 			return b.CreateCall(ft,calleeVal,args);
 		}
@@ -2186,7 +2233,10 @@ class CodeGen{
 				mio_type_free(argMio);
 			}
 			if(!av)av=genExpr(node->call.args[i]);
-			if(!av)continue;
+			if(!av){
+				error(node->line,node->col,"failed to generate argument "+std::to_string(i)+" of function call");
+				return nullptr;
+			}
 			if(i<fn->arg_size()){
 				llvm::Type* paramTy=fn->getArg(i)->getType();
 				if(av->getType()!=paramTy)av=genCastValue(av,paramTy);
@@ -2204,11 +2254,13 @@ class CodeGen{
 				for(size_t i=node->call.args.size();i<funcDef->func_def.params.size()&&i<fn->arg_size();i++){
 					if(funcDef->func_def.params[i].default_val){
 						llvm::Value* dv=genExpr(funcDef->func_def.params[i].default_val);
-						if(dv){
-							llvm::Type* paramTy=fn->getArg(i)->getType();
-							if(dv->getType()!=paramTy)dv=genCastValue(dv,paramTy);
-							args.push_back(dv);
+						if(!dv){
+							error(node->line,node->col,"failed to generate default value for parameter '"+funcDef->func_def.params[i].name+"'");
+							return nullptr;
 						}
+						llvm::Type* paramTy=fn->getArg(i)->getType();
+						if(dv->getType()!=paramTy)dv=genCastValue(dv,paramTy);
+						args.push_back(dv);
 					}
 				}
 			}
@@ -2217,9 +2269,15 @@ class CodeGen{
 	}
 	llvm::Value* genIndexExpr(AstNode* node){
 		llvm::Value* base=genExpr(node->index_expr.base);
-		if(!base)return nullptr;
+		if(!base){
+			error(node->line,node->col,"failed to generate base of index expression");
+			return nullptr;
+		}
 		llvm::Value* idx=genExpr(node->index_expr.index);
-		if(!idx)return nullptr;
+		if(!idx){
+			error(node->line,node->col,"failed to generate index of index expression");
+			return nullptr;
+		}
 		llvm::Type* elemTy=resolveExprType(node);
 		if(!idx->getType()->isIntegerTy(64))
 			idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
@@ -2234,7 +2292,10 @@ class CodeGen{
 	llvm::Value* genMemberExpr(AstNode* node){
 		llvm::Value* base=genLValue(node->member.base);
 		if(!base)base=genExpr(node->member.base);
-		if(!base)return nullptr;
+		if(!base){
+			error(node->line,node->col,"failed to generate base of member expression");
+			return nullptr;
+		}
 		std::string structName;
 		if(node->member.base->type&&!node->member.base->type->name.empty())
 			structName=node->member.base->type->name;
@@ -2292,7 +2353,10 @@ class CodeGen{
 		auto* alloca=createEntryAlloca(curFn,"arrlit",arrTy);
 		for(size_t i=0;i<node->array_lit.elements.size();i++){
 			llvm::Value* ev=genExpr(node->array_lit.elements[i]);
-			if(!ev)continue;
+			if(!ev){
+				error(node->line,node->col,"failed to generate array element "+std::to_string(i));
+				return nullptr;
+			}
 			if(ev->getType()!=elemTy)ev=genCastValue(ev,elemTy);
 			llvm::Value* ptr=b.CreateGEP(arrTy,alloca,{llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0),llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),i)});
 			b.CreateStore(ev,ptr);
@@ -2301,58 +2365,66 @@ class CodeGen{
 	}
 	llvm::Value* genCastExpr(AstNode* node){
 		llvm::Value* v=genExpr(node->cast_expr.expr);
-		if(!v)return nullptr;
+		if(!v){
+			error(node->line,node->col,"failed to generate expression in cast");
+			return nullptr;
+		}
 		llvm::Type* target=convertType(node->cast_expr.target_type);
 		return genCastValue(v,target);
 	}
 	llvm::Value* genAssignExpr(AstNode* node){
 		llvm::Value* rhs=genExpr(node->assign.right);
-		if(!rhs)return nullptr;
+		if(!rhs){
+			error(node->line,node->col,"failed to generate right-hand side of assignment expression");
+			return nullptr;
+		}
 		llvm::Value* ptr=genLValue(node->assign.left);
-		if(ptr){
-			llvm::Type* valTy=ptr->getType();
-			if(valTy->isPointerTy()){
-				llvm::Type* elemTy=resolveExprType(node->assign.left);
-				if(rhs->getType()!=elemTy)rhs=genCastValue(rhs,elemTy);
-				if(node->assign.op!=TOK_ASSIGN){
-					llvm::Value* lhs=b.CreateLoad(elemTy,ptr);
-					switch(node->assign.op){
-						case TOK_PLUS_ASSIGN:
-							if(elemTy->isPointerTy()){
-								MioType* lmio=resolveExprMioType(node->assign.left);
-								llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
-								if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
-									gepElemTy=convertType(lmio->base_type);
-								rhs=b.CreateGEP(gepElemTy,lhs,rhs);
-							}else{
-								rhs=b.CreateAdd(lhs,rhs);
-							}
-							break;
-						case TOK_MINUS_ASSIGN:
-							if(elemTy->isPointerTy()){
-								MioType* lmio=resolveExprMioType(node->assign.left);
-								llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
-								if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
-									gepElemTy=convertType(lmio->base_type);
-								rhs=b.CreateGEP(gepElemTy,lhs,b.CreateNeg(rhs));
-							}else{
-								rhs=b.CreateSub(lhs,rhs);
-							}
-							break;
-						case TOK_STAR_ASSIGN:rhs=b.CreateMul(lhs,rhs);break;
-						case TOK_SLASH_ASSIGN:rhs=elemTy->isFloatingPointTy()?b.CreateFDiv(lhs,rhs):b.CreateSDiv(lhs,rhs);break;
-						case TOK_PERCENT_ASSIGN:rhs=b.CreateSRem(lhs,rhs);break;
-						case TOK_AND_ASSIGN:rhs=b.CreateAnd(lhs,rhs);break;
-						case TOK_OR_ASSIGN:rhs=b.CreateOr(lhs,rhs);break;
-						case TOK_XOR_ASSIGN:rhs=b.CreateXor(lhs,rhs);break;
-						case TOK_LSHIFT_ASSIGN:rhs=b.CreateShl(lhs,rhs);break;
-						case TOK_RSHIFT_ASSIGN:rhs=b.CreateAShr(lhs,rhs);break;
-						default:break;
-					}
+		if(!ptr){
+			error(node->line,node->col,"failed to generate left-hand side of assignment expression");
+			return nullptr;
+		}
+		llvm::Type* valTy=ptr->getType();
+		if(valTy->isPointerTy()){
+			llvm::Type* elemTy=resolveExprType(node->assign.left);
+			if(rhs->getType()!=elemTy)rhs=genCastValue(rhs,elemTy);
+			if(node->assign.op!=TOK_ASSIGN){
+				llvm::Value* lhs=b.CreateLoad(elemTy,ptr);
+				switch(node->assign.op){
+					case TOK_PLUS_ASSIGN:
+						if(elemTy->isPointerTy()){
+							MioType* lmio=resolveExprMioType(node->assign.left);
+							llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
+							if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
+								gepElemTy=convertType(lmio->base_type);
+							rhs=b.CreateGEP(gepElemTy,lhs,rhs);
+						}else{
+							rhs=b.CreateAdd(lhs,rhs);
+						}
+						break;
+					case TOK_MINUS_ASSIGN:
+						if(elemTy->isPointerTy()){
+							MioType* lmio=resolveExprMioType(node->assign.left);
+							llvm::Type* gepElemTy=llvm::Type::getInt8Ty(ctx);
+							if(lmio&&lmio->kind==MioTypeKind::POINTER&&lmio->base_type&&lmio->base_type->kind!=MioTypeKind::VOID)
+								gepElemTy=convertType(lmio->base_type);
+							rhs=b.CreateGEP(gepElemTy,lhs,b.CreateNeg(rhs));
+						}else{
+							rhs=b.CreateSub(lhs,rhs);
+						}
+						break;
+					case TOK_STAR_ASSIGN:rhs=b.CreateMul(lhs,rhs);break;
+					case TOK_SLASH_ASSIGN:rhs=elemTy->isFloatingPointTy()?b.CreateFDiv(lhs,rhs):b.CreateSDiv(lhs,rhs);break;
+					case TOK_PERCENT_ASSIGN:rhs=b.CreateSRem(lhs,rhs);break;
+					case TOK_AND_ASSIGN:rhs=b.CreateAnd(lhs,rhs);break;
+					case TOK_OR_ASSIGN:rhs=b.CreateOr(lhs,rhs);break;
+					case TOK_XOR_ASSIGN:rhs=b.CreateXor(lhs,rhs);break;
+					case TOK_LSHIFT_ASSIGN:rhs=b.CreateShl(lhs,rhs);break;
+					case TOK_RSHIFT_ASSIGN:rhs=b.CreateAShr(lhs,rhs);break;
+					default:break;
 				}
 			}
-			b.CreateStore(rhs,ptr);
 		}
+		b.CreateStore(rhs,ptr);
 		return rhs;
 	}
 public:
