@@ -108,6 +108,27 @@ int main(int argc,char* argv[]){
 		}
 		std::vector<std::string> resolved_libs;
 		for(const auto& lib:link_libs){
+#ifdef _WIN32
+			std::string lib_path=compiler_dir+"/lib/"+lib+".lib";
+			if(file_exists(lib_path)){
+				resolved_libs.push_back(lib_path);
+			}else{
+				lib_path=compiler_dir+"/../lib/"+lib+".lib";
+				if(file_exists(lib_path)){
+					resolved_libs.push_back(lib_path);
+				}else{
+					lib_path=compiler_dir+"/lib/windows/"+lib+".lib";
+					if(file_exists(lib_path)){
+						resolved_libs.push_back(lib_path);
+					}else{
+						lib_path=compiler_dir+"/../lib/windows/"+lib+".lib";
+						if(file_exists(lib_path)){
+							resolved_libs.push_back(lib_path);
+						}
+					}
+				}
+			}
+#else
 			std::string lib_path=compiler_dir+"/lib/lib"+lib+".a";
 			if(file_exists(lib_path)){
 				resolved_libs.push_back(lib_path);
@@ -117,6 +138,7 @@ int main(int argc,char* argv[]){
 					resolved_libs.push_back(lib_path);
 				}
 			}
+#endif
 		}
 		std::string bundled_lib_path=compiler_dir+"/lib/windows";
 		if(!file_exists(bundled_lib_path+"/.")){

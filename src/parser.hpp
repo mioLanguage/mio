@@ -773,6 +773,10 @@ private:
 				return nullptr;
 			default:{
 				auto* expr=parse_expr();
+				if(!expr){
+					error("failed to parse expression");
+					return nullptr;
+				}
 				if(match(TOK_SEMICOLON))
 					return ast_new_expr_stmt(expr,expr->line,expr->col);
 				return ast_new_return(expr,expr->line,expr->col);
