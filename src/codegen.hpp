@@ -315,11 +315,12 @@ class CodeGen{
 		return currentNamespace+"::"+name;
 	}
 	void genProgram(AstNode* prog){
+		std::vector<AstNode*> pendingNsImports;
 		for(auto* node:prog->program.nodes){
 			switch(node->kind){
 				case AstNodeKind::IMPORT:		break;
 				case AstNodeKind::NAMESPACE_IMPORT:
-					importedNamespaces.insert(node->namespace_import.namespace_name);
+					pendingNsImports.push_back(node);
 					break;
 				case AstNodeKind::NAMESPACE_DEF:{
 					std::string savedNs=currentNamespace;
@@ -395,7 +396,7 @@ class CodeGen{
 										break;
 									}
 									case AstNodeKind::NAMESPACE_IMPORT:
-										importedNamespaces.insert(s->namespace_import.namespace_name);
+										pendingNsImports.push_back(s);
 										break;
 									default:break;
 								}
@@ -435,13 +436,37 @@ class CodeGen{
 							break;
 						}
 						case AstNodeKind::NAMESPACE_IMPORT:
-								importedNamespaces.insert(stmt->namespace_import.namespace_name);
+								pendingNsImports.push_back(stmt);
 								break;
 							default:break;
 						}
 					}
 					break;
 				default:break;
+			}
+		}
+		for(auto* nsNode:pendingNsImports){
+			std::string ns=nsNode->namespace_import.namespace_name;
+			bool found=false;
+			std::string prefix=ns+"::";
+			for(auto& p:structTypes)
+				if(p.first.rfind(prefix,0)==0){found=true;break;}
+			if(!found){
+				for(auto& p:funcDecls)
+					if(p.first.rfind(prefix,0)==0){found=true;break;}
+			}
+			if(!found){
+				for(auto& p:globalVars)
+					if(p.first.rfind(prefix,0)==0){found=true;break;}
+			}
+			if(!found){
+				for(auto& p:classTemplateMap)
+					if(p.first.rfind(prefix,0)==0){found=true;break;}
+			}
+			if(!found){
+				error(nsNode->line,nsNode->col,"namespace '"+ns+"' not found");
+			}else{
+				importedNamespaces.insert(ns);
 			}
 		}
 	}
@@ -1946,7 +1971,17 @@ class CodeGen{
 				return nullptr;
 			}
 			
-						if(!calleeVal&&structTypes.count(calleeName)){
+			if(!calleeVal&&!structTypes.count(calleeName)&&ns.empty()){
+				for(auto& impNs:importedNamespaces){
+					std::string fullName=impNs+"::"+calleeName;
+					if(structTypes.count(fullName)){
+						calleeName=fullName;
+						break;
+					}
+				}
+			}
+			
+			if(!calleeVal&&structTypes.count(calleeName)){
 				std::string className=calleeName;
 				auto pos=calleeName.rfind("::");
 				if(pos!=std::string::npos)className=calleeName.substr(pos+2);

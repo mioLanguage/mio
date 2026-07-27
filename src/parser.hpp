@@ -164,24 +164,9 @@ private:
 		}else{
 			std::string path=parse_import_path();
 			if(!path.empty()){
-				std::string resolved;
-				if(has_mio_extension(path)){
-					resolved=resolve_mio_file(path);
-				}else{
-					resolved=resolve_mio_file(path+".mio");
-				}
-				if(!resolved.empty()){
-					return parse_import_file(resolved,path,line,col);
-				}
-				if(path.find('.')==std::string::npos){
-					return ast_new_namespace_import(path,line,col);
-				}
-				char buf[512];
-				snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
-				error(buf);
-				return nullptr;
+				return ast_new_namespace_import(path,line,col);
 			}
-			return ast_new_import(path,line,col);
+			return nullptr;
 		}
 	}
 	AstNode* parse_import_file(const std::string& resolved,const std::string& display_path,int line,int col){
@@ -226,8 +211,8 @@ private:
 		while(cur->kind==TOK_IDENT){
 			buf+=cur->lexeme;
 			advance();
-			if(cur->kind==TOK_DOT){
-				buf+='.';
+			if(cur->kind==TOK_DOUBLE_COLON){
+				buf+="::";
 				advance();
 			}else{
 				break;
