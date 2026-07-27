@@ -315,13 +315,14 @@ class CodeGen{
 		return currentNamespace+"::"+name;
 	}
 	void genProgram(AstNode* prog){
-		std::vector<AstNode*> pendingNsImports;
 		for(auto* node:prog->program.nodes){
 			switch(node->kind){
 				case AstNodeKind::IMPORT:		break;
-				case AstNodeKind::NAMESPACE_IMPORT:
-					pendingNsImports.push_back(node);
+				case AstNodeKind::NAMESPACE_IMPORT:{
+					std::string ns=node->namespace_import.namespace_name;
+					importedNamespaces.insert(ns);
 					break;
+				}
 				case AstNodeKind::NAMESPACE_DEF:{
 					std::string savedNs=currentNamespace;
 					if(!currentNamespace.empty())
@@ -395,9 +396,11 @@ class CodeGen{
 										currentNamespace=savedNs;
 										break;
 									}
-									case AstNodeKind::NAMESPACE_IMPORT:
-										pendingNsImports.push_back(s);
+									case AstNodeKind::NAMESPACE_IMPORT:{
+										std::string ns=s->namespace_import.namespace_name;
+										importedNamespaces.insert(ns);
 										break;
+									}
 									default:break;
 								}
 							}
@@ -435,38 +438,16 @@ class CodeGen{
 							currentNamespace=savedNs;
 							break;
 						}
-						case AstNodeKind::NAMESPACE_IMPORT:
-								pendingNsImports.push_back(stmt);
+						case AstNodeKind::NAMESPACE_IMPORT:{
+								std::string ns=stmt->namespace_import.namespace_name;
+								importedNamespaces.insert(ns);
 								break;
+							}
 							default:break;
 						}
 					}
 					break;
 				default:break;
-			}
-		}
-		for(auto* nsNode:pendingNsImports){
-			std::string ns=nsNode->namespace_import.namespace_name;
-			bool found=false;
-			std::string prefix=ns+"::";
-			for(auto& p:structTypes)
-				if(p.first.rfind(prefix,0)==0){found=true;break;}
-			if(!found){
-				for(auto& p:funcDecls)
-					if(p.first.rfind(prefix,0)==0){found=true;break;}
-			}
-			if(!found){
-				for(auto& p:globalVars)
-					if(p.first.rfind(prefix,0)==0){found=true;break;}
-			}
-			if(!found){
-				for(auto& p:classTemplateMap)
-					if(p.first.rfind(prefix,0)==0){found=true;break;}
-			}
-			if(!found){
-				error(nsNode->line,nsNode->col,"namespace '"+ns+"' not found");
-			}else{
-				importedNamespaces.insert(ns);
 			}
 		}
 	}
@@ -1986,36 +1967,40 @@ class CodeGen{
 				auto pos=calleeName.rfind("::");
 				if(pos!=std::string::npos)className=calleeName.substr(pos+2);
 				std::string ctorName=calleeName+"::"+className;
-				llvm::Function* ctor=mod->getFunction(ctorName);
-				if(!ctor){
-					for(auto& f:mod->functions()){
-						std::string fnName=f.getName().str();
-						if(fnName==ctorName||fnName.rfind(ctorName+".",0)==0){
-							if(f.arg_size()==(1+node->call.args.size())){
-								ctor=&f;
-								break;
+				unsigned expectedArgs=1+node->call.args.size();
+				llvm::Function* ctor=nullptr;
+				int matchCount=0;
+				for(auto& f:mod->functions()){
+					std::string fnName=f.getName().str();
+					if(fnName==ctorName||fnName.rfind(ctorName+".",0)==0){
+						if(f.arg_size()==expectedArgs){
+							if(ctor){
+								error(node->line,node->col,"ambiguous constructor call for '"+ctorName+"' with "+std::to_string(expectedArgs)+" arguments");
+								return nullptr;
 							}
+							ctor=&f;
+							matchCount++;
 						}
 					}
 				}
 				
-				if(ctor){
-					funcDecls[ctorName]=ctor;
-					auto* st=structTypes[calleeName];
-					auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
-					std::vector<llvm::Value*> args;
-					args.push_back(alloca);
-					for(auto* a:node->call.args){
-						llvm::Value* av=genExpr(a);
-						if(av)args.push_back(av);
-					}
-					
-					b.CreateCall(ctor,args);
-					return b.CreateLoad(st,alloca);
-				}else{
-					error(node->line,node->col,"constructor '"+ctorName+"' not found");
+				if(!ctor){
+					error(node->line,node->col,"no matching constructor for '"+ctorName+"' with "+std::to_string(expectedArgs-1)+" argument(s)");
 					return nullptr;
 				}
+				
+				funcDecls[ctorName]=ctor;
+				auto* st=structTypes[calleeName];
+				auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
+				std::vector<llvm::Value*> args;
+				args.push_back(alloca);
+				for(auto* a:node->call.args){
+					llvm::Value* av=genExpr(a);
+					if(av)args.push_back(av);
+				}
+				
+				b.CreateCall(ctor,args);
+				return b.CreateLoad(st,alloca);
 			}
 		}else if(node->call.callee->kind==AstNodeKind::MEMBER_EXPR){
 			auto* base=node->call.callee->member.base;
