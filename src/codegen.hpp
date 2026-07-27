@@ -1986,14 +1986,15 @@ class CodeGen{
 				auto pos=calleeName.rfind("::");
 				if(pos!=std::string::npos)className=calleeName.substr(pos+2);
 				std::string ctorName=calleeName+"::"+className;
-				llvm::Function* ctor=nullptr;
-				unsigned expectedArgs=1+node->call.args.size();
-				for(auto& f:mod->functions()){
-					std::string fnName=f.getName().str();
-					if(fnName==ctorName||fnName.rfind(ctorName+".",0)==0){
-						if(f.arg_size()==expectedArgs){
-							ctor=&f;
-							break;
+				llvm::Function* ctor=mod->getFunction(ctorName);
+				if(!ctor){
+					for(auto& f:mod->functions()){
+						std::string fnName=f.getName().str();
+						if(fnName==ctorName||fnName.rfind(ctorName+".",0)==0){
+							if(f.arg_size()==(1+node->call.args.size())){
+								ctor=&f;
+								break;
+							}
 						}
 					}
 				}
@@ -2011,6 +2012,9 @@ class CodeGen{
 					
 					b.CreateCall(ctor,args);
 					return b.CreateLoad(st,alloca);
+				}else{
+					error(node->line,node->col,"constructor '"+ctorName+"' not found");
+					return nullptr;
 				}
 			}
 		}else if(node->call.callee->kind==AstNodeKind::MEMBER_EXPR){
