@@ -90,6 +90,7 @@ typedef enum{
 	TOK_GT,
 	TOK_LTE,
 	TOK_GTE,
+	TOK_DOLLAR,
 	TOK_AND,
 	TOK_OR,
 	TOK_NOT,
@@ -212,6 +213,7 @@ const std::string tok_name(TokenKind kind){
 		case TOK_GT: return ">";
 		case TOK_LTE: return "<=";
 		case TOK_GTE: return ">=";
+		case TOK_DOLLAR: return "$";
 		case TOK_AND: return "&&";
 		case TOK_OR: return "||";
 		case TOK_NOT: return "!";

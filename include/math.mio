@@ -26,28 +26,28 @@ extern i32 math_lcm(a: i32, b: i32);
 extern i32 math_is_prime(n: i32);
 extern f64 math_deg_to_rad(deg: f64);
 extern f64 math_rad_to_deg(rad: f64);
-template<T:typename>
+template$T:typename$
 T abs(x: T) {
 	if: (x < 0) {
 		return -x;
 	}
 	return x;
 }
-template<T:typename>
+template$T:typename$
 T max(a: T, b: T) {
 	if: (a > b) {
 		return a;
 	}
 	return b;
 }
-template<T:typename>
+template$T:typename$
 T min(a: T, b: T) {
 	if: (a < b) {
 		return a;
 	}
 	return b;
 }
-template<T:typename>
+template$T:typename$
 T clamp(x: T, lo: T, hi: T) {
 	if: (x < lo) {
 		return lo;

@@ -5,6 +5,14 @@
 #include<string>
 #include<vector>
 #include<cstdio>
+#include<set>
+struct FilenamePool{
+	std::set<std::string> pool;
+	const std::string* get(const std::string& s){
+		auto result=pool.insert(s);
+		return &(*result.first);
+	}
+}g_filename_pool;
 enum class MioTypeKind{
 	VOID,
 	I8,
@@ -28,7 +36,8 @@ enum class MioTypeKind{
 	UNION,
 	ARRAY,
 	FUNC,
-	POINTER
+	POINTER,
+	REFERENCE
 };
 class MioType{
 public:
@@ -126,6 +135,11 @@ inline MioType* mio_type_new_pointer(MioType* base){
 	mt->base_type=base;
 	return mt;
 }
+inline MioType* mio_type_new_reference(MioType* base){
+	MioType* mt=new MioType(MioTypeKind::REFERENCE);
+	mt->base_type=base;
+	return mt;
+}
 inline MioType* mio_type_clone(const MioType* type){
 	if(!type) return nullptr;
 	return new MioType(*type);
@@ -157,6 +171,16 @@ inline std::string mio_type_str(const MioType* type){
 		case MioTypeKind::F64: return "f64";
 		case MioTypeKind::BOOL: return "bool";
 		case MioTypeKind::CHAR: return "char";
+		case MioTypeKind::POINTER:
+			if(type->base_type){
+				return mio_type_str(type->base_type)+"*";
+			}
+			return "void*";
+		case MioTypeKind::REFERENCE:
+			if(type->base_type){
+				return mio_type_str(type->base_type)+"&";
+			}
+			return "void&";
 		case MioTypeKind::STRUCT:
 		case MioTypeKind::ENUM:
 		case MioTypeKind::UNION:

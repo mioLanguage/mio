@@ -564,8 +564,8 @@ i32 main() {
 
 ### 语法
 ```
-template<T:typename>
-template<T:typename, len:i32=100>
+template$T:typename$
+template$T:typename,len:i32=100$
 ```
 
 - `T:typename` — 类型参数（简写：`T` 等同于 `T:typename`）
@@ -573,7 +573,7 @@ template<T:typename, len:i32=100>
 
 ### 定义
 ```mio
-template<T:typename>
+template$T:typename$
 T max(a: T, b: T) {
     if: a > b {
         return a;
@@ -585,7 +585,7 @@ T max(a: T, b: T) {
 ```mio
 i32 main() {
     var x = max(10, 20);           # 自动推导 T = i32
-    var y = max<f64>(3.14, 2.71);  # 显式指定 T = f64
+    var y = max$f64$(3.14, 2.71);  # 显式指定 T = f64
     return 0;
 }
 ```

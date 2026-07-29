@@ -8,6 +8,7 @@
 #include<cstdio>
 #include<cstdlib>
 #include<cstring>
+extern FilenamePool g_filename_pool;
 enum class AstNodeKind{
 	PROGRAM,
 	IMPORT,
@@ -93,6 +94,7 @@ class AstNode{
 public:
 	AstNodeKind kind;
 	MioType*type;
+	const std::string* filename;
 	int line;
 	int col;
 	struct{
@@ -242,7 +244,7 @@ public:
 	struct{
 		MioType* target_type;
 	} sizeof_expr;
-	AstNode(AstNodeKind k,int l,int c):kind(k),type(nullptr),line(l),col(c){}
+	AstNode(AstNodeKind k,int l,int c,const std::string* fn=nullptr):kind(k),type(nullptr),filename(fn),line(l),col(c){}
 	~AstNode();
 };
 inline AstNode::~AstNode(){
@@ -372,8 +374,8 @@ inline AstNode::~AstNode(){
 			break;
 	}
 }
-inline AstNode*ast_new(AstNodeKind kind,int line,int col){
-	return new AstNode(kind,line,col);
+inline AstNode*ast_new(AstNodeKind kind,int line,int col,const std::string* fn){
+	return new AstNode(kind,line,col,fn);
 }
 inline void ast_free(AstNode*node){
 	delete node;
@@ -384,29 +386,29 @@ inline void ast_program_add(AstNode*program,AstNode*node){
 inline void ast_block_add(AstNode*block,AstNode*stmt){
 	block->block.stmts.push_back(stmt);
 }
-inline AstNode*ast_new_import(const std::string& path,int line,int col){
-	auto*n=new AstNode(AstNodeKind::IMPORT,line,col);
+inline AstNode*ast_new_import(const std::string& path,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::IMPORT,line,col,fn);
 	n->import.path=path;
 	return n;
 }
-inline AstNode*ast_new_var_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col){
-	auto*n=new AstNode(AstNodeKind::VAR_DECL,line,col);
+inline AstNode*ast_new_var_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::VAR_DECL,line,col,fn);
 	n->var_decl.name=name;
 	n->var_decl.var_type=type;
 	n->var_decl.init=init;
 	n->var_decl.is_static=is_static;
 	return n;
 }
-inline AstNode*ast_new_const_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col){
-	auto*n=new AstNode(AstNodeKind::CONST_DECL,line,col);
+inline AstNode*ast_new_const_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::CONST_DECL,line,col,fn);
 	n->const_decl.name=name;
 	n->const_decl.var_type=type;
 	n->const_decl.init=init;
 	n->const_decl.is_static=is_static;
 	return n;
 }
-inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,AstNode* body,bool is_static,int line,int col){
-	auto*n=new AstNode(AstNodeKind::FUNC_DEF,line,col);
+inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,AstNode* body,bool is_static,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::FUNC_DEF,line,col,fn);
 	n->func_def.name=name;
 	n->func_def.return_type=return_type;
 	n->func_def.body=body;
@@ -420,182 +422,182 @@ inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,As
 	n->func_def.access=Access::PUBLIC;
 	return n;
 }
-inline AstNode*ast_new_struct_def(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::STRUCT_DEF,line,col);
+inline AstNode*ast_new_struct_def(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::STRUCT_DEF,line,col,fn);
 	n->struct_def.name=name;
 	return n;
 }
-inline AstNode*ast_new_class_def(const std::string& name,const std::string& base_name,const std::string& base_access,int line,int col){
-	auto*n=new AstNode(AstNodeKind::CLASS_DEF,line,col);
+inline AstNode*ast_new_class_def(const std::string& name,const std::string& base_name,const std::string& base_access,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::CLASS_DEF,line,col,fn);
 	n->class_def.name=name;
 	n->class_def.base_name=base_name;
 	n->class_def.base_access=base_access;
 	n->class_def.destructor=nullptr;
 	return n;
 }
-inline AstNode*ast_new_namespace_def(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::NAMESPACE_DEF,line,col);
+inline AstNode*ast_new_namespace_def(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::NAMESPACE_DEF,line,col,fn);
 	n->namespace_def.name=name;
 	return n;
 }
-inline AstNode*ast_new_namespace_import(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::NAMESPACE_IMPORT,line,col);
+inline AstNode*ast_new_namespace_import(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::NAMESPACE_IMPORT,line,col,fn);
 	n->namespace_import.namespace_name=name;
 	return n;
 }
-inline AstNode*ast_new_enum_def(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::ENUM_DEF,line,col);
+inline AstNode*ast_new_enum_def(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::ENUM_DEF,line,col,fn);
 	n->enum_def.name=name;
 	return n;
 }
-inline AstNode*ast_new_union_def(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::UNION_DEF,line,col);
+inline AstNode*ast_new_union_def(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::UNION_DEF,line,col,fn);
 	n->union_def.name=name;
 	return n;
 }
-inline AstNode*ast_new_block(int line,int col){
-	auto*n=new AstNode(AstNodeKind::BLOCK,line,col);
+inline AstNode*ast_new_block(int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::BLOCK,line,col,fn);
 	n->block.is_scope=true;
 	return n;
 }
-inline AstNode*ast_new_if(AstNode*cond,AstNode*then_body,AstNode*else_body,int line,int col){
-	auto*n=new AstNode(AstNodeKind::IF_STMT,line,col);
+inline AstNode*ast_new_if(AstNode*cond,AstNode*then_body,AstNode*else_body,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::IF_STMT,line,col,fn);
 	n->if_stmt.cond=cond;
 	n->if_stmt.then_body=then_body;
 	n->if_stmt.else_body=else_body;
 	return n;
 }
-inline AstNode*ast_new_while(AstNode*cond,AstNode*body,int line,int col){
-	auto*n=new AstNode(AstNodeKind::WHILE_STMT,line,col);
+inline AstNode*ast_new_while(AstNode*cond,AstNode*body,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::WHILE_STMT,line,col,fn);
 	n->while_stmt.cond=cond;
 	n->while_stmt.body=body;
 	return n;
 }
-inline AstNode*ast_new_for(AstNode*init,AstNode*cond,AstNode*update,AstNode*body,int line,int col){
-	auto*n=new AstNode(AstNodeKind::FOR_STMT,line,col);
+inline AstNode*ast_new_for(AstNode*init,AstNode*cond,AstNode*update,AstNode*body,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::FOR_STMT,line,col,fn);
 	n->for_stmt.init=init;
 	n->for_stmt.cond=cond;
 	n->for_stmt.update=update;
 	n->for_stmt.body=body;
 	return n;
 }
-inline AstNode*ast_new_break(int line,int col){
-	return new AstNode(AstNodeKind::BREAK_STMT,line,col);
+inline AstNode*ast_new_break(int line,int col,const std::string* fn){
+	return new AstNode(AstNodeKind::BREAK_STMT,line,col,fn);
 }
-inline AstNode*ast_new_continue(int line,int col){
-	return new AstNode(AstNodeKind::CONTINUE_STMT,line,col);
+inline AstNode*ast_new_continue(int line,int col,const std::string* fn){
+	return new AstNode(AstNodeKind::CONTINUE_STMT,line,col,fn);
 }
-inline AstNode*ast_new_goto(const std::string& label,int line,int col){
-	auto*n=new AstNode(AstNodeKind::GOTO_STMT,line,col);
+inline AstNode*ast_new_goto(const std::string& label,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::GOTO_STMT,line,col,fn);
 	n->goto_stmt.label=label;
 	return n;
 }
-inline AstNode*ast_new_label(const std::string& label,int line,int col){
-	auto*n=new AstNode(AstNodeKind::LABEL_STMT,line,col);
+inline AstNode*ast_new_label(const std::string& label,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::LABEL_STMT,line,col,fn);
 	n->label_stmt.label=label;
 	return n;
 }
-inline AstNode*ast_new_return(AstNode*value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::RETURN_STMT,line,col);
+inline AstNode*ast_new_return(AstNode*value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::RETURN_STMT,line,col,fn);
 	n->return_stmt.value=value;
 	return n;
 }
-inline AstNode*ast_new_expr_stmt(AstNode*expr,int line,int col){
-	auto*n=new AstNode(AstNodeKind::EXPR_STMT,line,col);
+inline AstNode*ast_new_expr_stmt(AstNode*expr,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::EXPR_STMT,line,col,fn);
 	n->expr_stmt.expr=expr;
 	return n;
 }
-inline AstNode*ast_new_binary(AstNode*left,TokenKind op,AstNode*right,int line,int col){
-	auto*n=new AstNode(AstNodeKind::BINARY_EXPR,line,col);
+inline AstNode*ast_new_binary(AstNode*left,TokenKind op,AstNode*right,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::BINARY_EXPR,line,col,fn);
 	n->binary.left=left;
 	n->binary.op=op;
 	n->binary.right=right;
 	return n;
 }
-inline AstNode*ast_new_unary(TokenKind op,AstNode*operand,int line,int col){
-	auto*n=new AstNode(AstNodeKind::UNARY_EXPR,line,col);
+inline AstNode*ast_new_unary(TokenKind op,AstNode*operand,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::UNARY_EXPR,line,col,fn);
 	n->unary.op=op;
 	n->unary.operand=operand;
 	return n;
 }
-inline AstNode*ast_new_call(AstNode*callee,int line,int col){
-	auto*n=new AstNode(AstNodeKind::CALL_EXPR,line,col);
+inline AstNode*ast_new_call(AstNode*callee,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::CALL_EXPR,line,col,fn);
 	n->call.callee=callee;
 	return n;
 }
-inline AstNode*ast_new_index(AstNode*base,AstNode*index,int line,int col){
-	auto*n=new AstNode(AstNodeKind::INDEX_EXPR,line,col);
+inline AstNode*ast_new_index(AstNode*base,AstNode*index,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::INDEX_EXPR,line,col,fn);
 	n->index_expr.base=base;
 	n->index_expr.index=index;
 	return n;
 }
-inline AstNode*ast_new_member(AstNode*base,const std::string& member,bool arrow,int line,int col){
-	auto*n=new AstNode(AstNodeKind::MEMBER_EXPR,line,col);
+inline AstNode*ast_new_member(AstNode*base,const std::string& member,bool arrow,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::MEMBER_EXPR,line,col,fn);
 	n->member.base=base;
 	n->member.member=member;
 	n->member.arrow=arrow;
 	return n;
 }
-inline AstNode*ast_new_ident(const std::string& name,int line,int col){
-	auto*n=new AstNode(AstNodeKind::IDENT_EXPR,line,col);
+inline AstNode*ast_new_ident(const std::string& name,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::IDENT_EXPR,line,col,fn);
 	n->ident.name=name;
 	return n;
 }
-inline AstNode*ast_new_int_lit(int64_t value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::INT_LIT,line,col);
+inline AstNode*ast_new_int_lit(int64_t value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::INT_LIT,line,col,fn);
 	n->int_lit.value=value;
 	return n;
 }
-inline AstNode*ast_new_float_lit(double value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::FLOAT_LIT,line,col);
+inline AstNode*ast_new_float_lit(double value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::FLOAT_LIT,line,col,fn);
 	n->float_lit.value=value;
 	return n;
 }
-inline AstNode*ast_new_string_lit(const std::string& value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::STRING_LIT,line,col);
+inline AstNode*ast_new_string_lit(const std::string& value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::STRING_LIT,line,col,fn);
 	n->string_lit.value=value;
 	return n;
 }
-inline AstNode*ast_new_bool_lit(bool value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::BOOL_LIT,line,col);
+inline AstNode*ast_new_bool_lit(bool value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::BOOL_LIT,line,col,fn);
 	n->bool_lit.value=value;
 	return n;
 }
-inline AstNode*ast_new_char_lit(char value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::CHAR_LIT,line,col);
+inline AstNode*ast_new_char_lit(char value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::CHAR_LIT,line,col,fn);
 	n->char_lit.value=value;
 	return n;
 }
-inline AstNode*ast_new_array_lit(int line,int col){
-	return new AstNode(AstNodeKind::ARRAY_LIT,line,col);
+inline AstNode*ast_new_array_lit(int line,int col,const std::string* fn){
+	return new AstNode(AstNodeKind::ARRAY_LIT,line,col,fn);
 }
-inline AstNode*ast_new_cast(MioType*type,AstNode*expr,int line,int col){
-	auto*n=new AstNode(AstNodeKind::CAST_EXPR,line,col);
+inline AstNode*ast_new_cast(MioType*type,AstNode*expr,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::CAST_EXPR,line,col,fn);
 	n->cast_expr.target_type=type;
 	n->cast_expr.expr=expr;
 	return n;
 }
-inline AstNode*ast_new_assign(AstNode*left,TokenKind op,AstNode*right,int line,int col){
-	auto*n=new AstNode(AstNodeKind::ASSIGN_EXPR,line,col);
+inline AstNode*ast_new_assign(AstNode*left,TokenKind op,AstNode*right,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::ASSIGN_EXPR,line,col,fn);
 	n->assign.left=left;
 	n->assign.op=op;
 	n->assign.right=right;
 	return n;
 }
-inline AstNode*ast_new_macro_def(const std::string& name,const std::string& value,int line,int col){
-	auto*n=new AstNode(AstNodeKind::MACRO_DEF,line,col);
+inline AstNode*ast_new_macro_def(const std::string& name,const std::string& value,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::MACRO_DEF,line,col,fn);
 	n->macro_def.name=name;
 	n->macro_def.value=value.empty()?"1":value;
 	return n;
 }
-inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_params,AstNode* def,int line,int col){
-	auto*n=new AstNode(AstNodeKind::TEMPLATE_DEF,line,col);
+inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_params,AstNode* def,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::TEMPLATE_DEF,line,col,fn);
 	n->template_def.type_params=type_params;
 	n->template_def.def=def;
 	return n;
 }
-inline AstNode*ast_new_sizeof_expr(MioType* target_type,int line,int col){
-	auto*n=new AstNode(AstNodeKind::SIZEOF_EXPR,line,col);
+inline AstNode*ast_new_sizeof_expr(MioType* target_type,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::SIZEOF_EXPR,line,col,fn);
 	n->sizeof_expr.target_type=target_type;
 	return n;
 }

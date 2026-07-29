@@ -14,7 +14,7 @@ struct KeywordEntry{
 class Lexer{
 	friend class Parser;
 public:
-	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0),in_template_type_args(false){
+	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0){
 		current=token();
 		peekToken=token();
 	}
@@ -34,20 +34,21 @@ public:
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
 		Token* saved_peek=peekToken;
-		int depth=0;
+		Token* tok=token();
+		if(tok->kind!=TOK_DOLLAR){
+			pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
+			current=saved_current;peekToken=saved_peek;
+			return false;
+		}
 		while(true){
-			Token* tok=token();
-			if(tok->kind==TOK_LT)depth++;
-			else if(tok->kind==TOK_GT){
-				if(depth==0){
-					Token* next=token();
-					bool result=(next->kind==TOK_LPAREN);
-					pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
-					current=saved_current;peekToken=saved_peek;
-					return result;
-				}
-				depth--;
-			}else if(tok->kind==TOK_EOF||tok->kind==TOK_ERROR||tok->kind==TOK_RPAREN||tok->kind==TOK_SEMICOLON||tok->kind==TOK_LBRACE||tok->kind==TOK_RBRACE){
+			Token* t=token();
+			if(t->kind==TOK_DOLLAR){
+				Token* next=token();
+				bool result=(next->kind==TOK_LPAREN);
+				pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
+				current=saved_current;peekToken=saved_peek;
+				return result;
+			}else if(t->kind==TOK_EOF||t->kind==TOK_ERROR||t->kind==TOK_RPAREN||t->kind==TOK_SEMICOLON||t->kind==TOK_LBRACE||t->kind==TOK_RBRACE){
 				pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
 				current=saved_current;peekToken=saved_peek;
 				return false;
@@ -62,7 +63,6 @@ private:
 	int pos,line,col,bol;
 	Token* current;
 	Token* peekToken;
-	bool in_template_type_args;
 	static char* mioStrndup(const char* s,int n){
 		char* buf=(char*)malloc(n+1);
 		if(!buf){
@@ -301,11 +301,6 @@ private:
 				if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
 				if(match('>')){
 					if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
-					if(in_template_type_args){
-						pos--;
-						col--;
-						return tok_new(TOK_GT,std::string(),lineNum,colNum);
-					}
 					return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
 				}
 				return tok_new(TOK_GT,std::string(),lineNum,colNum);
@@ -321,6 +316,7 @@ private:
 				if(match('='))return tok_new(TOK_XOR_ASSIGN,"^=",lineNum,colNum);
 				return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
 			case '~': return tok_new(TOK_BIT_NOT,std::string(),lineNum,colNum);
+			case '$': return tok_new(TOK_DOLLAR,std::string(),lineNum,colNum);
 			case '@':{
 				int start=pos;
 				int startCol=col;

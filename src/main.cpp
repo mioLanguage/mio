@@ -5,9 +5,6 @@
 #include<cstring>
 #include<string>
 #include<vector>
-#include<fstream>
-#include<new>
-#include<memory>
 #include<sys/stat.h>
 
 #ifdef _WIN32
@@ -17,45 +14,11 @@
 #define mio_stat stat
 #define mio_stat_t struct stat
 #endif
-#include"token.hpp"
-#include"lexer.hpp"
-#include"parser.hpp"
-#include"ast.hpp"
-#include"codegen.hpp"
-static std::string read_file(const std::string& path){
-	std::ifstream file(path,std::ios::binary);
-	if(!file.is_open()){
-		std::fprintf(stderr,"error: cannot open file '%s'\n",path.c_str());
-		exit(1);
-	}
-	try{
-		file.seekg(0,std::ios::end);
-		std::streamsize size=file.tellg();
-		file.seekg(0,std::ios::beg);
-		if(size<=0){
-			fprintf(stderr,"error: file '%s' is empty\n",path.c_str());
-			exit(1);
-		}
-		std::string buf(size,'\0');
-		if(!file.read(&buf[0],size))
-			fprintf(stderr,"error: failed to read file '%s'\n",path.c_str()),exit(1);
-		return buf;
-	}catch(const std::bad_alloc&){
-		fprintf(stderr,"fatal: out of memory\n"),exit(1);
-	}
-}
-static uint64_t file_mtime(const std::string& path){
-	mio_stat_t st;
-	if(mio_stat(path.c_str(),&st)!=0)return 0;
-	return (uint64_t)st.st_mtime;
-}
-static bool file_exists(const std::string& path){
-	mio_stat_t st;
-	return mio_stat(path.c_str(),&st)==0;
-}
+#include"compiler.cpp"
 static void help(const char* prog){
-	fprintf(stderr,"Usage: %s <input.mio> [-o <output>] [-I <include_path>] [-D <macro>[=<value>]] [-S] [-c] [-O<0|1|2|3>] [--release]\n",prog);
+	fprintf(stderr,"Usage: %s <input...> [-o <output>] [-I <include_path>] [-D <macro>[=<value>]] [-S] [-c] [-O<0|1|2|3>] [--release]\n",prog);
 	fprintf(stderr,"  Mio compiler - compiles Mio source to native code\n");
+	fprintf(stderr,"  Input files can be: .mio (source), .ll (LLVM IR), .s (assembly), .o (object)\n");
 	fprintf(stderr,"  -o <file>   specify output file (.ll/.s/.o/.exe or no extension)\n");
 	fprintf(stderr,"  -S          emit assembly (.s) instead of executable\n");
 	fprintf(stderr,"  -c          compile only, emit object file (.o) instead of executable\n");
@@ -69,16 +32,36 @@ static void help(const char* prog){
 	fprintf(stderr,"  -l <lib>    link with library (e.g. -lstdmio -lm). default: -lstdmio -lm\n");
 	fprintf(stderr,"  -static     link statically (no DLL dependencies)\n");
 }
+static bool file_exists(const std::string& path){
+	mio_stat_t st;
+	return mio_stat(path.c_str(),&st)==0;
+}
+static std::string getFileExtension(const std::string& path){
+	size_t dot=path.find_last_of('.');
+	return (dot!=std::string::npos)?path.substr(dot):"";
+}
+static bool isMioFile(const std::string& path){return getFileExtension(path)==".mio";}
+static bool isLLVMFile(const std::string& path){return getFileExtension(path)==".ll";}
+static bool isAssemblyFile(const std::string& path){return getFileExtension(path)==".s";}
+static bool isObjectFile(const std::string& path){return getFileExtension(path)==".o";}
+static bool isLibFile(const std::string& path){
+#ifdef _WIN32
+	return getFileExtension(path)==".lib";
+#else
+	return getFileExtension(path)==".a";
+#endif
+}
 int main(int argc,char* argv[]){
 	try{
 		if(argc<2){help(argv[0]);exit(0);}
-		if(argc==2&&(strcmp(argv[1],"-v")==0||strcmp(argv[1],"--version")==0)){
-			printf("mio version 2.1.2\nCopyright (c) 2026 mioLanguage\nMIT License\n");
-			help(argv[0]);
+		if(argc==2&&(strcmp(argv[1],"-v")==0||strcmp(argv[1],"--version")==0))
+			printf("mio version 2.1.2\nCopyright (c) 2026 mioLanguage\nMIT License\n"),
+			help(argv[0]),
 			exit(0);
-		}
-		std::string input_file,output_file;
-		std::vector<std::string> include_paths,defines,link_libs;
+		else if(argc==2&&(strcmp(argv[1],"-h")==0||strcmp(argv[1],"--help")==0))
+			help(argv[0]),exit(0);
+		std::string output_file;
+		std::vector<std::string> input_files,include_paths,defines,link_libs;
 		bool emit_asm=false,compile_only=false,static_link=false,release=false;
 		int opt_level=0;
 		for(int i=1;i<argc;i++){
@@ -92,9 +75,9 @@ int main(int argc,char* argv[]){
 			else if(strncmp(argv[i],"-l",2)==0&&strlen(argv[i])>2)link_libs.push_back(argv[i]+2);
 			else if(strcmp(argv[i],"--release")==0){release=true;opt_level=2;}
 			else if(strncmp(argv[i],"-O",2)==0&&strlen(argv[i])==3&&argv[i][2]>='0'&&argv[i][2]<='3')opt_level=argv[i][2]-'0';
-			else if(input_file.empty())input_file=argv[i];
+			else input_files.push_back(argv[i]);
 		}
-		if(input_file.empty()){help(argv[0]);exit(1);}
+		if(input_files.empty()){help(argv[0]);exit(1);}
 		if(link_libs.empty()){
 			link_libs.push_back("stdmio");
 			link_libs.push_back("m");
@@ -146,95 +129,65 @@ int main(int argc,char* argv[]){
 		}
 		if(!compiler_dir.empty()){
 			std::string inc=compiler_dir+"/include";
-			if(file_exists(inc+"/stdio.mio")){
+			if(file_exists(inc+"/std.mio")){
 				include_paths.push_back(inc);
 			}else{
 				inc=compiler_dir+"/../include";
-				if(file_exists(inc+"/stdio.mio")){
+				if(file_exists(inc+"/std.mio")){
 					include_paths.push_back(inc);
 				}
 			}
 		}
-		std::string source=read_file(input_file);
-		Lexer lexer(source,input_file);
-		Parser parser(&lexer,input_file,include_paths);
-		for(const auto& m:defines)parser.add_macro(m,"1");
-		AstNode* program=parser.parse();
-		if(!program){
-			fprintf(stderr,"error: parser returned null\n");
-			exit(1);
-		}
-		if(parser.errorCount()>0){
-			fprintf(stderr,"error: %d parse errors\n",parser.errorCount());
-			delete program;
-			exit(1);
-		}
-		std::string base_name=output_file;
-		if(base_name.empty()){
-			base_name=input_file;
-			size_t dot=base_name.find_last_of('.');
-			if(dot!=std::string::npos)base_name=base_name.substr(0,dot);
-		}
-		CodeGen cg(base_name,input_file,opt_level);
-		if(!cg.generate(program)){
-			fprintf(stderr,"error: code generation failed\n");
-			delete program;
-			exit(1);
-		}
-		bool ok=true;
-		bool useCache=false;
-		if(release){
-			std::string cache_obj_path=base_name+".o";
-			if(file_exists(cache_obj_path)){
-				uint64_t src_mtime=file_mtime(input_file);
-				uint64_t obj_mtime=file_mtime(cache_obj_path);
-				if(obj_mtime>=src_mtime){
-					useCache=true;
-					fprintf(stdout,"[cache] using cached object file '%s'\n",cache_obj_path.c_str());
+		if(input_files.size()==1){
+			const auto& input_file=input_files[0];
+			std::string ext=getFileExtension(input_file);
+			if(isMioFile(input_file)){
+				Compiler cg;
+				std::string output;
+				if(!output_file.empty()){
+					output=output_file;
+				}else if(emit_asm){
+					output=input_file.substr(0,input_file.size()-ext.size())+".s";
+				}else if(compile_only){
+					output=input_file.substr(0,input_file.size()-ext.size())+".o";
+				}else{
+					output=input_file.substr(0,input_file.size()-ext.size())+".exe";
 				}
-			}
-		}
-		if(useCache){
-			std::string obj_path=base_name+".o";
-			if(emit_asm||compile_only||CodeGen::isLLVMFile(output_file)||CodeGen::isAssemblyFile(output_file)||CodeGen::isObjectFile(output_file)){
-				ok=true;
+				bool ok=cg.compiling(input_file,output,include_paths,defines,resolved_libs,bundled_lib_path,emit_asm,compile_only,static_link,release,opt_level);
+				if(!ok)exit(1);
+			}else if(isObjectFile(input_file)||isLLVMFile(input_file)||isAssemblyFile(input_file)||isLibFile(input_file)){
+				std::string exe_path=output_file.empty()?(input_file.substr(0,input_file.size()-ext.size())+".exe"):output_file;
+				Compiler cg;
+				std::vector<std::string> files={input_file};
+				bool ok=cg.linkExecutableFiles(files,exe_path,static_link,resolved_libs,bundled_lib_path);
+				if(!ok)exit(1);
 			}else{
-				std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
-				ok=cg.linkExecutable(obj_path,exe_path,static_link,resolved_libs,bundled_lib_path);
-				if(ok)fprintf(stdout,"Generated: %s\n",exe_path.c_str());
-				else fprintf(stderr,"error: linking failed\n");
-			}
-		}else if(CodeGen::isLLVMFile(output_file)){
-			std::string ll_path=output_file.empty()?base_name+".ll":output_file;
-			ok=cg.emitLLVM(ll_path);
-			if(ok)fprintf(stdout,"Generated: %s\n",ll_path.c_str());
-		}else if(emit_asm||CodeGen::isAssemblyFile(output_file)){
-			std::string asm_path=output_file.empty()?base_name+".s":output_file;
-			ok=cg.emitAssembly(asm_path);
-			if(ok)fprintf(stdout,"Generated: %s\n",asm_path.c_str());
-		}else if(compile_only||CodeGen::isObjectFile(output_file)){
-			std::string obj_path=output_file.empty()?base_name+".o":output_file;
-			ok=cg.emitObject(obj_path);
-			if(ok)fprintf(stdout,"Generated: %s\n",obj_path.c_str());
-		}else{
-			std::string obj_path=base_name+".o";
-			ok=cg.emitObject(obj_path);
-			if(!ok){
-				fprintf(stderr,"error: failed to emit object file '%s'\n",obj_path.c_str());
-				delete program;
+				fprintf(stderr,"error: unknown file type '%s'\n",input_file.c_str());
 				exit(1);
 			}
-			std::string exe_path=output_file.empty()?base_name+CodeGen::getExeExtension():output_file;
-			ok=cg.linkExecutable(obj_path,exe_path,static_link,resolved_libs,bundled_lib_path);
-			if(ok){
-				fprintf(stdout,"Generated: %s\n",exe_path.c_str());
-				std::remove(obj_path.c_str());
-			}else{
-				fprintf(stderr,"error: linking failed for '%s'\n",exe_path.c_str());
+		}else{
+			std::vector<std::string> link_files;
+			for(const auto& input_file:input_files){
+				std::string ext=getFileExtension(input_file);
+				if(isMioFile(input_file)){
+					Compiler cg;
+					std::string obj_path=input_file.substr(0,input_file.size()-ext.size())+".o";
+					bool ok=cg.compiling(input_file,obj_path,include_paths,defines,resolved_libs,bundled_lib_path,false,true,static_link,release,opt_level);
+					if(!ok)exit(1);
+					link_files.push_back(obj_path);
+				}else if(isObjectFile(input_file)||isLLVMFile(input_file)||isAssemblyFile(input_file)||isLibFile(input_file)){
+					link_files.push_back(input_file);
+				}else{
+					fprintf(stderr,"error: unknown file type '%s'\n",input_file.c_str());
+					exit(1);
+				}
 			}
+			std::string exe_path=output_file.empty()?"a"+std::string(".exe"):output_file;
+			Compiler cg;
+			bool ok=cg.linkExecutableFiles(link_files,exe_path,static_link,resolved_libs,bundled_lib_path);
+			if(!ok)exit(1);
+			fprintf(stdout,"Generated: %s\n",exe_path.c_str());
 		}
-		delete program;
-		if(!ok)exit(1);
 	}catch(const std::exception& e){
 		fprintf(stderr,"fatal error: %s\n",e.what());
 		exit(1);
