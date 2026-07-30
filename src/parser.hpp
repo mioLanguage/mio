@@ -8,6 +8,7 @@
 #include<unordered_set>
 #include<unordered_map>
 #include<cstdio>
+static int g_error_count=0;
 #include<cstdlib>
 #include<cstring>
 extern FilenamePool g_filename_pool;
@@ -20,7 +21,6 @@ public:
 	Lexer* lexer;
 	Token* cur;
 	Token* peek;
-	int error_count;
 	std::string filename;
 	std::vector<std::string> include_paths;
 	std::vector<std::string> imported_files;
@@ -29,7 +29,7 @@ public:
 	std::unordered_map<std::string,std::unordered_map<std::string,bool>> class_virtual_methods;
 	std::unordered_map<std::string,std::string> class_base_map;
 	std::unordered_map<std::string,std::unordered_set<std::string>> class_method_names;
-	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),error_count(0),filename(f),include_paths(paths){
+	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),filename(f),include_paths(paths){
 		cur=lexer->current;
 		peek=lexer->peek();
 	}
@@ -44,7 +44,6 @@ public:
 		}
 		return program;
 	}
-	int errorCount()const{return error_count;}
 	void add_macro(const std::string& name,const std::string& value){
 		for(auto& m:macros){
 			if(m.name==name){
@@ -57,7 +56,7 @@ public:
 private:
 	void error(const std::string& msg){
 		fprintf(stderr,"%s:%d:%d: error: %s\n",filename.c_str(),cur->line,cur->col,msg.c_str());
-		error_count++;
+		g_error_count++;
 	}
 	void error_expected(const std::string& expected){
 		char buf[256];
@@ -277,27 +276,18 @@ private:
 			case TOK_CHAR: advance(); return mio_type_new(MioTypeKind::CHAR);
 			case TOK_VOID: advance(); return mio_type_new(MioTypeKind::VOID);
 			case TOK_IDENT:{
-				std::string name=cur->lexeme;
-				advance();
-				if(match(TOK_DOUBLE_COLON)){
-					if(cur->kind!=TOK_IDENT){
-						error_expected("type name after '::'");
-						return mio_type_new(MioTypeKind::VOID);
-					}
-					std::string fullName=name+"::"+cur->lexeme;
-					advance();
-					auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
-					if(match(TOK_DOLLAR)){
-						do{
-							mt->param_types.push_back(parse_type());
-						}while(match(TOK_COMMA));
-						if(!match(TOK_DOLLAR)){
-							error_expected("'$'");
-						}
-					}
-					return mt;
+			std::string name=cur->lexeme;
+			int line=cur->line,col=cur->col;
+			advance();
+			if(match(TOK_DOUBLE_COLON)){
+				if(cur->kind!=TOK_IDENT){
+					error_expected("type name after '::'");
+					return mio_type_new(MioTypeKind::VOID);
 				}
-				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
+				std::string fullName=name+"::"+cur->lexeme;
+				advance();
+				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
+				mt->line=line;mt->col=col;
 				if(match(TOK_DOLLAR)){
 					do{
 						mt->param_types.push_back(parse_type());
@@ -308,19 +298,35 @@ private:
 				}
 				return mt;
 			}
+			auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
+			mt->line=line;mt->col=col;
+			if(match(TOK_DOLLAR)){
+				do{
+					mt->param_types.push_back(parse_type());
+				}while(match(TOK_COMMA));
+				if(!match(TOK_DOLLAR)){
+					error_expected("'$'");
+				}
+			}
+			return mt;
+		}
 			default:
 				error_expected("type");
 				return mio_type_new(MioTypeKind::VOID);
 		}
 	}
 	MioType* parse_type(){
+		if(match(TOK_STAR)){
+			auto* base=parse_type();
+			return mio_type_new_pointer(base);
+		}
+		if(match(TOK_BIT_AND)){
+			auto* base=parse_type();
+			return mio_type_new_reference(base);
+		}
 		auto* base=parse_base_type();
 		while(true){
-			if(match(TOK_STAR)){
-				base=mio_type_new_pointer(base);
-			}else if(match(TOK_BIT_AND)){
-				base=mio_type_new_reference(base);
-			}else if(match(TOK_LBRACKET)){
+			if(match(TOK_LBRACKET)){
 				if(cur->kind==TOK_INT_LIT){
 					int size=(int)cur->int_val;
 					advance();

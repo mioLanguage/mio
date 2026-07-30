@@ -46,7 +46,7 @@ LLD_HAS_DRIVER(macho);
 #ifdef _WIN32
 #undef VOID
 #endif
-
+extern int g_error_count;
 
 class Compiler{
 	llvm::LLVMContext ctx;
@@ -109,16 +109,15 @@ class Compiler{
 			case MioTypeKind::F64:	return llvm::Type::getDoubleTy(ctx);
 			case MioTypeKind::BOOL:	return llvm::Type::getInt1Ty(ctx);
 			case MioTypeKind::CHAR:	return llvm::Type::getInt8Ty(ctx);
-			case MioTypeKind::POINTER:
-			return llvm::PointerType::get(ctx,0);
-		case MioTypeKind::REFERENCE:
-			return llvm::PointerType::get(ctx,0);
-		case MioTypeKind::ARRAY:{
-				llvm::Type* elem=convertType(mt->base_type);
-				if(mt->array_size>0)
-					return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
+			case MioTypeKind::POINTER: return llvm::PointerType::get(ctx,0);
+			case MioTypeKind::REFERENCE:
 				return llvm::PointerType::get(ctx,0);
-			}
+			case MioTypeKind::ARRAY:{
+					llvm::Type* elem=convertType(mt->base_type);
+					if(mt->array_size>0)
+						return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
+					return llvm::PointerType::get(ctx,0);
+				}
 			case MioTypeKind::STRUCT:{
 				if(!mt->name.empty()){
 					if(!mt->param_types.empty()){
@@ -130,12 +129,16 @@ class Compiler{
 						instantiateClassTemplate(mt->name,mt->param_types,instName);
 						if(structTypes.count(instName))
 							return structTypes[instName];
+						error(mt->line,mt->col,"unknown template type '"+instName+"'");
+						return llvm::Type::getVoidTy(ctx);
 					}
 					
 					llvm::StructType* st=findStructType(mt->name);
 					if(st)return st;
+					error(mt->line,mt->col,"unknown type '"+mt->name+"'");
+					return llvm::Type::getVoidTy(ctx);
 				}
-				return llvm::StructType::create(ctx,mt->name.empty()?"":mt->name);
+				return llvm::StructType::create(ctx,"");
 			}
 			case MioTypeKind::ENUM:
 				return llvm::Type::getInt32Ty(ctx);
@@ -166,39 +169,28 @@ class Compiler{
 			case AstNodeKind::CHAR_LIT:	return llvm::Type::getInt8Ty(ctx);
 			case AstNodeKind::STRING_LIT:return llvm::PointerType::get(ctx,0);
 			case AstNodeKind::IDENT_EXPR:{
-			std::string name=node->ident.name;
-			std::string ns=node->ident.namespace_name;
-			
-			
-			if(ns=="::"){
-				auto git=globalVars.find(name);
+				std::string name=node->ident.name;
+				std::string ns=node->ident.namespace_name;
+				if(ns=="::"){
+					auto git=globalVars.find(name);
+					if(git!=globalVars.end())
+						return git->second->getValueType();
+					error(node->line,node->col,"undefined global variable '"+name+"'");
+					return llvm::Type::getInt64Ty(ctx);
+				}
+				std::string fullName=resolveNamespaceName(name,ns);
+				auto it=locals.find(fullName);
+				if(it!=locals.end())
+					return it->second->getAllocatedType();
+				auto git=globalVars.find(fullName);
 				if(git!=globalVars.end())
 					return git->second->getValueType();
-				error(node->line,node->col,"undefined global variable '"+name+"'");
+				llvm::GlobalVariable* gv=nullptr;
+				std::string foundName=findInImportedNs(name,globalVars,gv);
+				if(!foundName.empty())
+					return gv->getValueType();
 				return llvm::Type::getInt64Ty(ctx);
 			}
-			
-			
-			std::string fullName=resolveNamespaceName(name,ns);
-			
-			
-			auto it=locals.find(fullName);
-			if(it!=locals.end())
-				return it->second->getAllocatedType();
-			
-			
-			auto git=globalVars.find(fullName);
-			if(git!=globalVars.end())
-				return git->second->getValueType();
-			
-			
-		llvm::GlobalVariable* gv=nullptr;
-		std::string foundName=findInImportedNs(name,globalVars,gv);
-		if(!foundName.empty())
-			return gv->getValueType();
-			
-			return llvm::Type::getInt64Ty(ctx);
-		}
 			case AstNodeKind::BINARY_EXPR:{
 				llvm::Type* lt=resolveExprType(node->binary.left);
 				llvm::Type* rt=resolveExprType(node->binary.right);
@@ -2924,8 +2916,6 @@ class Compiler{
 			error(node?node->line:0,node?node->col:0,"null operand in assignment expression");
 			return nullptr;
 		}
-		
-		
 		MioType* leftMio=resolveExprMioType(node->assign.left);
 		std::string structName;
 		if(leftMio){
@@ -2934,8 +2924,6 @@ class Compiler{
 			else if(leftMio->kind==MioTypeKind::POINTER&&leftMio->base_type&&leftMio->base_type->kind==MioTypeKind::STRUCT)
 				structName=resolveStructName(leftMio->base_type->name);
 		}
-		
-		
 		if(!structName.empty()&&node->assign.op!=TOK_ASSIGN){
 			MioType* rmt=resolveExprMioType(node->assign.right);
 			std::string opMethod=findOperatorMethod(structName,node->assign.op,rmt);
@@ -3057,25 +3045,25 @@ public:
 	}
 	void error(AstNode* node,const std::string& msg){
 		fprintf(stderr,"%s:%d:%d: error: %s\n",node->filename?node->filename->c_str():filename.c_str(),node->line,node->col,msg.c_str());
+		g_error_count++;
 	}
 	void error(int line,int col,const std::string& msg){
 		fprintf(stderr,"%s:%d:%d: error: %s\n",filename.c_str(),line,col,msg.c_str());
+		g_error_count++;
 	}
 	void error(const std::string& msg){
 		fprintf(stderr,"error: %s\n",msg.c_str());
+		g_error_count++;
 	}
 	~Compiler()=default;
-	bool generate(AstNode* program){
+	void generate(AstNode* program){
 		if(!program){
 			error("null program");
-			return false;
+			return;
 		}
 		genProgram(program);
-		if(llvm::verifyModule(*mod,&llvm::errs())){
+		if(llvm::verifyModule(*mod,&llvm::errs()))
 			error("Error verifying module");
-			return false;
-		}
-		return true;
 	}
 	bool emitLLVM(const std::string& path){
 		std::error_code ec;
@@ -3169,12 +3157,12 @@ public:
 		LLVMDisposeTargetMachine(tm);
 		return true;
 	}
-		bool linkExecutable(const std::string& objPath,const std::string& exePath,bool staticLink=false,const std::vector<std::string>& linkLibs={},const std::string& bundledLibPath=""){
+	bool linkExecutable(const std::string& objPath,const std::string& exePath,bool staticLink=false,const std::vector<std::string>& linkLibs={},const std::string& bundledLibPath=""){
 		std::vector<std::string> files;
 		files.push_back(objPath);
 		return linkExecutableFiles(files,exePath,staticLink,linkLibs,bundledLibPath);
 	}
-		bool linkExecutableFiles(const std::vector<std::string>& objPaths,const std::string& exePath,bool staticLink=false,const std::vector<std::string>& linkLibs={},const std::string& bundledLibPath=""){
+	bool linkExecutableFiles(const std::vector<std::string>& objPaths,const std::string& exePath,bool staticLink=false,const std::vector<std::string>& linkLibs={},const std::string& bundledLibPath=""){
 		std::string triple=llvm::sys::getProcessTriple();
 		llvm::Triple t(triple);
 		std::deque<std::string> strStorage;
@@ -3201,13 +3189,13 @@ public:
 					addArg("/defaultlib:libvcruntime");
 					addArg("/defaultlib:legacy_stdio_definitions");
 				}else{
-				addArg("/entry:main");
-				addArg("/defaultlib:msvcrt");
-				addArg("/defaultlib:ucrt");
-				addArg("/defaultlib:libvcruntime");
-				addArg("/defaultlib:legacy_stdio_definitions");
-				addArg("/nodefaultlib:libcmt");
-			}
+					addArg("/entry:main");
+					addArg("/defaultlib:msvcrt");
+					addArg("/defaultlib:ucrt");
+					addArg("/defaultlib:libvcruntime");
+					addArg("/defaultlib:legacy_stdio_definitions");
+					addArg("/nodefaultlib:libcmt");
+				}
 				for(const auto& lib:linkLibs){
 					addArg(lib);
 				}
@@ -3311,17 +3299,13 @@ public:
 		Parser parser(&lexer,input_file,include_paths);
 		for(const auto& m:defines)parser.add_macro(m,"1");
 		AstNode* program=parser.parse();
-		if(!program){
-			fprintf(stderr,"error: parser returned null\n");
-			return false;
-		}
-		if(parser.errorCount()>0){
-			fprintf(stderr,"error: %d parse errors\n",parser.errorCount());
+		if(!program) return false;
+		if(g_error_count){
 			delete program;
 			return false;
 		}
-		if(!generate(program)){
-			fprintf(stderr,"error: code generation failed\n");
+		generate(program);
+		if(g_error_count){
 			delete program;
 			return false;
 		}

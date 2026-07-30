@@ -44,11 +44,13 @@ public:
 	MioTypeKind kind;
 	std::string name;
 	int array_size;
+	int line;
+	int col;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
-	MioType(MioTypeKind k): kind(k), array_size(0), base_type(nullptr) {}
-	MioType(MioTypeKind k, const std::string& n): kind(k), name(n), array_size(0), base_type(nullptr) {}
-	MioType(MioType* base, int size): kind(MioTypeKind::ARRAY), array_size(size), base_type(base) {}
+	MioType(MioTypeKind k): kind(k), array_size(0), line(0), col(0), base_type(nullptr) {}
+	MioType(MioTypeKind k, const std::string& n): kind(k), name(n), array_size(0), line(0), col(0), base_type(nullptr) {}
+	MioType(MioType* base, int size): kind(MioTypeKind::ARRAY), array_size(size), line(base?base->line:0), col(base?base->col:0), base_type(base) {}
 	~MioType(){
 		if(base_type) delete base_type;
 		for(auto* p : param_types) delete p;
@@ -57,6 +59,8 @@ public:
 		kind=other.kind;
 		name=other.name;
 		array_size=other.array_size;
+		line=other.line;
+		col=other.col;
 		base_type=other.base_type ? new MioType(*other.base_type) : nullptr;
 		for(auto* p : other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -70,6 +74,8 @@ public:
 		kind=other.kind;
 		name=other.name;
 		array_size=other.array_size;
+		line=other.line;
+		col=other.col;
 		base_type=other.base_type ? new MioType(*other.base_type) : nullptr;
 		for(auto* p : other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -78,7 +84,8 @@ public:
 	}
 	MioType(MioType&& other) noexcept
 		: kind(other.kind), name(std::move(other.name)), 
-		  array_size(other.array_size), base_type(other.base_type),
+		  array_size(other.array_size), line(other.line), col(other.col),
+		  base_type(other.base_type),
 		  param_types(std::move(other.param_types)){
 		other.base_type=nullptr;
 	}
@@ -89,6 +96,8 @@ public:
 		kind=other.kind;
 		name=std::move(other.name);
 		array_size=other.array_size;
+		line=other.line;
+		col=other.col;
 		base_type=other.base_type;
 		param_types=std::move(other.param_types);
 		other.base_type=nullptr;
