@@ -1138,14 +1138,14 @@ class Compiler{
 			retTy=convertType(def->func_def.return_type);
 		}
 		std::vector<llvm::Type*> paramTys;
-	if(isMethod){
-		auto stit=structTypes.find(def->func_def.class_name);
-		if(stit!=structTypes.end()){
-			paramTys.push_back(stit->second->getPointerTo());
-		}else{
-			paramTys.push_back(llvm::PointerType::get(ctx,0));
+		if(isMethod){
+			auto stit=structTypes.find(def->func_def.class_name);
+			if(stit!=structTypes.end()){
+				paramTys.push_back(stit->second->getPointerTo());
+			}else{
+				paramTys.push_back(llvm::PointerType::get(ctx,0));
+			}
 		}
-	}
 		for(auto& p:def->func_def.params)paramTys.push_back(convertType(p.type));
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		std::string mangledName=name;
@@ -1162,23 +1162,22 @@ class Compiler{
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
 			}
-		}
-		if(!isMethod&&!currentNamespace.empty()){
+		}else if(!isMethod&&!currentNamespace.empty()){
 			mangledName=currentNamespace+"::"+name;
 			namespaceMembers[name]=mangledName;
+		}else if(!isMethod&&currentNamespace.empty()&&!def->func_def.is_extern&&name!="main"){
+			mangledName="global::"+name;
 		}
-		
 		if(funcDecls.count(mangledName)&&!def->func_def.is_extern&&!def->func_def.is_pure_virtual){
-			error(def->line,def->col,"redefinition of function '"+mangledName+"'");
+			error(def,"redefinition of function '"+mangledName+"'");
 			return;
 		}
-		
 		auto* fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,mangledName,mod.get());
 		funcDecls[mangledName]=fn;
 		funcDefMap[mangledName]=def;
-		if(name!=mangledName&&!isCtor&&!def->func_def.is_operator){
+		if(name!=mangledName&&!isCtor&&!def->func_def.is_operator&&!isMethod){
 			if(funcDecls.count(name)&&funcDecls[name]!=fn){
-				error(def->line,def->col,"redefinition of function '"+name+"'");
+				error(def,"redefinition of function '"+name+"'");
 				return;
 			}
 			funcDecls[name]=fn;
@@ -2507,12 +2506,9 @@ class Compiler{
 				}
 			}
 			if(!className.empty()){
-				
 				auto vit=classVTableOrder.find(className);
 				if(vit!=classVTableOrder.end()){
-					
 					for(size_t i=0;i<vit->second.size();i++){
-						
 						if(vit->second[i]==method){
 							isVirtualCall=true;
 							virtualClassName=className;
@@ -2529,8 +2525,8 @@ class Compiler{
 					if(fit!=funcDecls.end())calleeVal=fit->second;
 				}
 				if(!calleeVal&&!isVirtualCall){
-					auto fit=funcDecls.find(method);
-					if(fit!=funcDecls.end())calleeVal=fit->second;
+					error(node->line,node->col,"method '"+method+"' not found in class '"+className+"'");
+					return nullptr;
 				}
 				if(isVirtualCall){
 					llvm::Value* thisPtr=genLValue(base);

@@ -987,9 +987,9 @@ private:
 			default: return false;
 		}
 	}
-	AstNode* parse_class_def(){
+	AstNode* parse_class_def(bool class_consumed=false){
 		int line=cur->line,col=cur->col;
-		advance();
+		if(!class_consumed)advance();
 		if(cur->kind!=TOK_IDENT){
 			error("expected class name");
 			return nullptr;
@@ -1117,8 +1117,8 @@ private:
 					dtor->func_def.access=cur_access;
 					dtor->func_def.body=parse_block();
 					c->class_def.destructor=dtor;
-			}else if(match(TOK_CLASS)){
-					auto* nested=parse_class_def();
+				}else if(match(TOK_CLASS)){
+					auto* nested=parse_class_def(true);
 					if(nested){
 						std::string nested_name=nested->class_def.name;
 						if(nested_name.find("::")==std::string::npos){
