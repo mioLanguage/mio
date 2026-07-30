@@ -111,7 +111,7 @@ class Compiler{
 			case MioTypeKind::CHAR:	return llvm::Type::getInt8Ty(ctx);
 			case MioTypeKind::POINTER: return llvm::PointerType::get(ctx,0);
 			case MioTypeKind::REFERENCE:
-				return llvm::PointerType::get(ctx,0);
+				return convertType(mt->base_type);
 			case MioTypeKind::ARRAY:{
 					llvm::Type* elem=convertType(mt->base_type);
 					if(mt->array_size>0)
@@ -427,7 +427,6 @@ class Compiler{
 							case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
 							case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
 							case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
-							case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
 							case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
 							case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
 							case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
@@ -442,8 +441,7 @@ class Compiler{
 				case AstNodeKind::VAR_DECL:		genGlobalVar(node);break;
 				case AstNodeKind::CONST_DECL:	genGlobalVar(node);break;
 				case AstNodeKind::FUNC_DEF:		genFuncDef(node);break;
-				case AstNodeKind::STRUCT_DEF:	genStructDef(node);break;
-				case AstNodeKind::ENUM_DEF:		genEnumDef(node);break;
+			case AstNodeKind::ENUM_DEF:		genEnumDef(node);break;
 				case AstNodeKind::UNION_DEF:	genUnionDef(node);break;
 				case AstNodeKind::CLASS_DEF:	genClassDef(node);break;
 				case AstNodeKind::MACRO_DEF:	break;
@@ -461,8 +459,7 @@ class Compiler{
 									case AstNodeKind::VAR_DECL:		genGlobalVar(s);break;
 									case AstNodeKind::CONST_DECL:	genGlobalVar(s);break;
 									case AstNodeKind::FUNC_DEF:		genFuncDef(s);break;
-									case AstNodeKind::STRUCT_DEF:	genStructDef(s);break;
-									case AstNodeKind::ENUM_DEF:		genEnumDef(s);break;
+								case AstNodeKind::ENUM_DEF:		genEnumDef(s);break;
 									case AstNodeKind::UNION_DEF:	genUnionDef(s);break;
 									case AstNodeKind::CLASS_DEF:	genClassDef(s);break;
 									case AstNodeKind::TEMPLATE_DEF:	registerTemplate(s);break;
@@ -477,8 +474,7 @@ class Compiler{
 												case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
 												case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
 												case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
-												case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
-												case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
+											case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
 												case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
 												case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
 												case AstNodeKind::TEMPLATE_DEF:	registerTemplate(decl);break;
@@ -503,9 +499,8 @@ class Compiler{
 						case AstNodeKind::VAR_DECL:		genGlobalVar(stmt);break;
 						case AstNodeKind::CONST_DECL:	genGlobalVar(stmt);break;
 						case AstNodeKind::FUNC_DEF:		genFuncDef(stmt);break;
-						case AstNodeKind::STRUCT_DEF:	genStructDef(stmt);break;
-						case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
-						case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
+					case AstNodeKind::ENUM_DEF:		genEnumDef(stmt);break;
+					case AstNodeKind::UNION_DEF:	genUnionDef(stmt);break;
 						case AstNodeKind::CLASS_DEF:	genClassDef(stmt);break;
 						case AstNodeKind::TEMPLATE_DEF:	registerTemplate(stmt);break;
 						case AstNodeKind::NAMESPACE_DEF:{
@@ -519,8 +514,7 @@ class Compiler{
 									case AstNodeKind::VAR_DECL:		genGlobalVar(decl);break;
 									case AstNodeKind::CONST_DECL:	genGlobalVar(decl);break;
 									case AstNodeKind::FUNC_DEF:		genFuncDef(decl);break;
-									case AstNodeKind::STRUCT_DEF:	genStructDef(decl);break;
-									case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
+								case AstNodeKind::ENUM_DEF:		genEnumDef(decl);break;
 									case AstNodeKind::UNION_DEF:	genUnionDef(decl);break;
 									case AstNodeKind::CLASS_DEF:	genClassDef(decl);break;
 									case AstNodeKind::TEMPLATE_DEF:	registerTemplate(decl);break;
@@ -769,7 +763,13 @@ class Compiler{
 	}
 	MioType* resolveExprMioType(AstNode* node){
 		if(!node)return nullptr;
-		if(node->type)return node->type;
+		if(node->type){
+			MioType* t=node->type;
+			while(t&&t->kind==MioTypeKind::REFERENCE){
+				t=t->base_type;
+			}
+			return t;
+		}
 		switch(node->kind){
 			case AstNodeKind::UNARY_EXPR:
 				if(node->unary.op==TOK_BIT_AND){
@@ -779,16 +779,19 @@ class Compiler{
 				if(node->unary.op==TOK_STAR){
 					MioType* inner=resolveExprMioType(node->unary.operand);
 					if(inner&&inner->kind==MioTypeKind::POINTER)return inner->base_type;
+					if(inner&&inner->kind==MioTypeKind::REFERENCE)return inner->base_type;
 					return nullptr;
 				}
 				return resolveExprMioType(node->unary.operand);
 			case AstNodeKind::INDEX_EXPR:{
-				MioType* baseMio=resolveExprMioType(node->index_expr.base);
-				if(!baseMio)return nullptr;
-				if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type)
-					return mio_type_clone(baseMio->base_type);
-				return nullptr;
-			}
+			MioType* baseMio=resolveExprMioType(node->index_expr.base);
+			if(!baseMio)return nullptr;
+			if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type)
+				return mio_type_clone(baseMio->base_type);
+			if(baseMio->kind==MioTypeKind::ARRAY&&baseMio->base_type)
+				return mio_type_clone(baseMio->base_type);
+			return nullptr;
+		}
 			case AstNodeKind::INT_LIT:	return mio_type_new(MioTypeKind::I32);
 			case AstNodeKind::FLOAT_LIT:return mio_type_new(MioTypeKind::F64);
 			case AstNodeKind::BOOL_LIT:	return mio_type_new(MioTypeKind::BOOL);
@@ -1282,30 +1285,6 @@ class Compiler{
 		localMioTypes=savedLocalMioTypes;
 		if(hadInsertPoint){
 			b.restoreIP(savedIP);
-		}
-	}
-	void genStructDef(AstNode* def){
-		std::string name=def->struct_def.name;
-		std::string mangled=mangleName(name);
-		if(!currentNamespace.empty())
-			namespaceMembers[name]=mangled;
-		if(structTypes.count(mangled)){
-			error(def->line,def->col,"redefinition of struct '"+mangled+"'");
-			return;
-		}
-		std::vector<llvm::Type*> fieldTys;
-		for(auto& f:def->struct_def.fields)fieldTys.push_back(convertType(f.type));
-		auto* st=llvm::StructType::create(ctx,fieldTys,mangled);
-		structTypes[mangled]=st;
-		for(unsigned i=0;i<def->struct_def.fields.size();i++){
-			structFieldIdx[mangled][def->struct_def.fields[i].name]=i;
-			structFieldTypes[mangled][def->struct_def.fields[i].name]=mio_type_clone(def->struct_def.fields[i].type);
-		}
-		for(auto* m:def->struct_def.methods){
-			if(m->kind==AstNodeKind::FUNC_DEF){
-				m->func_def.struct_name=mangled;
-				genFuncDef(m);
-			}
 		}
 	}
 	void genEnumDef(AstNode* def){
@@ -1921,20 +1900,24 @@ class Compiler{
 					return nullptr;
 				}
 				
-				if(baseMio->kind!=MioTypeKind::POINTER){
-					error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
-					return nullptr;
+				if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
+				error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
+				return nullptr;
+			}
+			llvm::Value* base=genExpr(node->index_expr.base);
+			if(!base)return nullptr;
+			llvm::Value* idx=genExpr(node->index_expr.index);
+			if(!idx)return nullptr;
+			llvm::Type* elemTy=resolveExprType(node);
+			if(!idx->getType()->isIntegerTy(64))
+				idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+			if(baseMio->kind==MioTypeKind::ARRAY){
+				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(base)){
+					llvm::Value* zero=llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+					return b.CreateGEP(ai->getAllocatedType(),base,{zero,idx});
 				}
-				
-				
-				llvm::Value* base=genExpr(node->index_expr.base);
-				if(!base)return nullptr;
-				llvm::Value* idx=genExpr(node->index_expr.index);
-				if(!idx)return nullptr;
-				llvm::Type* elemTy=resolveExprType(node);
-				if(!idx->getType()->isIntegerTy(64))
-					idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
-				return b.CreateGEP(elemTy,base,idx);
+			}
+			return b.CreateGEP(elemTy,base,idx);
 			}
 			case AstNodeKind::MEMBER_EXPR:{
 				llvm::Value* base=genLValue(node->member.base);
@@ -2056,19 +2039,16 @@ class Compiler{
 		if(!node)return nullptr;
 		std::string name=node->ident.name;
 		std::string ns=node->ident.namespace_name;
-		
-		
 		if(ns=="::"){
 			auto git=globalVars.find(name);
 			if(git!=globalVars.end()){
 				llvm::Type* ty=git->second->getValueType();
+				if(ty->isArrayTy())return git->second;
 				return b.CreateLoad(ty,git->second,name);
 			}
 			error(node->line,node->col,"undefined global variable '"+name+"'");
 			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
 		}
-		
-		
 		if(!ns.empty()){
 			std::string fullName=ns+"::"+name;
 			
@@ -2089,39 +2069,31 @@ class Compiler{
 			error(node->line,node->col,"undefined variable '"+fullName+"'");
 			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
 		}
-		
-		
-		
 		auto it=locals.find(name);
 		if(it!=locals.end()){
 			llvm::Type* ty=it->second->getAllocatedType();
+			if(ty->isArrayTy())return it->second;
 			return b.CreateLoad(ty,it->second,name);
 		}
-		
-		
 		auto git=globalVars.find(name);
 		if(git!=globalVars.end()){
 			llvm::Type* ty=git->second->getValueType();
+			if(ty->isArrayTy())return git->second;
 			return b.CreateLoad(ty,git->second,name);
 		}
-		
-		
 		auto fit=funcDecls.find(name);
 		if(fit!=funcDecls.end())return fit->second;
-		
-		
 		llvm::GlobalVariable* gv=nullptr;
 		std::string foundName=findInImportedNs(name,globalVars,gv);
 		if(!foundName.empty()){
 			llvm::Type* ty=gv->getValueType();
+			if(ty->isArrayTy())return gv;
 			return b.CreateLoad(ty,gv,foundName);
 		}
 		
 		llvm::Function* fn=nullptr;
 		foundName=findInImportedNs(name,funcDecls,fn);
 		if(!foundName.empty())return fn;
-		
-		
 		error(node->line,node->col,"undefined variable '"+name+"'");
 		return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
 	}
@@ -2489,11 +2461,15 @@ class Compiler{
 			auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
 			std::vector<llvm::Value*> args;
 			args.push_back(alloca);
-			for(auto* a:node->call.args){
-					llvm::Value* av=genExpr(a);
+			for(unsigned i=0;i<node->call.args.size();i++){
+					llvm::Value* av=genExpr(node->call.args[i]);
 					if(!av){
 						error(node->line,node->col,"failed to generate constructor argument");
 						return nullptr;
+					}
+					if(i+1<ctor->arg_size()){
+						llvm::Type* paramTy=ctor->getFunctionType()->getParamType(i+1);
+						if(av->getType()!=paramTy)av=genCastValue(av,paramTy);
 					}
 					args.push_back(av);
 				}
@@ -2778,10 +2754,10 @@ class Compiler{
 			return nullptr;
 		}
 		
-		if(baseMio->kind!=MioTypeKind::POINTER){
-			error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
-			return nullptr;
-		}
+		if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
+		error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
+		return nullptr;
+	}
 		
 		
 		llvm::Value* base=genExpr(node->index_expr.base);
@@ -2797,8 +2773,18 @@ class Compiler{
 		llvm::Type* elemTy=resolveExprType(node);
 		if(!idx->getType()->isIntegerTy(64))
 			idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
-		llvm::Value* ptr=b.CreateGEP(elemTy,base,idx);
-		return b.CreateLoad(elemTy,ptr);
+		llvm::Value* ptr;
+	if(baseMio->kind==MioTypeKind::ARRAY){
+		if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(base)){
+			llvm::Value* zero=llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+			ptr=b.CreateGEP(ai->getAllocatedType(),base,{zero,idx});
+		}else{
+			ptr=b.CreateGEP(elemTy,base,idx);
+		}
+	}else{
+		ptr=b.CreateGEP(elemTy,base,idx);
+	}
+	return b.CreateLoad(elemTy,ptr);
 	}
 	llvm::Value* genMemberExpr(AstNode* node){
 		if(!node||!node->member.base){

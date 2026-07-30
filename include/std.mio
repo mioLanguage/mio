@@ -9,7 +9,7 @@ namespace std {
 	# utility
 	# ============================================================
 	template$T:typename$
-	void swap(a: T*, b: T*) {
+	void swap(a: *T, b: *T) {
 		var tmp: T = *a;
 		*a = *b;
 		*b = tmp;
@@ -53,7 +53,7 @@ namespace std {
 	# algorithm
 	# ============================================================
 	template$T:typename$
-	i64 find(ptr: T*, n: u64, val: T) {
+	i64 find(ptr: *T, n: u64, val: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			if: (ptr[i] == val) {
@@ -63,7 +63,7 @@ namespace std {
 		return -1;
 	}
 	template$T:typename$
-	i64 find_last(ptr: T*, n: u64, val: T) {
+	i64 find_last(ptr: *T, n: u64, val: T) {
 		if: (n == 0) {
 			return -1;
 		}
@@ -77,7 +77,7 @@ namespace std {
 		return -1;
 	}
 	template$T:typename$
-	i64 adjacent_find(ptr: T*, n: u64) {
+	i64 adjacent_find(ptr: *T, n: u64) {
 		if: (n < 2) {
 			return -1;
 		}
@@ -90,21 +90,21 @@ namespace std {
 		return -1;
 	}
 	template$T:typename$
-	void fill(ptr: T*, n: u64, val: T) {
+	void fill(ptr: *T, n: u64, val: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			ptr[i] = val;
 		}
 	}
 	template$T:typename$
-	void copy(src: T*, dst: T*, n: u64) {
+	void copy(src: *T, dst: *T, n: u64) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			dst[i] = src[i];
 		}
 	}
 	template$T:typename$
-	void reverse(ptr: T*, n: u64) {
+	void reverse(ptr: *T, n: u64) {
 		var i: u64 = 0;
 		var j: u64 = n;
 		if: (j == 0) {
@@ -119,7 +119,7 @@ namespace std {
 		}
 	}
 	template$T:typename$
-	void rotate(ptr: T*, n: u64, k: u64) {
+	void rotate(ptr: *T, n: u64, k: u64) {
 		if: (n <= 1 || k == 0) {
 			return;
 		}
@@ -138,7 +138,7 @@ namespace std {
 		}
 	}
 	template$T:typename$
-	void sort(ptr: T*, n: u64) {
+	void sort(ptr: *T, n: u64) {
 		if: (n <= 1) {
 			return;
 		}
@@ -155,7 +155,7 @@ namespace std {
 		}
 	}
 	template$T:typename$
-	i32 binary_search(ptr: T*, n: u64, val: T) {
+	i32 binary_search(ptr: *T, n: u64, val: T) {
 		var lo: i64 = 0;
 		var hi: i64 = i64(n) - 1;
 		for: (; lo <= hi; ) {
@@ -172,7 +172,7 @@ namespace std {
 		return 0;
 	}
 	template$T:typename$
-	i64 lower_bound(ptr: T*, n: u64, val: T) {
+	i64 lower_bound(ptr: *T, n: u64, val: T) {
 		var lo: i64 = 0;
 		var hi: i64 = i64(n);
 		for: (; lo < hi; ) {
@@ -186,7 +186,7 @@ namespace std {
 		return lo;
 	}
 	template$T:typename$
-	i64 upper_bound(ptr: T*, n: u64, val: T) {
+	i64 upper_bound(ptr: *T, n: u64, val: T) {
 		var lo: i64 = 0;
 		var hi: i64 = i64(n);
 		for: (; lo < hi; ) {
@@ -200,7 +200,7 @@ namespace std {
 		return lo;
 	}
 	template$T:typename$
-	i32 all_of(ptr: T*, n: u64, pred: T) {
+	i32 all_of(ptr: *T, n: u64, pred: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			if: (ptr[i] != pred) {
@@ -210,7 +210,7 @@ namespace std {
 		return 1;
 	}
 	template$T:typename$
-	i32 any_of(ptr: T*, n: u64, pred: T) {
+	i32 any_of(ptr: *T, n: u64, pred: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			if: (ptr[i] == pred) {
@@ -220,7 +220,7 @@ namespace std {
 		return 0;
 	}
 	template$T:typename$
-	i32 none_of(ptr: T*, n: u64, pred: T) {
+	i32 none_of(ptr: *T, n: u64, pred: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			if: (ptr[i] == pred) {
@@ -230,7 +230,7 @@ namespace std {
 		return 1;
 	}
 	template$T:typename$
-	u64 count(ptr: T*, n: u64, val: T) {
+	u64 count(ptr: *T, n: u64, val: T) {
 		var c: u64 = 0;
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
@@ -241,7 +241,7 @@ namespace std {
 		return c;
 	}
 	template$T:typename$
-	void replace(ptr: T*, n: u64, old_val: T, new_val: T) {
+	void replace(ptr: *T, n: u64, old_val: T, new_val: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			if: (ptr[i] == old_val) {
@@ -250,7 +250,7 @@ namespace std {
 		}
 	}
 	template$T:typename$
-	i32 is_sorted(ptr: T*, n: u64) {
+	i32 is_sorted(ptr: *T, n: u64) {
 		if: (n <= 1) {
 			return 1;
 		}
@@ -263,7 +263,7 @@ namespace std {
 		return 1;
 	}
 	template$T:typename$
-	u64 unique(ptr: T*, n: u64) {
+	u64 unique(ptr: *T, n: u64) {
 		if: (n <= 1) {
 			return n;
 		}
@@ -278,7 +278,7 @@ namespace std {
 		return j + 1;
 	}
 	template$T:typename$
-	void iota(ptr: T*, n: u64, start: T) {
+	void iota(ptr: *T, n: u64, start: T) {
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
 			ptr[i] = start;
@@ -286,7 +286,7 @@ namespace std {
 		}
 	}
 	template$T:typename$
-	T accumulate(ptr: T*, n: u64, init: T) {
+	T accumulate(ptr: *T, n: u64, init: T) {
 		var result: T = init;
 		var i: u64 = 0;
 		for: (i = 0; i < n; i = i + 1) {
@@ -295,7 +295,7 @@ namespace std {
 		return result;
 	}
 	template$T:typename$
-	i32 next_permutation(ptr: T*, n: u64) {
+	i32 next_permutation(ptr: *T, n: u64) {
 		if: (n <= 1) {
 			return 0;
 		}
@@ -321,7 +321,7 @@ namespace std {
 		return 1;
 	}
 	template$T:typename$
-	i32 prev_permutation(ptr: T*, n: u64) {
+	i32 prev_permutation(ptr: *T, n: u64) {
 		if: (n <= 1) {
 			return 0;
 		}
@@ -402,39 +402,39 @@ namespace std {
 	# memory
 	# ============================================================
 	template$T:typename$
-	T* allocate(n: u64) {
-		return T*(malloc(n * sizeof(T)));
+	*T allocate(n: u64) {
+		return *T(malloc(n * sizeof(T)));
 	}
 	template$T:typename$
-	void deallocate(ptr: T*) {
+	void deallocate(ptr: *T) {
 		if: (ptr != 0) {
-			free(char*(ptr));
+			free(*char(ptr));
 		}
 	}
 	template$T:typename$
-	T* reallocate(ptr: T*, n: u64) {
-		return T*(realloc(char*(ptr), n * sizeof(T)));
+	*T reallocate(ptr: *T, n: u64) {
+		return *T(realloc(*char(ptr), n * sizeof(T)));
 	}
 
 	# ============================================================
 	# pair
 	# ============================================================
 	template$T:typename,U:typename$
-	void make_pair(first: T*, second: U*, out_first: T*, out_second: U*) {
+	void make_pair(first: *T, second: *U, out_first: *T, out_second: *U) {
 		*out_first = *first;
 		*out_second = *second;
 	}
 
 	# ============================================================
-	# String
+	# string
 	# ============================================================
-	class String {
+	class string {
 	public:
-		String() {
+		string() {
 			this.data = "";
 			this.len = 0;
 		}
-		String(s: char*) {
+		string(s: *char) {
 			this.len = strlen(s);
 			this.data = malloc(this.len + 1);
 			if: (this.data != 0) {
@@ -443,20 +443,20 @@ namespace std {
 				this.len = 0;
 			}
 		}
-		String(s: String) {
+		string(s: string) {
 			this.len = s.len;
 			this.data = malloc(this.len + 1);
 			if: (this.data != 0) {
 				memcpy(this.data, s.data, this.len + 1);
 			}
 		}
-		~String() {
+		~string() {
 			if: (this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
 		}
-		String operator+(s: char*) {
-			var result: String;
+		string operator+(s: *char) {
+			var result: string;
 			var s_len: u64 = strlen(s);
 			result.len = this.len + s_len;
 			result.data = malloc(result.len + 1);
@@ -466,12 +466,12 @@ namespace std {
 			}
 			return result;
 		}
-		String operator+(other: String) {
+		string operator+(other: string) {
 			return this + other.data;
 		}
-		void operator+=(s: char*) {
+		void operator+=(s: *char) {
 			var new_len: u64 = this.len + strlen(s);
-			var new_data: char* = malloc(new_len + 1);
+			var new_data: *char = malloc(new_len + 1);
 			if: (new_data != 0) {
 				memcpy(new_data, this.data, this.len);
 				memcpy(new_data + this.len, s, strlen(s) + 1);
@@ -482,9 +482,9 @@ namespace std {
 				this.len = new_len;
 			}
 		}
-		void operator+=(other: String) {
+		void operator+=(other: string) {
 			var new_len: u64 = this.len + other.len;
-			var new_data: char* = malloc(new_len + 1);
+			var new_data: *char = malloc(new_len + 1);
 			if: (new_data != 0) {
 				memcpy(new_data, this.data, this.len);
 				memcpy(new_data + this.len, other.data, other.len + 1);
@@ -495,40 +495,40 @@ namespace std {
 				this.len = new_len;
 			}
 		}
-		i32 operator==(s: char*) {
+		i32 operator==(s: *char) {
 			if: (strcmp(this.data, s) == 0) {
 				return 1;
 			}
 			return 0;
 		}
-		i32 operator==(other: String) {
+		i32 operator==(other: string) {
 			return this == other.data;
 		}
-		i32 operator!=(s: char*) {
+		i32 operator!=(s: *char) {
 			return !(this == s);
 		}
-		i32 operator!=(other: String) {
+		i32 operator!=(other: string) {
 			return !(this == other);
 		}
-		i32 operator<(other: String) {
+		i32 operator<(other: string) {
 			if: (strcmp(this.data, other.data) < 0) {
 				return 1;
 			}
 			return 0;
 		}
-		i32 operator>(other: String) {
+		i32 operator>(other: string) {
 			if: (strcmp(this.data, other.data) > 0) {
 				return 1;
 			}
 			return 0;
 		}
-		i32 operator<=(other: String) {
+		i32 operator<=(other: string) {
 			if: (strcmp(this.data, other.data) <= 0) {
 				return 1;
 			}
 			return 0;
 		}
-		i32 operator>=(other: String) {
+		i32 operator>=(other: string) {
 			if: (strcmp(this.data, other.data) >= 0) {
 				return 1;
 			}
@@ -540,7 +540,7 @@ namespace std {
 			}
 			return 0;
 		}
-		String operator=(other: String) {
+		string operator=(other: string) {
 			if: (this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
@@ -551,7 +551,7 @@ namespace std {
 			}
 			return this;
 		}
-		char* c_str() {
+		*char c_str() {
 			return this.data;
 		}
 		u64 size() {
@@ -563,9 +563,9 @@ namespace std {
 			}
 			return 0;
 		}
-		void append(s: char*) {
+		void append(s: *char) {
 			var new_len: u64 = this.len + strlen(s);
-			var new_data: char* = malloc(new_len + 1);
+			var new_data: *char = malloc(new_len + 1);
 			if: (new_data != 0) {
 				memcpy(new_data, this.data, this.len);
 				memcpy(new_data + this.len, s, strlen(s) + 1);
@@ -576,16 +576,16 @@ namespace std {
 				this.len = new_len;
 			}
 		}
-		void append_string(other: String) {
+		void append_string(other: string) {
 			this += other;
 		}
-		i32 compare(s: char*) {
+		i32 compare(s: *char) {
 			return strcmp(this.data, s);
 		}
-		i32 equals(s: char*) {
+		i32 equals(s: *char) {
 			return this == s;
 		}
-		i32 contains(sub: char*) {
+		i32 contains(sub: *char) {
 			if: (strstr(this.data, sub) != 0) {
 				return 1;
 			}
@@ -594,8 +594,8 @@ namespace std {
 		char char_at(idx: u64) {
 			return this[idx];
 		}
-		String substr(start: u64, len: u64) {
-			var result: String;
+		string substr(start: u64, len: u64) {
+			var result: string;
 			if: (start >= this.len) {
 				return result;
 			}
@@ -611,7 +611,7 @@ namespace std {
 			}
 			return result;
 		}
-		i64 find(sub: char*) {
+		i64 find(sub: *char) {
 			var sub_len: u64 = strlen(sub);
 			if: (sub_len > this.len) {
 				return -1;
@@ -638,22 +638,22 @@ namespace std {
 			this.len = 0;
 		}
 	private:
-		data: char*;
+		data: *char;
 		len: u64;
 	};
 
 	# ============================================================
-	# Vector
+	# vector
 	# ============================================================
 	template$T:typename$
-	class Vector {
+	class vector {
 	public:
-		Vector() {
+		vector() {
 			this.buffer = 0;
 			this.sz = 0;
 			this.cap = 0;
 		}
-		~Vector() {
+		~vector() {
 			if: (this.buffer != 0) {
 				free(this.buffer);
 				this.buffer = 0;
@@ -672,7 +672,7 @@ namespace std {
 				} else {
 					new_cap = new_cap * 2;
 				}
-				var new_buf: char* = malloc(new_cap * sizeof(T));
+				var new_buf: *char = malloc(new_cap * sizeof(T));
 				if: (new_buf != 0) {
 					if: (this.buffer != 0) {
 						memcpy(new_buf, this.buffer, this.sz * sizeof(T));
@@ -704,7 +704,7 @@ namespace std {
 				memcpy(this.buffer + idx * sizeof(T), &val, sizeof(T));
 			}
 		}
-		char* data() {
+		*char data() {
 			return this.buffer;
 		}
 		u64 size() {
@@ -724,7 +724,7 @@ namespace std {
 		}
 		void reserve(n: u64) {
 			if: (n > this.cap) {
-				var new_buf: char* = malloc(n * sizeof(T));
+				var new_buf: *char = malloc(n * sizeof(T));
 				if: (new_buf != 0) {
 					if: (this.buffer != 0) {
 						memcpy(new_buf, this.buffer, this.sz * sizeof(T));
@@ -747,9 +747,837 @@ namespace std {
 			}
 		}
 		private:
-		buffer: char*;
+		buffer: *char;
 		sz: u64;
 		cap: u64;
 	};
+
+	# ============================================================
+	# optional
+	# ============================================================
+	template$T:typename$
+	class optional {
+	public:
+		optional() {
+			this.has_value = 0;
+		}
+		optional(val: T) {
+			this.value = val;
+			this.has_value = 1;
+		}
+		i32 has_value() {
+			return this.has_value;
+		}
+		T value() {
+			return this.value;
+		}
+		T value_or(default_val: T) {
+			if: (this.has_value) {
+				return this.value;
+			}
+			return default_val;
+		}
+		void reset() {
+			this.has_value = 0;
+		}
+	private:
+		value: T;
+		has_value: i32;
+	};
+
+	# ============================================================
+	# result (Either success or error)
+	# ============================================================
+	template$T:typename,E:typename$
+	class result {
+	public:
+		result_ok(val: T) {
+			this.value = val;
+			this.is_ok = 1;
+		}
+		result_err(err: E) {
+			this.error = err;
+			this.is_ok = 0;
+		}
+		i32 is_ok() {
+			return this.is_ok;
+		}
+		i32 is_err() {
+			return !this.is_ok;
+		}
+		T unwrap() {
+			return this.value;
+		}
+		E unwrap_err() {
+			return this.error;
+		}
+		T unwrap_or(default_val: T) {
+			if: (this.is_ok) {
+				return this.value;
+			}
+			return default_val;
+		}
+	private:
+		value: T;
+		error: E;
+		is_ok: i32;
+	};
+
+	# ============================================================
+	# Tuple (up to 3 elements)
+	# ============================================================
+	template$T:typename,U:typename,V:typename$
+	class Tuple3 {
+	public:
+		Tuple3(a: T, b: U, c: V) {
+			this.first = a;
+			this.second = b;
+			this.third = c;
+		}
+		T get_first() { return this.first; }
+		U get_second() { return this.second; }
+		V get_third() { return this.third; }
+	private:
+		first: T;
+		second: U;
+		third: V;
+	};
+
+	# ============================================================
+	# LinkedList
+	# ============================================================
+	template$T:typename$
+	class LinkedList {
+	public:
+		LinkedList() {
+			this.head = 0;
+			this.tail = 0;
+			this.sz = 0;
+		}
+		~LinkedList() {
+			this.clear();
+		}
+		void push_front(val: T) {
+			var node: *ListNode = *LinkedList::ListNode(malloc(sizeof(ListNode)));
+			if: (node != 0) {
+				node.value = val;
+				node.next = this.head;
+				node.prev = 0;
+				if: (this.head != 0) {
+					this.head.prev = node;
+				}
+				this.head = node;
+				if: (this.tail == 0) {
+					this.tail = node;
+				}
+				this.sz = this.sz + 1;
+			}
+		}
+		void push_back(val: T) {
+			var node: *ListNode = *LinkedList::ListNode(malloc(sizeof(ListNode)));
+			if: (node != 0) {
+				node.value = val;
+				node.next = 0;
+				node.prev = this.tail;
+				if: (this.tail != 0) {
+					this.tail.next = node;
+				}
+				this.tail = node;
+				if: (this.head == 0) {
+					this.head = node;
+				}
+				this.sz = this.sz + 1;
+			}
+		}
+		void pop_front() {
+			if: (this.head != 0) {
+				var node: *ListNode = this.head;
+				this.head = this.head.next;
+				if: (this.head != 0) {
+					this.head.prev = 0;
+				} else {
+					this.tail = 0;
+				}
+				free(node);
+				this.sz = this.sz - 1;
+			}
+		}
+		void pop_back() {
+			if: (this.tail != 0) {
+				var node: *ListNode = this.tail;
+				this.tail = this.tail.prev;
+				if: (this.tail != 0) {
+					this.tail.next = 0;
+				} else {
+					this.head = 0;
+				}
+				free(node);
+				this.sz = this.sz - 1;
+			}
+		}
+		T front() {
+			var result: T;
+			if: (this.head != 0) {
+				result = this.head.value;
+			}
+			return result;
+		}
+		T back() {
+			var result: T;
+			if: (this.tail != 0) {
+				result = this.tail.value;
+			}
+			return result;
+		}
+		u64 size() {
+			return this.sz;
+		}
+		i32 empty() {
+			if: (this.sz == 0) {
+				return 1;
+			}
+			return 0;
+		}
+		void clear() {
+			for: (; this.head != 0; ) {
+				this.pop_front();
+			}
+		}
+	private:
+		class ListNode {
+		public:
+			ListNode() {}
+			value: T;
+			next: *ListNode;
+			prev: *ListNode;
+		};
+		head: *ListNode;
+		tail: *ListNode;
+		sz: u64;
+	};
+
+	# ============================================================
+	# Stack
+	# ============================================================
+	template$T:typename$
+	class Stack {
+	public:
+		Stack() {
+			this.buffer = 0;
+			this.sz = 0;
+			this.cap = 0;
+		}
+		~Stack() {
+			if: (this.buffer != 0) {
+				free(this.buffer);
+			}
+		}
+		void push(val: T) {
+			if: (this.sz >= this.cap) {
+				var new_cap: u64 = this.cap;
+				if: (new_cap == 0) {
+					new_cap = 4;
+				} else {
+					new_cap = new_cap * 2;
+				}
+				var new_buf: *char = malloc(new_cap * sizeof(T));
+				if: (new_buf != 0) {
+					if: (this.buffer != 0) {
+						memcpy(new_buf, this.buffer, this.sz * sizeof(T));
+						free(this.buffer);
+					}
+					this.buffer = new_buf;
+					this.cap = new_cap;
+				}
+			}
+			if: (this.buffer != 0) {
+				memcpy(this.buffer + this.sz * sizeof(T), &val, sizeof(T));
+				this.sz = this.sz + 1;
+			}
+		}
+		void pop() {
+			if: (this.sz > 0) {
+				this.sz = this.sz - 1;
+			}
+		}
+		T top() {
+			var result: T;
+			if: (this.sz > 0 && this.buffer != 0) {
+				memcpy(&result, this.buffer + (this.sz - 1) * sizeof(T), sizeof(T));
+			}
+			return result;
+		}
+		u64 size() {
+			return this.sz;
+		}
+		i32 empty() {
+			if: (this.sz == 0) {
+				return 1;
+			}
+			return 0;
+		}
+	private:
+		buffer: *char;
+		sz: u64;
+		cap: u64;
+	};
+
+	# ============================================================
+	# queue
+	# ============================================================
+	template$T:typename$
+	class queue {
+	public:
+		queue() {
+			this.buffer = 0;
+			this.head = 0;
+			this.tail = 0;
+			this.cap = 0;
+		}
+		~queue() {
+			if: (this.buffer != 0) {
+				free(this.buffer);
+			}
+		}
+		void push(val: T) {
+			if: (this.tail - this.head >= this.cap) {
+				var new_cap: u64 = this.cap;
+				if: (new_cap == 0) {
+					new_cap = 8;
+				} else {
+					new_cap = new_cap * 2;
+				}
+				var new_buf: *char = malloc(new_cap * sizeof(T));
+				if: (new_buf != 0) {
+					var i: u64 = 0;
+					for: (i = 0; i < this.tail - this.head; i = i + 1) {
+						memcpy(new_buf + i * sizeof(T),
+							this.buffer + (this.head + i) * sizeof(T),
+							sizeof(T));
+					}
+					if: (this.buffer != 0) {
+						free(this.buffer);
+					}
+					this.buffer = new_buf;
+					this.tail = this.tail - this.head;
+					this.head = 0;
+					this.cap = new_cap;
+				}
+			}
+			if: (this.buffer != 0) {
+				memcpy(this.buffer + this.tail * sizeof(T), &val, sizeof(T));
+				this.tail = this.tail + 1;
+			}
+		}
+		void pop() {
+			if: (this.head < this.tail) {
+				this.head = this.head + 1;
+			}
+		}
+		T front() {
+			var result: T;
+			if: (this.head < this.tail && this.buffer != 0) {
+				memcpy(&result, this.buffer + this.head * sizeof(T), sizeof(T));
+			}
+			return result;
+		}
+		T back() {
+			var result: T;
+			if: (this.head < this.tail && this.buffer != 0) {
+				memcpy(&result, this.buffer + (this.tail - 1) * sizeof(T), sizeof(T));
+			}
+			return result;
+		}
+		u64 size() {
+			return this.tail - this.head;
+		}
+		i32 empty() {
+			if: (this.head >= this.tail) {
+				return 1;
+			}
+			return 0;
+		}
+	private:
+		buffer: *char;
+		head: u64;
+		tail: u64;
+		cap: u64;
+	};
+
+	# ============================================================
+	# Map (simple hash map with chaining)
+	# ============================================================
+	template$K:typename,V:typename$
+	class Map {
+	public:
+		Map() {
+			this.keys = 0;
+			this.values = 0;
+			this.sz = 0;
+			this.cap = 0;
+		}
+		~Map() {
+			if: (this.keys != 0) {
+				free(this.keys);
+			}
+			if: (this.values != 0) {
+				free(this.values);
+			}
+		}
+		void insert(key: K, val: V) {
+			if: (this.sz >= this.cap) {
+				var new_cap: u64 = this.cap;
+				if: (new_cap == 0) {
+					new_cap = 8;
+				} else {
+					new_cap = new_cap * 2;
+				}
+				var new_keys: *char = malloc(new_cap * sizeof(K));
+				var new_vals: *char = malloc(new_cap * sizeof(V));
+				if: (new_keys != 0 && new_vals != 0) {
+					if: (this.keys != 0) {
+						memcpy(new_keys, this.keys, this.sz * sizeof(K));
+						free(this.keys);
+					}
+					if: (this.values != 0) {
+						memcpy(new_vals, this.values, this.sz * sizeof(V));
+						free(this.values);
+					}
+					this.keys = new_keys;
+					this.values = new_vals;
+					this.cap = new_cap;
+				}
+			}
+			if: (this.keys != 0 && this.values != 0) {
+				memcpy(this.keys + this.sz * sizeof(K), &key, sizeof(K));
+				memcpy(this.values + this.sz * sizeof(V), &val, sizeof(V));
+				this.sz = this.sz + 1;
+			}
+		}
+		V get(key: K) {
+			var result: V;
+			var i: u64 = 0;
+			for: (i = 0; i < this.sz; i = i + 1) {
+				var k: K;
+				memcpy(&k, this.keys + i * sizeof(K), sizeof(K));
+				if: (k == key) {
+					memcpy(&result, this.values + i * sizeof(V), sizeof(V));
+					return result;
+				}
+			}
+			return result;
+		}
+		i32 contains(key: K) {
+			var i: u64 = 0;
+			for: (i = 0; i < this.sz; i = i + 1) {
+				var k: K;
+				memcpy(&k, this.keys + i * sizeof(K), sizeof(K));
+				if: (k == key) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+		void remove(key: K) {
+			var i: u64 = 0;
+			for: (i = 0; i < this.sz; i = i + 1) {
+				var k: K;
+				memcpy(&k, this.keys + i * sizeof(K), sizeof(K));
+				if: (k == key) {
+					var j: u64 = i;
+					for: (j = i; j < this.sz - 1; j = j + 1) {
+						memcpy(this.keys + j * sizeof(K),
+							this.keys + (j + 1) * sizeof(K),
+							sizeof(K));
+						memcpy(this.values + j * sizeof(V),
+							this.values + (j + 1) * sizeof(V),
+							sizeof(V));
+					}
+					this.sz = this.sz - 1;
+					return;
+				}
+			}
+		}
+		u64 size() {
+			return this.sz;
+		}
+		i32 empty() {
+			if: (this.sz == 0) {
+				return 1;
+			}
+			return 0;
+		}
+		void clear() {
+			this.sz = 0;
+		}
+	private:
+		keys: *char;
+		values: *char;
+		sz: u64;
+		cap: u64;
+	};
+
+	# ============================================================
+	# Set
+	# ============================================================
+	template$T:typename$
+	class Set {
+	public:
+		Set() {
+			this.buffer = 0;
+			this.sz = 0;
+			this.cap = 0;
+		}
+		~Set() {
+			if: (this.buffer != 0) {
+				free(this.buffer);
+			}
+		}
+		void insert(val: T) {
+			if: (this.contains(val)) {
+				return;
+			}
+			if: (this.sz >= this.cap) {
+				var new_cap: u64 = this.cap;
+				if: (new_cap == 0) {
+					new_cap = 8;
+				} else {
+					new_cap = new_cap * 2;
+				}
+				var new_buf: *char = malloc(new_cap * sizeof(T));
+				if: (new_buf != 0) {
+					if: (this.buffer != 0) {
+						memcpy(new_buf, this.buffer, this.sz * sizeof(T));
+						free(this.buffer);
+					}
+					this.buffer = new_buf;
+					this.cap = new_cap;
+				}
+			}
+			if: (this.buffer != 0) {
+				memcpy(this.buffer + this.sz * sizeof(T), &val, sizeof(T));
+				this.sz = this.sz + 1;
+			}
+		}
+		i32 contains(val: T) {
+			var i: u64 = 0;
+			for: (i = 0; i < this.sz; i = i + 1) {
+				var v: T;
+				memcpy(&v, this.buffer + i * sizeof(T), sizeof(T));
+				if: (v == val) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+		void remove(val: T) {
+			var i: u64 = 0;
+			for: (i = 0; i < this.sz; i = i + 1) {
+				var v: T;
+				memcpy(&v, this.buffer + i * sizeof(T), sizeof(T));
+				if: (v == val) {
+					var j: u64 = i;
+					for: (j = i; j < this.sz - 1; j = j + 1) {
+						memcpy(this.buffer + j * sizeof(T),
+							this.buffer + (j + 1) * sizeof(T),
+							sizeof(T));
+					}
+					this.sz = this.sz - 1;
+					return;
+				}
+			}
+		}
+		u64 size() {
+			return this.sz;
+		}
+		i32 empty() {
+			if: (this.sz == 0) {
+				return 1;
+			}
+			return 0;
+		}
+		void clear() {
+			this.sz = 0;
+		}
+	private:
+		buffer: *char;
+		sz: u64;
+		cap: u64;
+	};
+
+	# ============================================================
+	# Smart Pointer (RefCounted)
+	# ============================================================
+	template$T:typename$
+	class SharedPtr {
+	public:
+		SharedPtr() {
+			this.ptr = 0;
+			this.ref_count = 0;
+		}
+		SharedPtr(val: T) {
+			this.ptr = *T(malloc(sizeof(T)));
+			this.ref_count = *u64(malloc(sizeof(u64)));
+			if: (this.ptr != 0 && this.ref_count != 0) {
+				memcpy(this.ptr, &val, sizeof(T));
+				memcpy(this.ref_count, &1, sizeof(u64));
+			}
+		}
+		SharedPtr(other: SharedPtr) {
+			this.ptr = other.ptr;
+			this.ref_count = other.ref_count;
+			if: (this.ref_count != 0) {
+				var count: u64 = 0;
+				memcpy(&count, this.ref_count, sizeof(u64));
+				count = count + 1;
+				memcpy(this.ref_count, &count, sizeof(u64));
+			}
+		}
+		~SharedPtr() {
+			if: (this.ref_count != 0) {
+				var count: u64 = 0;
+				memcpy(&count, this.ref_count, sizeof(u64));
+				if: (count <= 1) {
+					if: (this.ptr != 0) {
+						free(this.ptr);
+					}
+					free(this.ref_count);
+				} else {
+					count = count - 1;
+					memcpy(this.ref_count, &count, sizeof(u64));
+				}
+			}
+		}
+		T get() {
+			var result: T;
+			if: (this.ptr != 0) {
+				memcpy(&result, this.ptr, sizeof(T));
+			}
+			return result;
+		}
+		u64 use_count() {
+			var count: u64 = 0;
+			if: (this.ref_count != 0) {
+				memcpy(&count, this.ref_count, sizeof(u64));
+			}
+			return count;
+		}
+		i32 unique() {
+			if: (this.use_count() == 1) {
+				return 1;
+			}
+			return 0;
+		}
+	private:
+		ptr: *T;
+		ref_count: *u64;
+	};
+
+	# ============================================================
+	# Function wrapper (simple callback)
+	# ============================================================
+	template$T:typename,R:typename$
+	class Function {
+	public:
+		Function() {
+			this.func_ptr = 0;
+		}
+		Function(f: T) {
+			this.func_ptr = f;
+		}
+		R call(arg: T) {
+			var result: R;
+			return result;
+		}
+	private:
+		func_ptr: T;
+	};
+
+	# ============================================================
+	# Range (for iteration)
+	# ============================================================
+	class Range {
+	public:
+		Range(start: i64, end: i64, step: i64) {
+			this.start = start;
+			this.end = end;
+			this.step = step;
+			this.current = start;
+		}
+		Range(start: i64, end: i64) {
+			this.start = start;
+			this.end = end;
+			this.step = 1;
+			this.current = start;
+		}
+		Range(end: i64) {
+			this.start = 0;
+			this.end = end;
+			this.step = 1;
+			this.current = 0;
+		}
+		i32 has_next() {
+			if: (this.step > 0) {
+				if: (this.current < this.end) {
+					return 1;
+				}
+			} else {
+				if: (this.current > this.end) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+		i64 next() {
+			var val: i64 = this.current;
+			this.current = this.current + this.step;
+			return val;
+		}
+		void reset() {
+			this.current = this.start;
+		}
+	private:
+		start: i64;
+		end: i64;
+		step: i64;
+		current: i64;
+	};
+
+	# ============================================================
+	# Bitset
+	# ============================================================
+	class Bitset {
+	public:
+		Bitset(n: u64) {
+			this.num_bits = n;
+			var num_bytes: u64 = (n + 7) / 8;
+			this.data = malloc(num_bytes);
+			if: (this.data != 0) {
+				var i: u64 = 0;
+				for: (i = 0; i < num_bytes; i = i + 1) {
+					this.data[i] = 0;
+				}
+			}
+		}
+		~Bitset() {
+			if: (this.data != 0) {
+				free(this.data);
+			}
+		}
+		void set(idx: u64) {
+			if: (idx < this.num_bits && this.data != 0) {
+				var byte_idx: u64 = idx / 8;
+				var bit_idx: u64 = idx % 8;
+				this.data[byte_idx] = this.data[byte_idx] | (1 << bit_idx);
+			}
+		}
+		void reset(idx: u64) {
+			if: (idx < this.num_bits && this.data != 0) {
+				var byte_idx: u64 = idx / 8;
+				var bit_idx: u64 = idx % 8;
+				this.data[byte_idx] = this.data[byte_idx] & ~(1 << bit_idx);
+			}
+		}
+		void flip(idx: u64) {
+			if: (idx < this.num_bits && this.data != 0) {
+				var byte_idx: u64 = idx / 8;
+				var bit_idx: u64 = idx % 8;
+				this.data[byte_idx] = this.data[byte_idx] ^ (1 << bit_idx);
+			}
+		}
+		i32 test(idx: u64) {
+			if: (idx < this.num_bits && this.data != 0) {
+				var byte_idx: u64 = idx / 8;
+				var bit_idx: u64 = idx % 8;
+				if: (this.data[byte_idx] & (1 << bit_idx)) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+		u64 size() {
+			return this.num_bits;
+		}
+		i32 all() {
+			if: (this.data == 0) {
+				return 0;
+			}
+			var num_bytes: u64 = (this.num_bits + 7) / 8;
+			var i: u64 = 0;
+			for: (i = 0; i < num_bytes; i = i + 1) {
+				if: (this.data[i] != 0xFF) {
+					return 0;
+				}
+			}
+			return 1;
+		}
+		i32 any() {
+			if: (this.data == 0) {
+				return 0;
+			}
+			var num_bytes: u64 = (this.num_bits + 7) / 8;
+			var i: u64 = 0;
+			for: (i = 0; i < num_bytes; i = i + 1) {
+				if: (this.data[i] != 0) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+		i32 none() {
+			return !this.any();
+		}
+		void clear() {
+			if: (this.data != 0) {
+				var num_bytes: u64 = (this.num_bits + 7) / 8;
+				var i: u64 = 0;
+				for: (i = 0; i < num_bytes; i = i + 1) {
+					this.data[i] = 0;
+				}
+			}
+		}
+	private:
+		data: *char;
+		num_bits: u64;
+	};
+
+	# ============================================================
+	# Time utilities
+	# ============================================================
+	extern i64 clock();
+	extern i64 time();
+	extern void sleep_ms(ms: u64);
+
+	# ============================================================
+	# Type traits
+	# ============================================================
+	template$T:typename$
+	i32 is_signed() {
+		var x: T = 0;
+		if: (x - 1 < x) {
+			return 1;
+		}
+		return 0;
+	}
+	template$T:typename$
+	i32 is_unsigned() {
+		return !is_signed(T);
+	}
+
+	# ============================================================
+	# Move semantics (simulated)
+	# ============================================================
+	template$T:typename$
+	T move(val: T) {
+		return val;
+	}
+
+	# ============================================================
+	# Forward
+	# ============================================================
+	template$T:typename$
+	T forward(val: T) {
+		return val;
+	}
 }
 @end

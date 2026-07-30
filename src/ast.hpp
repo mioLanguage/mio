@@ -15,7 +15,6 @@ enum class AstNodeKind{
 	VAR_DECL,
 	CONST_DECL,
 	FUNC_DEF,
-	STRUCT_DEF,
 	ENUM_DEF,
 	UNION_DEF,
 	CLASS_DEF,
@@ -126,11 +125,6 @@ public:
 		std::string op_name,struct_name,class_name;
 		std::vector<InitField> init_list;
 	} func_def;
-	struct{
-		std::string name;
-		std::vector<Field> fields;
-		std::vector<AstNode*> methods;
-	} struct_def;
 	struct{
 		std::string name;
 		std::vector<Variant> variants;
@@ -268,13 +262,6 @@ inline AstNode::~AstNode(){
 			for(auto& p:func_def.params){mio_type_free(p.type);delete p.default_val;}
 			delete func_def.body;
 			for(auto& f:func_def.init_list)delete f.expr;
-			break;
-		case AstNodeKind::STRUCT_DEF:
-			for(auto& f:struct_def.fields){
-				mio_type_free(f.type);
-				delete f.init;
-			}
-			for(auto*m:struct_def.methods)delete m;
 			break;
 		case AstNodeKind::ENUM_DEF:
 			for(auto& v:enum_def.variants)delete v.init;
@@ -420,11 +407,6 @@ inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,As
 	n->func_def.is_override=false;
 	n->func_def.is_pure_virtual=false;
 	n->func_def.access=Access::PUBLIC;
-	return n;
-}
-inline AstNode*ast_new_struct_def(const std::string& name,int line,int col,const std::string* fn){
-	auto*n=new AstNode(AstNodeKind::STRUCT_DEF,line,col,fn);
-	n->struct_def.name=name;
 	return n;
 }
 inline AstNode*ast_new_class_def(const std::string& name,const std::string& base_name,const std::string& base_access,int line,int col,const std::string* fn){
@@ -606,13 +588,6 @@ inline void ast_call_add_arg(AstNode*call,AstNode*arg){
 }
 inline void ast_array_add(AstNode*array,AstNode*elem){
 	array->array_lit.elements.push_back(elem);
-}
-inline void ast_struct_add_field(AstNode*s,const std::string& name,MioType*type,AstNode*init){
-	Field f{name,type,init,Access::PUBLIC};
-	s->struct_def.fields.push_back(f);
-}
-inline void ast_struct_add_method(AstNode*s,AstNode*method){
-	s->struct_def.methods.push_back(method);
 }
 inline void ast_class_add_field(AstNode*c,const std::string& name,MioType*type,AstNode*init,Access access){
 	Field f{name,type,init,access};

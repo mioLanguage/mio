@@ -276,17 +276,29 @@ private:
 			case TOK_CHAR: advance(); return mio_type_new(MioTypeKind::CHAR);
 			case TOK_VOID: advance(); return mio_type_new(MioTypeKind::VOID);
 			case TOK_IDENT:{
-			std::string name=cur->lexeme;
-			int line=cur->line,col=cur->col;
-			advance();
-			if(match(TOK_DOUBLE_COLON)){
-				if(cur->kind!=TOK_IDENT){
-					error_expected("type name after '::'");
-					return mio_type_new(MioTypeKind::VOID);
-				}
-				std::string fullName=name+"::"+cur->lexeme;
+				std::string name=cur->lexeme;
+				int line=cur->line,col=cur->col;
 				advance();
-				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
+				if(match(TOK_DOUBLE_COLON)){
+					if(cur->kind!=TOK_IDENT){
+						error_expected("type name after '::'");
+						return mio_type_new(MioTypeKind::VOID);
+					}
+					std::string fullName=name+"::"+cur->lexeme;
+					advance();
+					auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
+					mt->line=line;mt->col=col;
+					if(match(TOK_DOLLAR)){
+						do{
+							mt->param_types.push_back(parse_type());
+						}while(match(TOK_COMMA));
+						if(!match(TOK_DOLLAR)){
+							error_expected("'$'");
+						}
+					}
+					return mt;
+				}
+				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
 				mt->line=line;mt->col=col;
 				if(match(TOK_DOLLAR)){
 					do{
@@ -298,18 +310,6 @@ private:
 				}
 				return mt;
 			}
-			auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
-			mt->line=line;mt->col=col;
-			if(match(TOK_DOLLAR)){
-				do{
-					mt->param_types.push_back(parse_type());
-				}while(match(TOK_COMMA));
-				if(!match(TOK_DOLLAR)){
-					error_expected("'$'");
-				}
-			}
-			return mt;
-		}
 			default:
 				error_expected("type");
 				return mio_type_new(MioTypeKind::VOID);
@@ -937,44 +937,6 @@ private:
 		}
 		return func;
 	}
-	AstNode* parse_struct_def(){
-		int line=cur->line,col=cur->col;
-		advance();
-		std::string name=cur->lexeme;
-		expect(TOK_IDENT);
-		expect(TOK_LBRACE);
-		auto* s=ast_new_struct_def(name,line,col,fn());
-		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
-			if(match(TOK_STATIC)){
-				auto* method=parse_func_def(true);
-				if(method){
-					method->func_def.struct_name=s->struct_def.name;
-					ast_struct_add_method(s,method);
-				}
-			}else if(is_type_token(cur->kind)){
-								auto* method=parse_func_def(false);
-				if(method){
-					method->func_def.struct_name=s->struct_def.name;
-					ast_struct_add_method(s,method);
-				}
-			}else if(cur->kind==TOK_IDENT){
-				std::string fname=cur->lexeme;
-				advance();
-				expect(TOK_COLON);
-				auto* ftype=parse_type();
-				AstNode* init=nullptr;
-				if(match(TOK_ASSIGN))
-					init=parse_expr();
-				expect(TOK_SEMICOLON);
-				ast_struct_add_field(s,fname,ftype,init);
-			}else{
-				error_expected("field or method");
-				advance();
-			}
-		}
-		expect(TOK_RBRACE);
-		return s;
-	}
 	AstNode* parse_enum_def(){
 		int line=cur->line,col=cur->col;
 		advance();
@@ -1019,6 +981,7 @@ private:
 			case TOK_U8: case TOK_U16: case TOK_U32: case TOK_U64: case TOK_U128:
 			case TOK_USIZE: case TOK_ISIZE: case TOK_F32: case TOK_F64:
 			case TOK_BOOL: case TOK_CHAR: case TOK_VOID: case TOK_IDENT:
+			case TOK_STAR: case TOK_BIT_AND:
 				return true;
 			default: return false;
 		}
@@ -1387,8 +1350,6 @@ private:
 					return parse_var_decl(true,true);
 				return parse_func_def(true);
 			}
-			case TOK_STRUCT:
-				return parse_struct_def();
 			case TOK_ENUM:
 				return parse_enum_def();
 			case TOK_UNION:

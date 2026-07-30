@@ -1,13 +1,13 @@
 @if !STDLIB
 macro STDLIB;
-extern char* malloc(size: u64);
-extern char* calloc(count: u64, size: u64);
-extern char* realloc(ptr: char*, size: u64);
-extern void free(ptr: char*);
+extern *char malloc(size: u64);
+extern *char calloc(count: u64, size: u64);
+extern *char realloc(ptr: *char, size: u64);
+extern void free(ptr: *char);
 extern void exit(status: i32);
-extern i32 atexit(func: char*);
-extern i32 system(command: char*);
-extern char* getenv(name: char*);
+extern i32 atexit(func: *char);
+extern i32 system(command: *char);
+extern *char getenv(name: *char);
 extern i32 abs(x: i32);
 extern i64 labs(x: i64);
 extern i32 rand();

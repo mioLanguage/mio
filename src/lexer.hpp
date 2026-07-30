@@ -349,7 +349,7 @@ const KeywordEntry Lexer::keywords[]={
 	{"const",TOK_CONST},{"if",TOK_IF},{"else",TOK_ELSE},
 	{"elif",TOK_ELIF},{"while",TOK_WHILE},{"for",TOK_FOR},
 	{"break",TOK_BREAK},{"continue",TOK_CONTINUE},{"goto",TOK_GOTO},
-	{"return",TOK_RETURN},{"struct",TOK_STRUCT},{"enum",TOK_ENUM},
+	{"return",TOK_RETURN},{"enum",TOK_ENUM},
 	{"union",TOK_UNION},{"class",TOK_CLASS},{"namespace",TOK_NAMESPACE},
 	{"public",TOK_PUBLIC},{"private",TOK_PRIVATE},{"protected",TOK_PROTECTED},
 	{"virtual",TOK_VIRTUAL},{"override",TOK_OVERRIDE},

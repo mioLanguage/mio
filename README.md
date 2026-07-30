@@ -313,68 +313,6 @@ extern i32 printf(fmt: char*, ...);
 var result = add(10, 20);
 say_hello();
 ```
-## 结构体
-**关键字：** `struct`
-### 定义
-```mio
-struct 结构体名 {
-    字段名: 类型;
-    字段名: 类型;
-
-    # 构造函数（成员初始化列表）
-    结构体名(参数列表): 字段名(参数), ... {}
-
-    # 方法（this 为指针）
-    返回类型 方法名(其他参数) {
-        函数体
-    }
-
-    # 静态方法
-    static 返回类型 方法名(参数) {
-        函数体
-    }
-
-    # 运算符重载
-    结构体名 operator+(other: 结构体名) {
-        函数体
-    }
-}
-```
-### 完整示例
-```mio
-struct Point {
-    x: f64;
-    y: f64;
-
-    # 构造函数
-    Point(xx: f64, yy: f64): x(xx), y(yy) {}
-
-    # 方法
-    f64 distance() {
-        return this.x * this.x + this.y * this.y;
-    }
-
-    # 运算符重载
-    Point operator+(other: Point) {
-        return Point(this.x + other.x, this.y + other.y);
-    }
-
-    # 静态方法
-    static void info() {
-        printf("Point struct\n");
-    }
-}
-```
-### 使用
-```mio
-var p = Point(3.0, 4.0);    # 构造
-var d = p.distance();        # 方法调用
-var q = p + p;               # 运算符重载
-Point.info();                # 静态方法
-```
-> [!NOTE]
-> 方法中的 `this` 是指针，成员访问会自动使用 `->`，无需手动区分。
-
 ## 类
 **关键字：** `class`
 
@@ -608,13 +546,11 @@ i32 main() {
 ### 顶层作用域（文件级别）
 以下内容只能出现在文件顶层，不能在函数内部定义：
 - `import`
-- `struct`
 - `class`
 - `enum`
 - `union`
 - `namespace`
 - `template`
-- `def`
 ### 块作用域（函数内部）
 用 `{}` 包围的代码块可以嵌套，内部定义的变量在块结束后销毁：
 ```mio

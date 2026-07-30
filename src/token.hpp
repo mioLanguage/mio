@@ -31,7 +31,6 @@ typedef enum{
 	TOK_CONTINUE,
 	TOK_GOTO,
 	TOK_RETURN,
-	TOK_STRUCT,
 	TOK_ENUM,
 	TOK_UNION,
 	TOK_CLASS,
@@ -154,7 +153,6 @@ const std::string tok_name(TokenKind kind){
 		case TOK_CONTINUE: return "continue";
 		case TOK_GOTO: return "goto";
 		case TOK_RETURN: return "return";
-		case TOK_STRUCT: return "struct";
 		case TOK_ENUM: return "enum";
 		case TOK_UNION: return "union";
 		case TOK_CLASS: return "class";
