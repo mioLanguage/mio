@@ -104,7 +104,8 @@ private:
 			std::string part=path.substr(start,sep-start);
 			if(part.empty()||part=="."){
 			}else if(part==".."){
-				if(!parts.empty())parts.pop_back();
+				if(!parts.empty()&&parts.back()!="..")parts.pop_back();
+				else parts.push_back("..");
 			}else{
 				parts.push_back(part);
 			}
@@ -1116,6 +1117,15 @@ private:
 					dtor->func_def.access=cur_access;
 					dtor->func_def.body=parse_block();
 					c->class_def.destructor=dtor;
+			}else if(match(TOK_CLASS)){
+					auto* nested=parse_class_def();
+					if(nested){
+						std::string nested_name=nested->class_def.name;
+						if(nested_name.find("::")==std::string::npos){
+							nested->class_def.name=name+"::"+nested_name;
+						}
+						c->class_def.nested_classes.push_back(nested);
+					}
 				}else if(is_type_token(cur->kind)){
 										if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
 						std::string fname=cur->lexeme;

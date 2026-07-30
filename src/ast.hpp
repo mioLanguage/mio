@@ -141,6 +141,7 @@ public:
 		std::vector<AstNode*> methods;
 		std::vector<AstNode*> constructors;
 		AstNode* destructor;
+		std::vector<AstNode*> nested_classes;
 	} class_def;
 	struct{
 		std::string name;
@@ -277,6 +278,7 @@ inline AstNode::~AstNode(){
 		for(auto*m:class_def.methods)delete m;
 		for(auto* ctor:class_def.constructors)delete ctor;
 		delete class_def.destructor;
+		for(auto* nc:class_def.nested_classes)delete nc;
 		break;
 		case AstNodeKind::BLOCK:
 			for(auto*s:block.stmts)delete s;

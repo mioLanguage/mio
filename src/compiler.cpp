@@ -1505,6 +1505,9 @@ class Compiler{
 			genFuncDef(dtor);
 			classDestructorMap[mangled]=mangled+"::~"+name;
 		}
+		for(auto* nc:def->class_def.nested_classes){
+			genClassDef(nc);
+		}
 	}
 	void genVTable(const std::string& className){
 		auto& vorder=classVTableOrder[className];
