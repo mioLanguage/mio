@@ -287,7 +287,7 @@ private:
 					}
 					std::string fullName=name+"::"+cur->lexeme;
 					advance();
-					auto* mt=mio_type_new_named(MioTypeKind::STRUCT,fullName);
+					auto* mt=mio_type_new_named(MioTypeKind::CLASS,fullName);
 					mt->line=line;mt->col=col;
 					if(match(TOK_DOLLAR)){
 						do{
@@ -299,7 +299,7 @@ private:
 					}
 					return mt;
 				}
-				auto* mt=mio_type_new_named(MioTypeKind::STRUCT,name);
+				auto* mt=mio_type_new_named(MioTypeKind::CLASS,name);
 				mt->line=line;mt->col=col;
 				if(match(TOK_DOLLAR)){
 					do{
@@ -338,7 +338,7 @@ private:
 					base=mio_type_new_array(base,0);
 				}
 			}else if(match(TOK_DOLLAR)){
-				if(base->kind!=MioTypeKind::STRUCT){
+				if(base->kind!=MioTypeKind::CLASS){
 					error("template arguments can only be applied to struct types");
 					return base;
 				}
@@ -401,7 +401,7 @@ private:
 					advance();
 					auto* expr=parse_expr();
 					expect(TOK_RPAREN);
-					return ast_new_cast(mio_type_new_pointer(mio_type_new_named(MioTypeKind::STRUCT,name)),expr,line,col,fn());
+					return ast_new_cast(mio_type_new_pointer(mio_type_new_named(MioTypeKind::CLASS,name)),expr,line,col,fn());
 				}
 				if(match(TOK_DOUBLE_COLON)){
 					if(cur->kind!=TOK_IDENT){

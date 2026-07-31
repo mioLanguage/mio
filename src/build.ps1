@@ -3,7 +3,7 @@ $ROOT = Split-Path -Parent $SRC
 $BIN = "$ROOT\bin"
 if (-not (Test-Path $BIN)) { New-Item -ItemType Directory -Path $BIN -Force | Out-Null }
 
-$LLVM = "$SRC\llvm-project\"
+$LLVM = "D:\github\clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 if (-not (Test-Path "$LLVM\bin\clang++.exe")) {
     $LLVM = $env:LLVM_DIR
 }

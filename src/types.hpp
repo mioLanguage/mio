@@ -31,7 +31,7 @@ enum class MioTypeKind{
 	F64,
 	BOOL,
 	CHAR,
-	STRUCT,
+	CLASS,
 	ENUM,
 	UNION,
 	ARRAY,
@@ -122,7 +122,7 @@ public:
 			case MioTypeKind::F64:     return "double";
 			case MioTypeKind::BOOL:    return "bool";
 			case MioTypeKind::CHAR:    return "char";
-			case MioTypeKind::STRUCT:
+			case MioTypeKind::CLASS:
 			case MioTypeKind::ENUM:
 			case MioTypeKind::UNION:
 				return name.empty() ? "void" : name.c_str();
@@ -190,7 +190,7 @@ inline std::string mio_type_str(const MioType* type){
 				return mio_type_str(type->base_type)+"&";
 			}
 			return "void&";
-		case MioTypeKind::STRUCT:
+		case MioTypeKind::CLASS:
 		case MioTypeKind::ENUM:
 		case MioTypeKind::UNION:
 			return type->name.empty()?"void":type->name;

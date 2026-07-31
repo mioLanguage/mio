@@ -122,7 +122,7 @@ public:
 		bool is_static,is_operator,is_extern,is_variadic;
 		bool is_virtual,is_override,is_pure_virtual;
 		Access access;
-		std::string op_name,struct_name,class_name;
+		std::string op_name,class_name;
 		std::vector<InitField> init_list;
 	} func_def;
 	struct{

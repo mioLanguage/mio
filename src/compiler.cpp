@@ -63,9 +63,9 @@ class Compiler{
 	std::vector<llvm::BasicBlock*>continueStack;
 	std::unordered_map<std::string,llvm::AllocaInst*>locals;
 	std::unordered_map<std::string,MioType*>localMioTypes;
-	std::unordered_map<std::string,llvm::StructType*>structTypes;
-	std::unordered_map<std::string,std::unordered_map<std::string,unsigned>>structFieldIdx;
-	std::unordered_map<std::string,std::unordered_map<std::string,MioType*>>structFieldTypes;
+	std::unordered_map<std::string,llvm::StructType*>classTypes;
+	std::unordered_map<std::string,std::unordered_map<std::string,unsigned>>classFieldIdx;
+	std::unordered_map<std::string,std::unordered_map<std::string,MioType*>>classFieldTypes;
 	std::unordered_map<std::string,llvm::Function*>funcDecls;
 	std::unordered_map<std::string,llvm::GlobalVariable*>stringGlobals;
 	std::unordered_map<std::string,llvm::GlobalVariable*>globalVars;
@@ -118,17 +118,17 @@ class Compiler{
 						return llvm::ArrayType::get(elem,(unsigned)mt->array_size);
 					return llvm::PointerType::get(ctx,0);
 				}
-			case MioTypeKind::STRUCT:{
+			case MioTypeKind::CLASS:{
 				if(!mt->name.empty()){
 					if(!mt->param_types.empty()){
-						std::string instName=resolveStructName(mt->name);
+						std::string instName=resolveClassName(mt->name);
 						for(auto* pt:mt->param_types)
 							instName+="_"+mio_type_str(pt);
-						if(structTypes.count(instName))
-							return structTypes[instName];
+						if(classTypes.count(instName))
+							return classTypes[instName];
 						instantiateClassTemplate(mt->name,mt->param_types,instName);
-						if(structTypes.count(instName))
-							return structTypes[instName];
+						if(classTypes.count(instName))
+							return classTypes[instName];
 						error(mt->line,mt->col,"unknown template type '"+instName+"'");
 						return llvm::Type::getVoidTy(ctx);
 					}
@@ -216,7 +216,7 @@ class Compiler{
 				if(node->type)return convertType(node->type);
 				std::string sn;
 				if(node->member.base->type&&!node->member.base->type->name.empty())
-					sn=resolveStructName(node->member.base->type->name);
+					sn=resolveClassName(node->member.base->type->name);
 				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty())
 						sn=currentClassName;
@@ -231,18 +231,18 @@ class Compiler{
 						}
 					}
 				}
-				if(!sn.empty()&&structFieldIdx.count(sn)){
-					auto mit=structFieldIdx[sn].find(node->member.member);
-					if(mit!=structFieldIdx[sn].end()){
-						auto sit=structTypes.find(sn);
-						if(sit!=structTypes.end()){
+				if(!sn.empty()&&classFieldIdx.count(sn)){
+					auto mit=classFieldIdx[sn].find(node->member.member);
+					if(mit!=classFieldIdx[sn].end()){
+						auto sit=classTypes.find(sn);
+						if(sit!=classTypes.end()){
 							unsigned idx=mit->second;
 							return sit->second->getElementType(idx);
 						}
 					}
 				}
 				if(!sn.empty()){
-					error(node->line,node->col,"field '"+node->member.member+"' not found in struct '"+sn+"'");
+					error(node->line,node->col,"field '"+node->member.member+"' not found in class '"+sn+"'");
 				}else{
 					error(node->line,node->col,"cannot resolve type for member access '"+node->member.member+"'");
 				}
@@ -388,21 +388,21 @@ class Compiler{
 		if(name.empty())return nullptr;
 		
 		
-		auto it=structTypes.find(name);
-		if(it!=structTypes.end())return it->second;
+		auto it=classTypes.find(name);
+		if(it!=classTypes.end())return it->second;
 		
 		
 		if(!currentNamespace.empty()){
 			std::string fullName=currentNamespace+"::"+name;
-			it=structTypes.find(fullName);
-			if(it!=structTypes.end())return it->second;
+			it=classTypes.find(fullName);
+			if(it!=classTypes.end())return it->second;
 		}
 		
 		
 		for(auto& impNs:importedNamespaces){
 			std::string fullName=impNs+"::"+name;
-			it=structTypes.find(fullName);
-			if(it!=structTypes.end())return it->second;
+			it=classTypes.find(fullName);
+			if(it!=classTypes.end())return it->second;
 		}
 		
 		return nullptr;
@@ -700,11 +700,11 @@ class Compiler{
 	}
 		if(auto* st=llvm::dyn_cast<llvm::StructType>(ty)){
 			std::string name=st->getName().str();
-			if(!name.empty())return mio_type_new_named(MioTypeKind::STRUCT,name);
+			if(!name.empty())return mio_type_new_named(MioTypeKind::CLASS,name);
 		}
 		return nullptr;
 	}
-	std::string findOperatorMethod(const std::string& structName,TokenKind op,MioType* rightType){
+	std::string findOperatorMethod(const std::string& className,TokenKind op,MioType* rightType){
 		std::string opName;
 		switch(op){
 			case TOK_PLUS:opName="operator+";break;
@@ -733,11 +733,11 @@ class Compiler{
 		}
 		std::string rightTypeStr=rightType?mio_type_str(rightType):"";
 		std::vector<std::string> candidates;
-		candidates.push_back(structName+"::"+opName+"_"+rightTypeStr);
-		candidates.push_back(structName+"::"+opName);
-		size_t nsSep=structName.find("::");
+		candidates.push_back(className+"::"+opName+"_"+rightTypeStr);
+		candidates.push_back(className+"::"+opName);
+		size_t nsSep=className.find("::");
 		if(nsSep!=std::string::npos){
-			std::string shortName=structName.substr(nsSep+2);
+			std::string shortName=className.substr(nsSep+2);
 			candidates.push_back(shortName+"::"+opName+"_"+rightTypeStr);
 			candidates.push_back(shortName+"::"+opName);
 		}
@@ -745,13 +745,13 @@ class Compiler{
 			if(funcDecls.count(c))return c;
 		}
 		for(auto& kv:funcDecls){
-			std::string prefix=structName+"::"+opName+"_";
+			std::string prefix=className+"::"+opName+"_";
 			if(kv.first.size()>prefix.size()&&kv.first.substr(0,prefix.size())==prefix){
 				return kv.first;
 			}
-			size_t nsSep2=structName.find("::");
+			size_t nsSep2=className.find("::");
 			if(nsSep2!=std::string::npos){
-				std::string shortName2=structName.substr(nsSep2+2);
+				std::string shortName2=className.substr(nsSep2+2);
 				std::string prefix2=shortName2+"::"+opName+"_";
 				if(kv.first.size()>prefix2.size()&&kv.first.substr(0,prefix2.size())==prefix2){
 					return kv.first;
@@ -797,12 +797,12 @@ class Compiler{
 			case AstNodeKind::BOOL_LIT:	return mio_type_new(MioTypeKind::BOOL);
 			case AstNodeKind::CHAR_LIT:	return mio_type_new(MioTypeKind::CHAR);
 			case AstNodeKind::MEMBER_EXPR:{
-				std::string structName;
+				std::string className;
 				if(node->member.base->type&&!node->member.base->type->name.empty())
-					structName=resolveStructName(node->member.base->type->name);
+					className=resolveClassName(node->member.base->type->name);
 				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
-						structName=currentClassName;
+						className=currentClassName;
 					}else{
 						std::string vname=node->member.base->ident.name;
 						if(!node->member.base->ident.namespace_name.empty())
@@ -811,21 +811,21 @@ class Compiler{
 						if(it!=locals.end()){
 							llvm::Type* at=it->second->getAllocatedType();
 							if(at->isStructTy()){
-								structName=std::string(at->getStructName());
+								className=std::string(at->getStructName());
 							}else if(at->isPointerTy()){
 								MioType* bm=resolveExprMioType(node->member.base);
-								if(bm&&bm->kind==MioTypeKind::POINTER&&bm->base_type&&bm->base_type->kind==MioTypeKind::STRUCT)
-									structName=bm->base_type->name;
+								if(bm&&bm->kind==MioTypeKind::POINTER&&bm->base_type&&bm->base_type->kind==MioTypeKind::CLASS)
+									className=bm->base_type->name;
 							}
 						}
 					}
 				}
-				if(!structName.empty()&&structFieldIdx.count(structName)){
-					auto fit=structFieldIdx.find(structName);
+				if(!className.empty()&&classFieldIdx.count(className)){
+					auto fit=classFieldIdx.find(className);
 					auto fi=fit->second.find(node->member.member);
 					if(fi!=fit->second.end()){
-						auto ftit=structFieldTypes.find(structName);
-						if(ftit!=structFieldTypes.end()){
+						auto ftit=classFieldTypes.find(className);
+						if(ftit!=classFieldTypes.end()){
 							auto fti=ftit->second.find(node->member.member);
 							if(fti!=ftit->second.end()){
 								return mio_type_clone(fti->second);
@@ -952,7 +952,7 @@ class Compiler{
 	}
 	MioType* substituteType(MioType* mt,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
 		if(!mt)return nullptr;
-		if(mt->kind==MioTypeKind::STRUCT&&!mt->name.empty()){
+		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()){
 			auto it=typeSubst.find(mt->name);
 			if(it!=typeSubst.end()){
 				return mio_type_clone(it->second);
@@ -1139,8 +1139,8 @@ class Compiler{
 		}
 		std::vector<llvm::Type*> paramTys;
 		if(isMethod){
-			auto stit=structTypes.find(def->func_def.class_name);
-			if(stit!=structTypes.end()){
+			auto stit=classTypes.find(def->func_def.class_name);
+			if(stit!=classTypes.end()){
 				paramTys.push_back(stit->second->getPointerTo());
 			}else{
 				paramTys.push_back(llvm::PointerType::get(ctx,0));
@@ -1217,7 +1217,7 @@ class Compiler{
 			thisAlloca=alloca;
 			locals["this"]=alloca;
 			if(!currentClassName.empty()){
-				MioType* structType=mio_type_new_named(MioTypeKind::STRUCT,currentClassName);
+				MioType* structType=mio_type_new_named(MioTypeKind::CLASS,currentClassName);
 				localMioTypes["this"]=mio_type_new_pointer(structType);
 			}
 		}
@@ -1300,21 +1300,21 @@ class Compiler{
 			enumVariantMap[v.name]=mangled;
 		}
 	}
-	std::string resolveStructName(const std::string& name){
+	std::string resolveClassName(const std::string& name){
 		if(!currentNamespace.empty()){
 			std::string nsFullName=currentNamespace+"::"+name;
-			if(classTemplateMap.count(nsFullName)||structTypes.count(nsFullName))
+			if(classTemplateMap.count(nsFullName)||classTypes.count(nsFullName))
 				return nsFullName;
 		}
 		for(auto& impNs:importedNamespaces){
 			std::string fullName=impNs+"::"+name;
-			if(classTemplateMap.count(fullName)||structTypes.count(fullName))
+			if(classTemplateMap.count(fullName)||classTypes.count(fullName))
 				return fullName;
 		}
 		return name;
 	}
 	void instantiateClassTemplate(const std::string& name,std::vector<MioType*>& typeArgs,const std::string& instName){
-		std::string fullName=resolveStructName(name);
+		std::string fullName=resolveClassName(name);
 		auto it=classTemplateMap.find(fullName);
 		if(it==classTemplateMap.end())return;
 		if(classTemplateInstances.count(instName))return;
@@ -1378,7 +1378,7 @@ class Compiler{
 		std::string mangled=mangleName(name);
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
-		if(structTypes.count(mangled)){
+		if(classTypes.count(mangled)){
 			error(def->line,def->col,"redefinition of union '"+mangled+"'");
 			return;
 		}
@@ -1390,7 +1390,7 @@ class Compiler{
 			if(sz>maxSize){maxSize=sz;maxTy=t;}
 		}
 		auto* st=llvm::StructType::create(ctx,{maxTy,llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx),(unsigned)maxSize)},mangled);
-		structTypes[mangled]=st;
+		classTypes[mangled]=st;
 	}
 	void genClassDef(AstNode* def){
 		std::string name=def->class_def.name;
@@ -1398,13 +1398,13 @@ class Compiler{
 		
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
-		if(structTypes.count(mangled)){
+		if(classTypes.count(mangled)){
 			error(def->line,def->col,"redefinition of class '"+mangled+"'");
 			return;
 		}
 		std::string base_mangled=def->class_def.base_name;
 		if(!def->class_def.base_name.empty()&&!currentNamespace.empty()){
-			if(structTypes.count(def->class_def.base_name))
+			if(classTypes.count(def->class_def.base_name))
 				base_mangled=def->class_def.base_name;
 			else
 				base_mangled=currentNamespace+"::"+def->class_def.base_name;
@@ -1455,8 +1455,8 @@ class Compiler{
 		}
 		unsigned baseFieldCount=0;
 		if(!def->class_def.base_name.empty()){
-			auto bit=structTypes.find(base_mangled);
-			if(bit!=structTypes.end()){
+			auto bit=classTypes.find(base_mangled);
+			if(bit!=classTypes.end()){
 				auto* baseST=bit->second;
 				baseHasVTable=!classVTableOrder[base_mangled].empty();
 				unsigned startIdx=baseHasVTable?1:0;
@@ -1468,20 +1468,20 @@ class Compiler{
 		}
 		for(auto& f:def->class_def.fields)fieldTys.push_back(convertType(f.type));
 		auto* st=llvm::StructType::create(ctx,fieldTys,mangled);
-		structTypes[mangled]=st;
+		classTypes[mangled]=st;
 		unsigned fidx=fieldOffset+baseFieldCount;
 		for(unsigned i=0;i<def->class_def.fields.size();i++){
-			structFieldIdx[mangled][def->class_def.fields[i].name]=fidx;
-			structFieldTypes[mangled][def->class_def.fields[i].name]=mio_type_clone(def->class_def.fields[i].type);
+			classFieldIdx[mangled][def->class_def.fields[i].name]=fidx;
+			classFieldTypes[mangled][def->class_def.fields[i].name]=mio_type_clone(def->class_def.fields[i].type);
 			fidx++;
 		}
 		if(!def->class_def.base_name.empty()){
-			auto it=structFieldIdx.find(base_mangled);
-			if(it!=structFieldIdx.end()){
+			auto it=classFieldIdx.find(base_mangled);
+			if(it!=classFieldIdx.end()){
 				unsigned baseVOff=baseHasVTable?1:0;
 				unsigned derivedVOff=hasVTable?1:0;
 				for(auto& [fname,idx]:it->second){
-					structFieldIdx[mangled][fname]=idx-baseVOff+derivedVOff;
+					classFieldIdx[mangled][fname]=idx-baseVOff+derivedVOff;
 				}
 			}
 		}
@@ -1541,9 +1541,9 @@ class Compiler{
 	}
 	void genConstructorInit(AstNode* def,llvm::Value* thisPtr){
 		std::string className=def->func_def.class_name;
-		auto* st=structTypes[className];
+		auto* st=classTypes[className];
 		if(!st){
-			error("struct type '"+className+"' not found for constructor initialization");
+			error("class type '"+className+"' not found for constructor initialization");
 			return;
 		}
 		if(thisPtr->getType()!=st->getPointerTo()){
@@ -1564,9 +1564,9 @@ class Compiler{
 		}
 		if(classVTableGlobals.count(className)){
 			auto* vtableGV=classVTableGlobals[className];
-			auto* st=structTypes[className];
+			auto* st=classTypes[className];
 			if(!st){
-				error("struct type '"+className+"' not found for vtable initialization");
+				error("class type '"+className+"' not found for vtable initialization");
 				return;
 			}
 			auto* vtablePtr=b.CreateGEP(st,thisPtr,{
@@ -1581,12 +1581,12 @@ class Compiler{
 				error("failed to generate initializer for field '"+init.name+"'");
 				return;
 			}
-			auto fit=structFieldIdx.find(className);
-			if(fit!=structFieldIdx.end()){
+			auto fit=classFieldIdx.find(className);
+			if(fit!=classFieldIdx.end()){
 				auto fi=fit->second.find(init.name);
 				if(fi!=fit->second.end()){
-					auto sit=structTypes.find(className);
-					if(sit!=structTypes.end()){
+					auto sit=classTypes.find(className);
+					if(sit!=classTypes.end()){
 						auto* st=sit->second;
 						unsigned idx=fi->second;
 						llvm::Value* gep=b.CreateGEP(st,thisPtr,{
@@ -1680,7 +1680,7 @@ class Compiler{
 			if(val->getType()!=ty)val=genCastValue(val,ty);
 			b.CreateStore(val,alloca);
 		}
-		if(mt&&mt->kind==MioTypeKind::STRUCT){
+		if(mt&&mt->kind==MioTypeKind::CLASS){
 			auto dit=classDestructorMap.find(mt->name);
 			if(dit==classDestructorMap.end()){
 				for(auto& impNs:importedNamespaces){
@@ -1855,24 +1855,24 @@ class Compiler{
 			case AstNodeKind::INDEX_EXPR:{
 				
 				MioType* baseMio=resolveExprMioType(node->index_expr.base);
-				std::string structName;
+				std::string className;
 				if(baseMio){
-					if(baseMio->kind==MioTypeKind::STRUCT&&!baseMio->name.empty())
-						structName=resolveStructName(baseMio->name);
-					else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::STRUCT)
-						structName=resolveStructName(baseMio->base_type->name);
+					if(baseMio->kind==MioTypeKind::CLASS&&!baseMio->name.empty())
+						className=resolveClassName(baseMio->name);
+					else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS)
+						className=resolveClassName(baseMio->base_type->name);
 				}
 				
-				if(!structName.empty()){
+				if(!className.empty()){
 					MioType* rmt=resolveExprMioType(node->index_expr.index);
-					std::string opMethod=findOperatorMethod(structName,TOK_LBRACKET,rmt);
+					std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,rmt);
 					if(opMethod.empty()){
-						error(node->line,node->col,"struct '"+structName+"' does not support operator[]");
+						error(node->line,node->col,"class '"+className+"' does not support operator[]");
 						return nullptr;
 					}
 					llvm::Function* callee=funcDecls[opMethod];
 					if(!callee){
-						error(node->line,node->col,"operator[] for struct '"+structName+"' not found");
+						error(node->line,node->col,"operator[] for class '"+className+"' not found");
 						return nullptr;
 					}
 					std::vector<llvm::Value*> args;
@@ -1903,7 +1903,7 @@ class Compiler{
 				}
 				
 				if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
-				error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
+				error(node->line,node->col,"operator[] requires a pointer or class with operator[], but got '"+mio_type_str(baseMio)+"'");
 				return nullptr;
 			}
 			llvm::Value* base=genExpr(node->index_expr.base);
@@ -1925,33 +1925,33 @@ class Compiler{
 				llvm::Value* base=genLValue(node->member.base);
 				if(!base)base=genExpr(node->member.base);
 				if(!base)return nullptr;
-				std::string structName;
+				std::string className;
 				if(node->member.base->type&&!node->member.base->type->name.empty())
-					structName=resolveStructName(node->member.base->type->name);
+					className=resolveClassName(node->member.base->type->name);
 				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
-						structName=currentClassName;
+						className=currentClassName;
 					}else{
 						auto it=locals.find(node->member.base->ident.name);
 						if(it!=locals.end()){
 							llvm::Type* at=it->second->getAllocatedType();
-							if(at->isStructTy())structName=std::string(at->getStructName());
+							if(at->isStructTy())className=std::string(at->getStructName());
 							else if(at->isPointerTy()){
-								if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::STRUCT)
-									structName=resolveStructName(node->member.base->type->base_type->name);
+								if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::CLASS)
+									className=resolveClassName(node->member.base->type->base_type->name);
 							}
 						}
 					}
 				}
-				if(structName.empty()||!structFieldIdx.count(structName))return nullptr;
-				auto mit=structFieldIdx[structName].find(node->member.member);
-				if(mit==structFieldIdx[structName].end()){
-					error(node->line,node->col,"field '"+node->member.member+"' not found in struct '"+structName+"'");
+				if(className.empty()||!classFieldIdx.count(className))return nullptr;
+				auto mit=classFieldIdx[className].find(node->member.member);
+				if(mit==classFieldIdx[className].end()){
+					error(node->line,node->col,"field '"+node->member.member+"' not found in class '"+className+"'");
 					return nullptr;
 				}
 				unsigned idx=mit->second;
-				auto sit=structTypes.find(structName);
-				llvm::StructType* st=sit!=structTypes.end()?sit->second:nullptr;
+				auto sit=classTypes.find(className);
+				llvm::StructType* st=sit!=classTypes.end()?sit->second:nullptr;
 				if(!st)return nullptr;
 				llvm::Value* ptr=base;
 				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(ptr)){
@@ -1960,7 +1960,7 @@ class Compiler{
 					else if(ai->getAllocatedType()->isStructTy()){
 						ptr=ai;
 					}else{
-						error(node,"cannot access member '"+node->member.member+"' on non-struct type");
+						error(node,"cannot access member '"+node->member.member+"' on non-class type");
 						return nullptr;
 					}
 				}
@@ -2105,23 +2105,23 @@ class Compiler{
 			return nullptr;
 		}
 		MioType* lmt=resolveExprMioType(node->binary.left);
-		std::string structName;
+		std::string className;
 		if(lmt){
-			if(lmt->kind==MioTypeKind::STRUCT&&!lmt->name.empty())
-				structName=resolveStructName(lmt->name);
-			else if(lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::STRUCT)
-				structName=resolveStructName(lmt->base_type->name);
+			if(lmt->kind==MioTypeKind::CLASS&&!lmt->name.empty())
+				className=resolveClassName(lmt->name);
+			else if(lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::CLASS)
+				className=resolveClassName(lmt->base_type->name);
 		}
-		if(!structName.empty()){
+		if(!className.empty()){
 			MioType* rmt=resolveExprMioType(node->binary.right);
-			std::string opMethod=findOperatorMethod(structName,node->binary.op,rmt);
+			std::string opMethod=findOperatorMethod(className,node->binary.op,rmt);
 			if(opMethod.empty()){
-				error(node->line,node->col,"struct '"+structName+"' does not support operator"+tok_name(node->binary.op));
+				error(node->line,node->col,"class '"+className+"' does not support operator"+tok_name(node->binary.op));
 				return nullptr;
 			}
 			llvm::Function* callee=funcDecls[opMethod];
 			if(!callee){
-				error(node->line,node->col,"operator"+tok_name(node->binary.op)+" for struct '"+structName+"' not found");
+				error(node->line,node->col,"operator"+tok_name(node->binary.op)+" for class '"+className+"' not found");
 				return nullptr;
 			}
 			std::vector<llvm::Value*> args;
@@ -2382,17 +2382,17 @@ class Compiler{
 				return nullptr;
 			}
 			
-			if(!calleeVal&&!structTypes.count(calleeName)&&ns.empty()){
+			if(!calleeVal&&!classTypes.count(calleeName)&&ns.empty()){
 				for(auto& impNs:importedNamespaces){
 					std::string fullName=impNs+"::"+calleeName;
-					if(structTypes.count(fullName)){
+					if(classTypes.count(fullName)){
 						calleeName=fullName;
 						break;
 					}
 				}
 			}
 			
-			if(!calleeVal&&structTypes.count(calleeName)){
+			if(!calleeVal&&classTypes.count(calleeName)){
 				std::string className=calleeName;
 				auto pos=calleeName.rfind("::");
 				if(pos!=std::string::npos)className=calleeName.substr(pos+2);
@@ -2459,7 +2459,7 @@ class Compiler{
 				}
 				
 				funcDecls[ctorName]=ctor;
-			auto* st=structTypes[calleeName];
+			auto* st=classTypes[calleeName];
 			auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
 			std::vector<llvm::Value*> args;
 			args.push_back(alloca);
@@ -2484,7 +2484,7 @@ class Compiler{
 			std::string method=node->call.callee->member.member;
 			std::string className;
 			if(base->type&&!base->type->name.empty()){
-				className=resolveStructName(base->type->name);
+				className=resolveClassName(base->type->name);
 				if(!base->type->param_types.empty()){
 					for(auto* pt:base->type->param_types)
 						className+="_"+mio_type_str(pt);
@@ -2499,7 +2499,7 @@ class Compiler{
 						llvm::Type* at=it->second->getAllocatedType();
 						if(at->isStructTy())className=std::string(at->getStructName());
 						else if(at->isPointerTy()){
-							if(base->type&&base->type->base_type&&base->type->base_type->kind==MioTypeKind::STRUCT)
+							if(base->type&&base->type->base_type&&base->type->base_type->kind==MioTypeKind::CLASS)
 								className=base->type->base_type->name;
 						}
 					}
@@ -2542,9 +2542,9 @@ class Compiler{
 							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
 						}
 					}
-					auto* st=structTypes[virtualClassName];
+					auto* st=classTypes[virtualClassName];
 					if(!st){
-						error(node->line,node->col,"struct type '"+virtualClassName+"' not found for virtual dispatch");
+						error(node->line,node->col,"class type '"+virtualClassName+"' not found for virtual dispatch");
 						return nullptr;
 					}
 					auto* vtablePtrPtr=b.CreateGEP(st,thisPtr,{
@@ -2706,24 +2706,24 @@ class Compiler{
 		
 		
 		MioType* baseMio=resolveExprMioType(node->index_expr.base);
-		std::string structName;
+		std::string className;
 		if(baseMio){
-			if(baseMio->kind==MioTypeKind::STRUCT&&!baseMio->name.empty())
-				structName=resolveStructName(baseMio->name);
-			else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::STRUCT)
-				structName=resolveStructName(baseMio->base_type->name);
+			if(baseMio->kind==MioTypeKind::CLASS&&!baseMio->name.empty())
+				className=resolveClassName(baseMio->name);
+			else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS)
+				className=resolveClassName(baseMio->base_type->name);
 		}
 		
-		if(!structName.empty()){
+		if(!className.empty()){
 			MioType* rmt=resolveExprMioType(node->index_expr.index);
-			std::string opMethod=findOperatorMethod(structName,TOK_LBRACKET,rmt);
+			std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,rmt);
 			if(opMethod.empty()){
-				error(node->line,node->col,"struct '"+structName+"' does not support operator[]");
+				error(node->line,node->col,"class '"+className+"' does not support operator[]");
 				return nullptr;
 			}
 			llvm::Function* callee=funcDecls[opMethod];
 			if(!callee){
-				error(node->line,node->col,"operator[] for struct '"+structName+"' not found");
+				error(node->line,node->col,"operator[] for class '"+className+"' not found");
 				return nullptr;
 			}
 			std::vector<llvm::Value*> args;
@@ -2754,7 +2754,7 @@ class Compiler{
 		}
 		
 		if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
-		error(node->line,node->col,"operator[] requires a pointer or struct with operator[], but got '"+mio_type_str(baseMio)+"'");
+		error(node->line,node->col,"operator[] requires a pointer or class with operator[], but got '"+mio_type_str(baseMio)+"'");
 		return nullptr;
 	}
 		
@@ -2796,35 +2796,35 @@ class Compiler{
 			error(node->line,node->col,"failed to generate base of member expression");
 			return nullptr;
 		}
-		std::string structName;
+		std::string className;
 		if(node->member.base->type&&!node->member.base->type->name.empty())
-			structName=resolveStructName(node->member.base->type->name);
+			className=resolveClassName(node->member.base->type->name);
 		else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 			if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
-				structName=currentClassName;
+				className=currentClassName;
 			}else{
 				auto it=locals.find(node->member.base->ident.name);
 				if(it!=locals.end()){
 					llvm::Type* at=it->second->getAllocatedType();
-					if(at->isStructTy())structName=std::string(at->getStructName());
+					if(at->isStructTy())className=std::string(at->getStructName());
 					else if(at->isPointerTy()){
-						if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::STRUCT)
-							structName=resolveStructName(node->member.base->type->base_type->name);
+						if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::CLASS)
+							className=resolveClassName(node->member.base->type->base_type->name);
 					}
 				}
 			}
 		}
-		if(!structName.empty()&&structFieldIdx.count(structName)){
-			auto mit=structFieldIdx[structName].find(node->member.member);
-			if(mit==structFieldIdx[structName].end()){
-				error(node->line,node->col,"field '"+node->member.member+"' not found in struct '"+structName+"'");
+		if(!className.empty()&&classFieldIdx.count(className)){
+			auto mit=classFieldIdx[className].find(node->member.member);
+			if(mit==classFieldIdx[className].end()){
+				error(node->line,node->col,"field '"+node->member.member+"' not found in class '"+className+"'");
 				return nullptr;
 			}
 			unsigned idx=mit->second;
-			auto sit=structTypes.find(structName);
-			llvm::StructType* st=sit!=structTypes.end()?sit->second:nullptr;
+			auto sit=classTypes.find(className);
+			llvm::StructType* st=sit!=classTypes.end()?sit->second:nullptr;
 			if(!st){
-				error(node->line,node->col,"struct type '"+structName+"' not found");
+				error(node->line,node->col,"class type '"+className+"' not found");
 				return nullptr;
 			}
 			
@@ -2842,14 +2842,14 @@ class Compiler{
 			llvm::Value* idx1=llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx);
 			return b.CreateGEP(st,ptr,{idx0,idx1});
 		}else if(ptr->getType()->isStructTy()){
-			error(node,"cannot get address of member '"+node->member.member+"' on struct value");
+			error(node,"cannot get address of member '"+node->member.member+"' on class value");
 			return nullptr;
 			}else{
 				error(node,"cannot access member '"+node->member.member+"' on value");
 				return nullptr;
 			}
 		}
-		error(node,"cannot access member '"+node->member.member+"' on type '"+structName+"'");
+		error(node,"cannot access member '"+node->member.member+"' on type '"+className+"'");
 		return nullptr;
 	}
 	llvm::Value* genArrayLit(AstNode* node){
@@ -2902,16 +2902,16 @@ class Compiler{
 			return nullptr;
 		}
 		MioType* leftMio=resolveExprMioType(node->assign.left);
-		std::string structName;
+		std::string className;
 		if(leftMio){
-			if(leftMio->kind==MioTypeKind::STRUCT&&!leftMio->name.empty())
-				structName=resolveStructName(leftMio->name);
-			else if(leftMio->kind==MioTypeKind::POINTER&&leftMio->base_type&&leftMio->base_type->kind==MioTypeKind::STRUCT)
-				structName=resolveStructName(leftMio->base_type->name);
+			if(leftMio->kind==MioTypeKind::CLASS&&!leftMio->name.empty())
+				className=resolveClassName(leftMio->name);
+			else if(leftMio->kind==MioTypeKind::POINTER&&leftMio->base_type&&leftMio->base_type->kind==MioTypeKind::CLASS)
+				className=resolveClassName(leftMio->base_type->name);
 		}
-		if(!structName.empty()&&node->assign.op!=TOK_ASSIGN){
+		if(!className.empty()&&node->assign.op!=TOK_ASSIGN){
 			MioType* rmt=resolveExprMioType(node->assign.right);
-			std::string opMethod=findOperatorMethod(structName,node->assign.op,rmt);
+			std::string opMethod=findOperatorMethod(className,node->assign.op,rmt);
 			if(!opMethod.empty()){
 				llvm::Function* callee=funcDecls[opMethod];
 				if(callee){
