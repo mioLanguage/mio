@@ -14,14 +14,14 @@
 #define mio_stat stat
 #define mio_stat_t struct stat
 #endif
-#include"compiler.cpp"
+#include"compiler.hpp"
 static void help(const char* prog){
 	fprintf(stderr,"Usage: %s <input...> [-o <output>] [-I <include_path>] [-D <macro>[=<value>]] [-S] [-c] [-O<0|1|2|3>] [--release]\n",prog);
 	fprintf(stderr,"  Mio compiler - compiles Mio source to native code\n");
-	fprintf(stderr,"  Input files can be: .mio (source), .ll (LLVM IR), .s (assembly), .o (object)\n");
+	fprintf(stderr,"  Input files can be: .mio (source),.ll (LLVM IR),.s (assembly),.o (object)\n");
 	fprintf(stderr,"  -o <file>   specify output file (.ll/.s/.o/.exe or no extension)\n");
 	fprintf(stderr,"  -S          emit assembly (.s) instead of executable\n");
-	fprintf(stderr,"  -c          compile only, emit object file (.o) instead of executable\n");
+	fprintf(stderr,"  -c          compile only,emit object file (.o) instead of executable\n");
 	fprintf(stderr,"  -I <path>   add include path for .mio file resolution\n");
 	fprintf(stderr,"  -D <macro>  define a macro (e.g. -D DEBUG or -D VERSION=2)\n");
 	fprintf(stderr,"  -O0         no optimization\n");

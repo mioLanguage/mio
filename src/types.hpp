@@ -37,54 +37,59 @@ enum class MioTypeKind{
 	ARRAY,
 	FUNC,
 	POINTER,
-	REFERENCE
+	REFERENCE,
+	RVALUE_REFERENCE
 };
 class MioType{
 public:
 	MioTypeKind kind;
 	std::string name;
 	int array_size;
+	int ref_count;
 	int line;
 	int col;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
-	MioType(MioTypeKind k): kind(k), array_size(0), line(0), col(0), base_type(nullptr) {}
-	MioType(MioTypeKind k, const std::string& n): kind(k), name(n), array_size(0), line(0), col(0), base_type(nullptr) {}
-	MioType(MioType* base, int size): kind(MioTypeKind::ARRAY), array_size(size), line(base?base->line:0), col(base?base->col:0), base_type(base) {}
+	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr) {}
+	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr) {}
+	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),base_type(base) {}
 	~MioType(){
 		if(base_type) delete base_type;
-		for(auto* p : param_types) delete p;
+		for(auto* p:param_types) delete p;
 	}
 	MioType(const MioType& other){
 		kind=other.kind;
 		name=other.name;
 		array_size=other.array_size;
+		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
-		base_type=other.base_type ? new MioType(*other.base_type) : nullptr;
-		for(auto* p : other.param_types){
+		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
+		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
 		}
 	}
 	MioType& operator=(const MioType& other){
 		if(this==&other) return *this;
 		if(base_type){ delete base_type; base_type=nullptr; }
-		for(auto* p : param_types){ delete p; }
+		for(auto* p:param_types){ delete p; }
 		param_types.clear();
 		kind=other.kind;
 		name=other.name;
 		array_size=other.array_size;
+		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
-		base_type=other.base_type ? new MioType(*other.base_type) : nullptr;
-		for(auto* p : other.param_types){
+		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
+		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
 		}
 		return *this;
 	}
 	MioType(MioType&& other) noexcept
-		: kind(other.kind), name(std::move(other.name)), 
-		  array_size(other.array_size), line(other.line), col(other.col),
+		: kind(other.kind),name(std::move(other.name)),
+		  array_size(other.array_size),ref_count(other.ref_count),
+		  line(other.line),col(other.col),
 		  base_type(other.base_type),
 		  param_types(std::move(other.param_types)){
 		other.base_type=nullptr;
@@ -92,10 +97,11 @@ public:
 	MioType& operator=(MioType&& other) noexcept{
 		if(this==&other) return *this;
 		if(base_type){ delete base_type; }
-		for(auto* p : param_types){ delete p; }
+		for(auto* p:param_types){ delete p; }
 		kind=other.kind;
 		name=std::move(other.name);
 		array_size=other.array_size;
+		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
 		base_type=other.base_type;
@@ -125,7 +131,7 @@ public:
 			case MioTypeKind::CLASS:
 			case MioTypeKind::ENUM:
 			case MioTypeKind::UNION:
-				return name.empty() ? "void" : name.c_str();
+				return name.empty() ? "void":name.c_str();
 			default: return "void";
 		}
 	}
@@ -134,20 +140,38 @@ inline MioType* mio_type_new(MioTypeKind kind){
 	return new MioType(kind);
 }
 inline MioType* mio_type_new_named(MioTypeKind kind,const std::string& name){
-	return new MioType(kind, name);
+	return new MioType(kind,name);
 }
 inline MioType* mio_type_new_array(MioType* base,int size){
-	return new MioType(base, size);
+	return new MioType(base,size);
 }
 inline MioType* mio_type_new_pointer(MioType* base){
 	MioType* mt=new MioType(MioTypeKind::POINTER);
 	mt->base_type=base;
 	return mt;
 }
-inline MioType* mio_type_new_reference(MioType* base){
-	MioType* mt=new MioType(MioTypeKind::REFERENCE);
+inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue=false){
+	if(!base)return nullptr;
+	if(base->kind==MioTypeKind::REFERENCE){
+		base->ref_count++;
+		return base;
+	}
+	if(base->kind==MioTypeKind::RVALUE_REFERENCE){
+		base->ref_count++;
+		return base;
+	}
+	MioType* mt=new MioType(is_rvalue?MioTypeKind::RVALUE_REFERENCE:MioTypeKind::REFERENCE);
 	mt->base_type=base;
+	mt->ref_count=1;
 	return mt;
+}
+inline MioType* mio_type_add_ref(MioType* base,bool is_rvalue=false){
+	if(!base)return nullptr;
+	if(base->kind==MioTypeKind::REFERENCE||base->kind==MioTypeKind::RVALUE_REFERENCE){
+		base->ref_count++;
+		return base;
+	}
+	return mio_type_new_reference(base,is_rvalue);
 }
 inline MioType* mio_type_clone(const MioType* type){
 	if(!type) return nullptr;
@@ -187,9 +211,18 @@ inline std::string mio_type_str(const MioType* type){
 			return "void*";
 		case MioTypeKind::REFERENCE:
 			if(type->base_type){
-				return mio_type_str(type->base_type)+"&";
+				std::string s=mio_type_str(type->base_type)+"&";
+				for(int i=1;i<type->ref_count;i++) s+="&";
+				return s;
 			}
 			return "void&";
+		case MioTypeKind::RVALUE_REFERENCE:
+			if(type->base_type){
+				std::string s=mio_type_str(type->base_type)+"&&";
+				for(int i=1;i<type->ref_count;i++) s+="&";
+				return s;
+			}
+			return "void&&";
 		case MioTypeKind::CLASS:
 		case MioTypeKind::ENUM:
 		case MioTypeKind::UNION:

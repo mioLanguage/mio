@@ -6,23 +6,23 @@ extern f64 tan(x: f64);
 extern f64 asin(x: f64);
 extern f64 acos(x: f64);
 extern f64 atan(x: f64);
-extern f64 atan2(y: f64, x: f64);
+extern f64 atan2(y: f64,x: f64);
 extern f64 sqrt(x: f64);
-extern f64 pow(x: f64, y: f64);
+extern f64 pow(x: f64,y: f64);
 extern f64 floor(x: f64);
 extern f64 ceil(x: f64);
 extern f64 fabs(x: f64);
-extern f64 fmod(x: f64, y: f64);
+extern f64 fmod(x: f64,y: f64);
 extern f64 log(x: f64);
 extern f64 log10(x: f64);
 extern f64 exp(x: f64);
 extern f64 sinh(x: f64);
 extern f64 cosh(x: f64);
 extern f64 tanh(x: f64);
-extern f64 math_pow_i(base: f64, exp: i32);
+extern f64 math_pow_i(base: f64,exp: i32);
 extern f64 math_factorial(n: i32);
-extern i32 math_gcd(a: i32, b: i32);
-extern i32 math_lcm(a: i32, b: i32);
+extern i32 math_gcd(a: i32,b: i32);
+extern i32 math_lcm(a: i32,b: i32);
 extern i32 math_is_prime(n: i32);
 extern f64 math_deg_to_rad(deg: f64);
 extern f64 math_rad_to_deg(rad: f64);
@@ -34,21 +34,21 @@ T abs(x: T) {
 	return x;
 }
 template$T:typename$
-T max(a: T, b: T) {
+T max(a: T,b: T) {
 	if: (a > b) {
 		return a;
 	}
 	return b;
 }
 template$T:typename$
-T min(a: T, b: T) {
+T min(a: T,b: T) {
 	if: (a < b) {
 		return a;
 	}
 	return b;
 }
 template$T:typename$
-T clamp(x: T, lo: T, hi: T) {
+T clamp(x: T,lo: T,hi: T) {
 	if: (x < lo) {
 		return lo;
 	}

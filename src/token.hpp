@@ -24,7 +24,6 @@ typedef enum{
 	TOK_CONST,
 	TOK_IF,
 	TOK_ELSE,
-	TOK_ELIF,
 	TOK_WHILE,
 	TOK_FOR,
 	TOK_BREAK,
@@ -146,7 +145,6 @@ const std::string tok_name(TokenKind kind){
 		case TOK_CONST: return "const";
 		case TOK_IF: return "if";
 		case TOK_ELSE: return "else";
-		case TOK_ELIF: return "elif";
 		case TOK_WHILE: return "while";
 		case TOK_FOR: return "for";
 		case TOK_BREAK: return "break";

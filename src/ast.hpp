@@ -156,7 +156,6 @@ public:
 	} block;
 	struct{
 		AstNode*cond,*then_body,*else_body;
-		std::vector<AstNode*> elif_list;
 	} if_stmt;
 	struct{
 		AstNode*cond,*body;
@@ -287,7 +286,6 @@ inline AstNode::~AstNode(){
 			delete if_stmt.cond;
 			delete if_stmt.then_body;
 			delete if_stmt.else_body;
-			for(auto*n:if_stmt.elif_list)delete n;
 			break;
 		case AstNodeKind::WHILE_STMT:
 			delete while_stmt.cond;
@@ -613,9 +611,5 @@ inline void ast_func_add_param(AstNode*func,const std::string& name,MioType*type
 inline void ast_func_add_init(AstNode*func,const std::string& field_name,AstNode*expr){
 	InitField f{field_name,expr};
 	func->func_def.init_list.push_back(f);
-}
-inline void ast_if_add_elif(AstNode*if_stmt,AstNode*cond,AstNode*body){
-	if_stmt->if_stmt.elif_list.push_back(cond);
-	if_stmt->if_stmt.elif_list.push_back(body);
 }
 #endif

@@ -49,7 +49,7 @@ mioc hello.mio -static
 
 ```mio
 # 这是一行注释
-var x = 10;  # 行末注释
+var x=10;  # 行末注释
 ```
 ## 导入
 
@@ -62,7 +62,7 @@ mioc hello.mio -I ./include
 ```mio
 import stdio;              # 导入 C 标准库
 import "mylib.mio";          # 导入 mio 文件（用引号包裹）
-import stdio, "lib";   # 同时导入多个
+import stdio,"lib";   # 同时导入多个
 ```
 ## 宏与条件编译
 
@@ -89,8 +89,8 @@ macro RELEASE;
 
 **使用方法：**
 ```mio
-var 变量名: 类型 = 初始值;      # 变量
-const 常量名: 类型 = 初始值;    # 常量（不可修改）
+var 变量名: 类型=初始值;      # 变量
+const 常量名: 类型=初始值;    # 常量（不可修改）
 ```
 ### 基本类型
 | 类型 | 说明 |
@@ -102,50 +102,52 @@ const 常量名: 类型 = 初始值;    # 常量（不可修改）
 | `bool` | 布尔值（`true` / `false`）|
 | `char` | 单个字符 |
 | `T[N]` | 长度为 N 的数组 |
-| `T*` | 指针类型 |
+| `*T`、`**T`... | 指针类型 |
+| `&T` | 可变引用类型 |
+| `&&T` | 不可变可变引用类型,在模板里可以隐式转换成 `&T` |
 
 ### 示例
 ```mio
-var x: i32 = 42;
-const PI: f64 = 3.14;
+var x: i32=42;
+const PI: f64=3.14;
 
 # 同时声明多个
-var a: i64 = 1, b: i32 = 2;
+var a: i64=1,b: i32=2;
 
 # 数组
-var arr: i32[3] = {1, 2, 3};
+var arr: i32[3]={1,2,3};
 ```
 ### 自动补全类型
 有初始值时可以省略类型，编译器自动推导：
 ```mio
-var x = 42;          # i32
-var pi = 3.14;       # f64
-var flag = true;     # bool
-var nums = {1, 2, 3};  # i32[3]
+var x=42;          # i32
+var pi=3.14;       # f64
+var flag=true;     # bool
+var nums={1,2,3};  # i32[3]
 ```
 ### 字符串与字符
 ```mio
-var s: char* = "hello";    # 字符串字面量
-var ch: char = 'A';        # 字符字面量
+var s: char*="hello";    # 字符串字面量
+var ch: char='A';        # 字符字面量
 ```
 ### 全局变量与命名空间访问
 用 `::` 前缀访问全局变量（避免与局部变量同名冲突）：
 ```mio
-var x: i32 = 10;
+var x: i32=10;
 void foo() {
-    var x: i32 = 20;
-    printf("%d\n", ::x);   # 访问全局 x，输出 10
-    printf("%d\n", x);     # 访问局部 x，输出 20
+    var x: i32=20;
+    printf("%d\n",::x);   # 访问全局 x，输出 10
+    printf("%d\n",x);     # 访问局部 x，输出 20
 }
 ```
 ## 控制流（if）
-**关键字：** `if`、`elif`、`else`
+**关键字：** `if`、`else`
 ### 基本用法
 条件后面必须跟冒号 `:`
 ```mio
 if: 条件 {
     代码块
-} elif: 条件 {
+} else if: 条件 {
     代码块
 } else {
     代码块
@@ -155,7 +157,7 @@ if: 条件 {
 ```mio
 if: score >= 90 {
     printf("A\n");
-} elif: score >= 80 {
+} else if: score >= 80 {
     printf("B\n");
 } else {
     printf("C\n");
@@ -173,10 +175,10 @@ if: x > 0 printf("正数\n");
 
 条件后面必须跟冒号 `:`
 ```mio
-var i: i32 = 0;
+var i: i32=0;
 while: i < 5 {
-    printf("%d\n", i);
-    i = i + 1;
+    printf("%d\n",i);
+    i=i+1;
 }
 ```
 ### for 循环
@@ -186,16 +188,16 @@ while: i < 5 {
 
 冒号 `:` 必须跟在 `for` 后面
 ```mio
-var sum: i32 = 0;
-for: i = 0; i < 10; i += 1 {
-    sum = sum + i;
+var sum: i32=0;
+for: i=0; i < 10; i += 1 {
+    sum=sum+i;
 }
 ```
 ### 省略部分
 ```mio
-var i: i32 = 0;
-for: ; i < 5; i = i + 1 {   # 省略初始化
-    printf("%d\n", i);
+var i: i32=0;
+for: ; i < 5; i=i+1 {   # 省略初始化
+    printf("%d\n",i);
 }
 ```
 ### break 与 continue
@@ -205,10 +207,10 @@ while: true {
         break;       # 跳出循环
     }
     if: x % 2 == 0 {
-        x = x + 1;
+        x=x+1;
         continue;    # 跳过本次迭代剩余部分
     }
-    x = x + 1;
+    x=x+1;
 }
 ```
 ## 跳转（goto）
@@ -216,10 +218,10 @@ while: true {
 
 **定义标签：** `:标签名`
 ```mio
-var i: i32 = 0;
+var i: i32=0;
 :loop
-    printf("%d\n", i);
-    i = i + 1;
+    printf("%d\n",i);
+    i=i+1;
     if: i < 5 {
         goto loop;
     }
@@ -263,22 +265,22 @@ struct Point {
     x: f64;
     y: f64;
     Point operator+(other: Point) {
-        return Point(this.x + other.x, this.y + other.y);
+        return Point(this.x+other.x,this.y+other.y);
     }
 }
 ```
 ## 类型转换
 使用 C 风格的类型转换语法：
 ```mio
-var x: f64 = 3.14;
-var y: i32 = i32(x);        # 浮点数转整数（截断）
-var z: i64 = i64(y);        # 整数扩展
-var n: u32 = u32(-1);       # 有符号转无符号
+var x: f64=3.14;
+var y: i32=i32(x);        # 浮点数转整数（截断）
+var z: i64=i64(y);        # 整数扩展
+var n: u32=u32(-1);       # 有符号转无符号
 ```
 ## 函数
 ### 定义格式
 ```mio
-返回类型 函数名(参数名: 参数类型, ...) {
+返回类型 函数名(参数名: 参数类型,...) {
     函数体
 }
 ```
@@ -286,13 +288,13 @@ var n: u32 = u32(-1);       # 有符号转无符号
 
 ```mio
 # 显式返回
-i32 add(a: i32, b: i32) {
-    return a + b;
+i32 add(a: i32,b: i32) {
+    return a+b;
 }
 
 # 隐式返回（最后一行不加分号）
-i32 add(a: i32, b: i32) {
-    a + b
+i32 add(a: i32,b: i32) {
+    a+b
 }
 
 # 无返回值
@@ -306,11 +308,11 @@ static void helper() {
 }
 
 # 仅声明函数（其他文件定义）
-extern i32 printf(fmt: char*, ...);
+extern i32 printf(fmt: char*,...);
 ```
 ### 函数调用
 ```mio
-var result = add(10, 20);
+var result=add(10,20);
 say_hello();
 ```
 ## 类
@@ -341,7 +343,7 @@ public:
     name: char*;
 
     Animal(name: char*) {
-        this.name = name;
+        this.name=name;
     }
     ~Animal() {
         printf("Animal destroyed\n");
@@ -354,7 +356,7 @@ public:
 class Dog(Animal:public) {
 public:
     Dog(name: char*) {
-        this.name = name;
+        this.name=name;
     }
 }
 ```
@@ -382,11 +384,11 @@ public:
     name: char*;
 
     Animal(name: char*) {
-        this.name = name;
-        printf("Animal ctor: %s\n", name);
+        this.name=name;
+        printf("Animal ctor: %s\n",name);
     }
     ~Animal() {
-        printf("Animal dtor: %s\n", this.name);
+        printf("Animal dtor: %s\n",this.name);
     }
     virtual void speak() {
         printf("Animal speak\n");
@@ -396,24 +398,22 @@ public:
 class Cat(Animal:public) {
 public:
     Cat(name: char*) {
-        this.name = name;
-        printf("Cat ctor: %s\n", name);
+        this.name=name;
+        printf("Cat ctor: %s\n",name);
     }
     override void speak() {
-        printf("Cat %s: meow!\n", this.name);
+        printf("Cat %s: meow!\n",this.name);
     }
 };
 
 i32 main() {
-    var dog = Dog("Buddy");
-    var cat = Cat("Kitty");
+    var dog=Dog("Buddy");
+    var cat=Cat("Kitty");
     dog.speak();   # Dog: woof!
     cat.speak();   # Cat: meow!
     return 0;
 }
 ```
-> [!NOTE]
-> 类与结构体的主要区别：类支持继承和虚函数，默认使用引用语义；结构体不支持继承，默认使用值语义。
 
 ## 枚举
 **关键字：** `enum`
@@ -421,7 +421,7 @@ i32 main() {
 ```mio
 enum 枚举名 {
     变体名,
-    变体名 = 初始值,
+    变体名=初始值,
     ...
 }
 ```
@@ -434,14 +434,14 @@ enum Color {
 }
 
 enum Status {
-    Ok = 0,
-    Error = -1
+    Ok=0,
+    Error=-1
 }
 ```
 ### 使用
 ```mio
-var c = Color.Red;
-var s = Status.Ok;
+var c=Color.Red;
+var s=Status.Ok;
 ```
 ## 联合体
 **关键字：** `union`
@@ -464,11 +464,11 @@ union Value {
 ### 使用
 ```mio
 var v: Value;
-v.int_val = 42;
-printf("%d\n", v.int_val);
+v.int_val=42;
+printf("%d\n",v.int_val);
 
-v.float_val = 3.14;
-printf("%f\n", v.float_val);
+v.float_val=3.14;
+printf("%f\n",v.float_val);
 ```
 > [!NOTE]
 > 联合体所有字段共享同一块内存，一次只能使用其中一个字段。
@@ -479,16 +479,16 @@ printf("%f\n", v.float_val);
 命名空间用于组织代码，避免名称冲突。命名空间可以嵌套。
 ```mio
 namespace math {
-    i32 add(a: i32, b: i32) {
-        return a + b;
+    i32 add(a: i32,b: i32) {
+        return a+b;
     }
-    i32 sub(a: i32, b: i32) {
-        return a - b;
+    i32 sub(a: i32,b: i32) {
+        return a-b;
     }
 }
 
 i32 main() {
-    var x = math::add(10, 20);   # 用 :: 访问命名空间成员
+    var x=math::add(10,20);   # 用 :: 访问命名空间成员
     return x;
 }
 ```
@@ -512,7 +512,7 @@ template$T:typename,len:i32=100$
 ### 定义
 ```mio
 template$T:typename$
-T max(a: T, b: T) {
+T max(a: T,b: T) {
     if: a > b {
         return a;
     }
@@ -522,8 +522,8 @@ T max(a: T, b: T) {
 ### 使用
 ```mio
 i32 main() {
-    var x = max(10, 20);           # 自动推导 T = i32
-    var y = max$f64$(3.14, 2.71);  # 显式指定 T = f64
+    var x=max(10,20);           # 自动推导 T=i32
+    var y=max$f64$(3.14,2.71);  # 显式指定 T=f64
     return 0;
 }
 ```
@@ -531,13 +531,13 @@ i32 main() {
 ## 函数参数默认值
 函数参数可以指定默认值，调用时可以省略有默认值的参数：
 ```mio
-i32 add(a: i32, b: i32 = 10) {
-    return a + b;
+i32 add(a: i32,b: i32=10) {
+    return a+b;
 }
 
 i32 main() {
-    var x = add(5);       # x = 15 (b 使用默认值 10)
-    var y = add(5, 20);   # y = 25
+    var x=add(5);       # x=15 (b 使用默认值 10)
+    var y=add(5,20);   # y=25
     return 0;
 }
 ```
@@ -555,10 +555,10 @@ i32 main() {
 用 `{}` 包围的代码块可以嵌套，内部定义的变量在块结束后销毁：
 ```mio
 void test() {
-    var x = 10;
+    var x=10;
     {
-        var y = 20;   # y 只在此块内有效
-        var z = 30;
+        var y=20;   # y 只在此块内有效
+        var z=30;
     }
     # y 和 z 在这里不可见
 }

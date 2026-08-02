@@ -63,7 +63,7 @@ private:
 		if(cur->kind==TOK_ERROR)
 			snprintf(buf,sizeof(buf),"%s",cur->lexeme.c_str());
 		else
-			snprintf(buf,sizeof(buf),"expected %s, got '%s'",expected.c_str(),tok_name(cur->kind).c_str());
+			snprintf(buf,sizeof(buf),"expected %s,got '%s'",expected.c_str(),tok_name(cur->kind).c_str());
 		error(buf);
 	}
 	void advance(){
@@ -158,7 +158,7 @@ private:
 	}
 	std::string resolve_mio_file(const std::string& import_path){
 		size_t last_sep=filename.find_last_of("/\\");
-		std::string dir=(last_sep==std::string::npos)?"." : filename.substr(0,last_sep);
+		std::string dir=(last_sep==std::string::npos)?".":filename.substr(0,last_sep);
 		if(!dir.empty()){
 			std::string candidate=join_path(dir,import_path);
 			if(file_exists(candidate))return candidate;
@@ -184,7 +184,7 @@ private:
 		if(cur->kind==TOK_STRING_LIT){
 			std::string path=cur->lexeme;
 			advance();
-			std::string resolved=resolve_mio_file(path.length()>4&&path.substr(path.length()-4)==".mio" ? path : path+".mio");
+			std::string resolved=resolve_mio_file(path.length()>4&&path.substr(path.length()-4)==".mio" ? path:path+".mio");
 			if(!resolved.empty()){
 				return parse_import_file(resolved,path,line,col);
 			}
@@ -317,15 +317,31 @@ private:
 		}
 	}
 	MioType* parse_type(){
+		return parse_type_prefix();
+	}
+	MioType* parse_type_prefix(){
 		if(match(TOK_STAR)){
-			auto* base=parse_type();
+			auto* base=parse_type_prefix();
 			return mio_type_new_pointer(base);
 		}
 		if(match(TOK_BIT_AND)){
-			auto* base=parse_type();
-			return mio_type_new_reference(base);
+			if(match(TOK_BIT_AND)){
+				error("too many '&' in reference type");
+			}
+			auto* base=parse_type_prefix();
+			return mio_type_add_ref(base,false);
 		}
+		if(match(TOK_AND)){
+			auto* base=parse_type_prefix();
+			return mio_type_add_ref(base,true);
+		}
+		return parse_base_type_with_suffix();
+	}
+	MioType* parse_base_type_with_suffix(){
 		auto* base=parse_base_type();
+		return parse_type_suffix(base);
+	}
+	MioType* parse_type_suffix(MioType* base){
 		while(true){
 			if(match(TOK_LBRACKET)){
 				if(cur->kind==TOK_INT_LIT){
@@ -336,17 +352,6 @@ private:
 				}else{
 					expect(TOK_RBRACKET);
 					base=mio_type_new_array(base,0);
-				}
-			}else if(match(TOK_DOLLAR)){
-				if(base->kind!=MioTypeKind::CLASS){
-					error("template arguments can only be applied to struct types");
-					return base;
-				}
-				do{
-					base->param_types.push_back(parse_type());
-				}while(match(TOK_COMMA));
-				if(!match(TOK_DOLLAR)){
-					error_expected("'$'");
 				}
 			}else{
 				break;
@@ -732,12 +737,6 @@ private:
 		auto* cond=parse_expr();
 		auto* then_body=parse_stmt();
 		auto* if_node=ast_new_if(cond,then_body,nullptr,line,col,fn());
-		while(match(TOK_ELIF)){
-			expect(TOK_COLON);
-			auto* elif_cond=parse_expr();
-			auto* elif_body=parse_stmt();
-			ast_if_add_elif(if_node,elif_cond,elif_body);
-		}
 		if(match(TOK_ELSE)){
 			if_node->if_stmt.else_body=parse_stmt();
 		}
@@ -923,7 +922,7 @@ private:
 					}
 				}else{
 					char buf[128];
-					snprintf(buf,sizeof(buf),"expected field name in initializer list, got '%s'",tok_name(cur->kind).c_str());
+					snprintf(buf,sizeof(buf),"expected field name in initializer list,got '%s'",tok_name(cur->kind).c_str());
 					error(buf);
 					advance();
 				}
@@ -1021,7 +1020,7 @@ private:
 					base_access=tok_name(cur->kind);
 					advance();
 				}else{
-					error("expected 'public', 'private', or 'protected' after ':' in base class declaration");
+					error("expected 'public','private',or 'protected' after ':' in base class declaration");
 					return nullptr;
 				}
 			}
@@ -1163,7 +1162,7 @@ private:
 					}
 				}else{
 					char buf[128];
-					snprintf(buf,sizeof(buf),"expected field, method, or access specifier in class '%s', got '%s'",name.c_str(),tok_name(cur->kind).c_str());
+					snprintf(buf,sizeof(buf),"expected field,method,or access specifier in class '%s',got '%s'",name.c_str(),tok_name(cur->kind).c_str());
 					error(buf);
 					advance();
 				}

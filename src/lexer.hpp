@@ -34,26 +34,15 @@ public:
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
 		Token* saved_peek=peekToken;
-		Token* tok=token();
-		if(tok->kind!=TOK_DOLLAR){
-			pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
-			current=saved_current;peekToken=saved_peek;
-			return false;
+		Token* t1=token();
+		bool result=false;
+		if(t1->kind==TOK_DOLLAR){
+			Token* t2=token();
+			result=(t2->kind==TOK_LPAREN);
 		}
-		while(true){
-			Token* t=token();
-			if(t->kind==TOK_DOLLAR){
-				Token* next=token();
-				bool result=(next->kind==TOK_LPAREN);
-				pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
-				current=saved_current;peekToken=saved_peek;
-				return result;
-			}else if(t->kind==TOK_EOF||t->kind==TOK_ERROR||t->kind==TOK_RPAREN||t->kind==TOK_SEMICOLON||t->kind==TOK_LBRACE||t->kind==TOK_RBRACE){
-				pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
-				current=saved_current;peekToken=saved_peek;
-				return false;
-			}
-		}
+		pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
+		current=saved_current;peekToken=saved_peek;
+		return result;
 	}
 private:
 	#define match(c) (cur()==c?(advance(),true):false)
@@ -347,7 +336,7 @@ private:
 const KeywordEntry Lexer::keywords[]={
 	{"import",TOK_IMPORT},{"extern",TOK_EXTERN},{"var",TOK_VAR},
 	{"const",TOK_CONST},{"if",TOK_IF},{"else",TOK_ELSE},
-	{"elif",TOK_ELIF},{"while",TOK_WHILE},{"for",TOK_FOR},
+	{"while",TOK_WHILE},{"for",TOK_FOR},
 	{"break",TOK_BREAK},{"continue",TOK_CONTINUE},{"goto",TOK_GOTO},
 	{"return",TOK_RETURN},{"enum",TOK_ENUM},
 	{"union",TOK_UNION},{"class",TOK_CLASS},{"namespace",TOK_NAMESPACE},
