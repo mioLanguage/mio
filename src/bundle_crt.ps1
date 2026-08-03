@@ -26,7 +26,7 @@ try {
 	}
 } catch {}
 # Dynamic CRT libs (small, for default mode)
-$dynamicLibs = @("msvcrt.lib", "ucrt.lib", "legacy_stdio_definitions.lib", "kernel32.lib")
+$dynamicLibs = @("msvcrt.lib", "ucrt.lib", "legacy_stdio_definitions.lib", "kernel32.lib", "legacy_stdio_wide_specifiers.lib")
 foreach ($lib in $dynamicLibs) {
 	foreach ($dir in $sdkLibs) {
 		$p = Join-Path $dir $lib
