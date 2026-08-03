@@ -450,16 +450,18 @@ private:
 				expect(TOK_RBRACE);
 				return arr;
 			}
-			case TOK_I32:case TOK_I64:
-			case TOK_U32:case TOK_U64:
+			case TOK_I32:case TOK_I64:case TOK_I128:
+			case TOK_U32:case TOK_U64:case TOK_U128:
 			case TOK_F32:case TOK_F64:
 			case TOK_BOOL:case TOK_CHAR:{
 				MioTypeKind k;
 				switch(t->kind){
 					case TOK_I32: k=MioTypeKind::I32;break;
 					case TOK_I64: k=MioTypeKind::I64;break;
+					case TOK_I128: k=MioTypeKind::I128;break;
 					case TOK_U32: k=MioTypeKind::U32;break;
 					case TOK_U64: k=MioTypeKind::U64;break;
+					case TOK_U128: k=MioTypeKind::U128;break;
 					case TOK_F32: k=MioTypeKind::F32;break;
 					case TOK_F64: k=MioTypeKind::F64;break;
 					case TOK_BOOL: k=MioTypeKind::BOOL;break;
