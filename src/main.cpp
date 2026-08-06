@@ -78,9 +78,17 @@ int main(int argc,char* argv[]){
 			else input_files.push_back(argv[i]);
 		}
 		if(input_files.empty()){help(argv[0]);exit(1);}
-		if(link_libs.empty()){
-			link_libs.push_back("compiler_rt.builtins");
-		}
+		link_libs.push_back("compiler_rt.builtins");
+#ifdef _WIN32
+		link_libs.push_back("windows/kernel32.lib");
+		link_libs.push_back("windows/legacy_stdio_definitions.lib");
+		link_libs.push_back("windows/legacy_stdio_wide_specifiers.lib");
+		link_libs.push_back("windows/libcmt.lib");
+		link_libs.push_back("windows/libvcruntime.lib");
+		link_libs.push_back("windows/msvcrt.lib");
+		link_libs.push_back("windows/ntdll.lib");
+		link_libs.push_back("windows/ucrt.lib");
+#endif
 		std::string compiler_dir;
 		{
 			const char* ls=nullptr;
