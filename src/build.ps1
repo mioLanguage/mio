@@ -173,7 +173,7 @@ if ($LASTEXITCODE -eq 0) {
         }
     } catch {}
     # Dynamic CRT libs (small, for default mode)
-    $dynamicLibs = @("msvcrt.lib", "ucrt.lib", "legacy_stdio_definitions.lib", "kernel32.lib","legacy_stdio_wide_specifiers.lib")
+    $dynamicLibs = @("msvcrt.lib", "ucrt.lib", "legacy_stdio_definitions.lib", "kernel32.lib", "ntdll.lib", "legacy_stdio_wide_specifiers.lib")
     foreach ($lib in $dynamicLibs) {
         foreach ($dir in $sdkLibs) {
             $p = Join-Path $dir $lib
@@ -194,15 +194,15 @@ if ($LASTEXITCODE -eq 0) {
     }
     # ===== 打包 compiler-rt (仅 builtins) =====
     Write-Host "Bundling compiler-rt builtins..."
-    $compilerRtDir = "$ROOT\lib\clang\22\lib\windows"
+    $libDir = "$ROOT\lib"
     New-Item -ItemType Directory -Path $compilerRtDir -Force | Out-Null
 
     $llvmCompilerRtDir = "$LLVM\lib\clang\22\lib\windows"
     $builtinsLib = Join-Path $llvmCompilerRtDir "clang_rt.builtins-x86_64.lib"
 
     if (Test-Path $builtinsLib) {
-        Copy-Item $builtinsLib (Join-Path $compilerRtDir "compiler_rt.builtins.lib") -Force
-        Write-Host "  Bundled compiler-rt builtins as compiler_rt.builtins.lib"
+        Copy-Item $builtinsLib (Join-Path $libDir "compiler_rt.builtins.lib") -Force
+        Write-Host "  Bundled compiler-rt builtins as $libDir\compiler_rt.builtins.lib"
         $bundled += "compiler_rt.builtins.lib"
     } else {
         Write-Host "  Warning: compiler-rt builtins not found"
