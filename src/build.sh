@@ -113,5 +113,50 @@ if [ "$(uname -s)" = "Darwin" ]; then
 		echo "Bundled LLD dylibs into bin/"
 	fi
 fi
+# ===== Bundle compiler-rt builtins =====
+echo "Bundling compiler-rt builtins..."
+
+# 确定目标平台和目录
+if [ "$(uname -s)" = "Linux" ]; then
+    COMPILER_RT_DIR="$ROOT/lib/clang/22/lib/linux"
+    mkdir -p "$COMPILER_RT_DIR"
+    
+    # 查找 builtins 库
+    BUILTINS_LIB=""
+    for candidate in \
+        "$LLVM_DIR/lib/clang/22/lib/linux/libclang_rt.builtins-*.a" \
+        "$LLVM_DIR/lib/clang/22/lib/linux/clang_rt.builtins.a" \
+        "$LLVM_DIR/lib/clang/22/lib/linux/libclang_rt.builtins.a"; do
+        if ls $candidate 2>/dev/null | head -1 >/dev/null; then
+            BUILTINS_LIB=$(ls $candidate | head -1)
+            break
+        fi
+    done
+    
+elif [ "$(uname -s)" = "Darwin" ]; then
+    COMPILER_RT_DIR="$ROOT/lib/clang/22/lib/darwin"
+    mkdir -p "$COMPILER_RT_DIR"
+    
+    BUILTINS_LIB=""
+    for candidate in \
+        "$LLVM_DIR/lib/clang/22/lib/darwin/libclang_rt.builtins-*.a" \
+        "$LLVM_DIR/lib/clang/22/lib/darwin/clang_rt.builtins.a" \
+        "$LLVM_DIR/lib/clang/22/lib/darwin/libclang_rt.builtins.a"; do
+        if ls $candidate 2>/dev/null | head -1 >/dev/null; then
+            BUILTINS_LIB=$(ls $candidate | head -1)
+            break
+        fi
+    done
+else
+    echo "Warning: Unsupported OS $(uname -s), skipping compiler-rt bundle"
+    BUILTINS_LIB=""
+fi
+
+if [ -n "$BUILTINS_LIB" ] && [ -f "$BUILTINS_LIB" ]; then
+    cp "$BUILTINS_LIB" "$COMPILER_RT_DIR/compiler_rt.builtins.a"
+    echo "  Bundled compiler-rt builtins as compiler_rt.builtins.a"
+else
+    echo "  Warning: compiler-rt builtins not found"
+fi
 
 echo "Build successful: $BIN/mioc"
