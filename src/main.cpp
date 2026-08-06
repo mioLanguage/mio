@@ -79,8 +79,7 @@ int main(int argc,char* argv[]){
 		}
 		if(input_files.empty()){help(argv[0]);exit(1);}
 		if(link_libs.empty()){
-			link_libs.push_back("stdmio");
-			link_libs.push_back("m");
+			link_libs.push_back("compiler_rt.builtins");
 		}
 		std::string compiler_dir;
 		{
