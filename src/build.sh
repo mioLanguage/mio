@@ -116,6 +116,9 @@ fi
 # ===== Bundle compiler-rt builtins =====
 echo "Bundling compiler-rt builtins..."
 
+LIB_DIR="$ROOT/lib"
+mkdir -p "$LIB_DIR"
+
 # 确定目标平台和目录
 if [ "$(uname -s)" = "Linux" ]; then
     COMPILER_RT_DIR="$ROOT/lib/clang/22/lib/linux"
@@ -153,8 +156,8 @@ else
 fi
 
 if [ -n "$BUILTINS_LIB" ] && [ -f "$BUILTINS_LIB" ]; then
-    cp "$BUILTINS_LIB" "$COMPILER_RT_DIR/compiler_rt.builtins.a"
-    echo "  Bundled compiler-rt builtins as compiler_rt.builtins.a"
+    cp "$BUILTINS_LIB" "$LIB_DIR/compiler_rt.builtins.a"
+    echo "  Bundled compiler-rt builtins as $LIB_DIR/compiler_rt.builtins.a"
 else
     echo "  Warning: compiler-rt builtins not found"
 fi
