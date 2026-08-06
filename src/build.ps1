@@ -192,6 +192,21 @@ if ($LASTEXITCODE -eq 0) {
             if (Test-Path $p) { Copy-Item $p $crtDir -Force; $bundled += $lib }
         }
     }
+    # ===== 打包 compiler-rt (仅 builtins) =====
+    Write-Host "Bundling compiler-rt builtins..."
+    $compilerRtDir = "$ROOT\lib\clang\22\lib\windows"
+    New-Item -ItemType Directory -Path $compilerRtDir -Force | Out-Null
+
+    $llvmCompilerRtDir = "$LLVM\lib\clang\22\lib\windows"
+    $builtinsLib = Join-Path $llvmCompilerRtDir "clang_rt.builtins-x86_64.lib"
+
+    if (Test-Path $builtinsLib) {
+        Copy-Item $builtinsLib (Join-Path $compilerRtDir "compiler_rt.builtins.lib") -Force
+        Write-Host "  Bundled compiler-rt builtins as compiler_rt.builtins.lib"
+        $bundled += "compiler_rt.builtins.lib"
+    } else {
+        Write-Host "  Warning: compiler-rt builtins not found"
+    }
     if ($bundled.Count -gt 0) {
         Write-Host "  Bundled: $($bundled -join ', ')"
     } else {
