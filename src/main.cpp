@@ -62,6 +62,16 @@ int main(int argc,char* argv[]){
 			help(argv[0]),exit(0);
 		std::string output_file;
 		std::vector<std::string> input_files,include_paths,defines,link_libs;
+#ifdef _WIN32
+		link_libs.push_back("windows/kernel32.lib");
+		link_libs.push_back("windows/legacy_stdio_definitions.lib");
+		link_libs.push_back("windows/legacy_stdio_wide_specifiers.lib");
+		link_libs.push_back("windows/libcmt.lib");
+		link_libs.push_back("windows/libvcruntime.lib");
+		link_libs.push_back("windows/msvcrt.lib");
+		link_libs.push_back("windows/ntdll.lib");
+		link_libs.push_back("windows/ucrt.lib");
+#endif
 		bool emit_asm=false,compile_only=false,static_link=false,release=false;
 		int opt_level=0;
 		for(int i=1;i<argc;i++){
@@ -79,16 +89,6 @@ int main(int argc,char* argv[]){
 		}
 		if(input_files.empty()){help(argv[0]);exit(1);}
 		link_libs.push_back("compiler_rt.builtins");
-#ifdef _WIN32
-		link_libs.push_back("windows/kernel32.lib");
-		link_libs.push_back("windows/legacy_stdio_definitions.lib");
-		link_libs.push_back("windows/legacy_stdio_wide_specifiers.lib");
-		link_libs.push_back("windows/libcmt.lib");
-		link_libs.push_back("windows/libvcruntime.lib");
-		link_libs.push_back("windows/msvcrt.lib");
-		link_libs.push_back("windows/ntdll.lib");
-		link_libs.push_back("windows/ucrt.lib");
-#endif
 		std::string compiler_dir;
 		{
 			const char* ls=nullptr;
