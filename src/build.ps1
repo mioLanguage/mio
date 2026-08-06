@@ -195,7 +195,7 @@ if ($LASTEXITCODE -eq 0) {
     # ===== 打包 compiler-rt (仅 builtins) =====
     Write-Host "Bundling compiler-rt builtins..."
     $libDir = "$ROOT\lib"
-    New-Item -ItemType Directory -Path $compilerRtDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
 
     $llvmCompilerRtDir = "$LLVM\lib\clang\22\lib\windows"
     $builtinsLib = Join-Path $llvmCompilerRtDir "clang_rt.builtins-x86_64.lib"
