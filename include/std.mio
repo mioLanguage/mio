@@ -16,34 +16,34 @@ namespace std {
 	}
 	template$T:typename$
 	T min(a: T,b: T) {
-		if: (a < b) {
+		if(a < b) {
 			return a;
 		}
 		return b;
 	}
 	template$T:typename$
 	T max(a: T,b: T) {
-		if: (a > b) {
+		if(a > b) {
 			return a;
 		}
 		return b;
 	}
 	template$T:typename$
 	T clamp(x: T,lo: T,hi: T) {
-		if: (x < lo) {
+		if(x < lo) {
 			return lo;
 		}
-		if: (x > hi) {
+		if(x > hi) {
 			return hi;
 		}
 		return x;
 	}
 	template$T:typename$
 	i32 compare(a: T,b: T) {
-		if: (a < b) {
+		if(a < b) {
 			return -1;
 		}
-		if: (a > b) {
+		if(a > b) {
 			return 1;
 		}
 		return 0;
@@ -55,8 +55,8 @@ namespace std {
 	template$T:typename$
 	i64 find(ptr: *T,n: u64,val: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] == val) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] == val) {
 				return i64(i);
 			}
 		}
@@ -64,13 +64,13 @@ namespace std {
 	}
 	template$T:typename$
 	i64 find_last(ptr: *T,n: u64,val: T) {
-		if: (n == 0) {
+		if(n == 0) {
 			return -1;
 		}
 		var i: u64=n;
-		for: (; i > 0; ) {
+		for(; i > 0; ) {
 			i=i-1;
-			if: (ptr[i] == val) {
+			if(ptr[i] == val) {
 				return i64(i);
 			}
 		}
@@ -78,12 +78,12 @@ namespace std {
 	}
 	template$T:typename$
 	i64 adjacent_find(ptr: *T,n: u64) {
-		if: (n < 2) {
+		if(n < 2) {
 			return -1;
 		}
 		var i: u64=0;
-		for: (i=0; i < n-1; i=i+1) {
-			if: (ptr[i] == ptr[i+1]) {
+		for(i=0; i < n-1; i=i+1) {
+			if(ptr[i] == ptr[i+1]) {
 				return i64(i);
 			}
 		}
@@ -92,14 +92,14 @@ namespace std {
 	template$T:typename$
 	void fill(ptr: *T,n: u64,val: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
+		for(i=0; i < n; i=i+1) {
 			ptr[i]=val;
 		}
 	}
 	template$T:typename$
 	void copy(src: *T,dst: *T,n: u64) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
+		for(i=0; i < n; i=i+1) {
 			dst[i]=src[i];
 		}
 	}
@@ -107,11 +107,11 @@ namespace std {
 	void reverse(ptr: *T,n: u64) {
 		var i: u64=0;
 		var j: u64=n;
-		if: (j == 0) {
+		if(j == 0) {
 			return;
 		}
 		j=j-1;
-		for: (; i < j; i=i+1) {
+		for(; i < j; i=i+1) {
 			var tmp: T=ptr[i];
 			ptr[i]=ptr[j];
 			ptr[j]=tmp;
@@ -120,18 +120,18 @@ namespace std {
 	}
 	template$T:typename$
 	void rotate(ptr: *T,n: u64,k: u64) {
-		if: (n <= 1 || k == 0) {
+		if(n <= 1 || k == 0) {
 			return;
 		}
 		var shift: u64=k % n;
-		if: (shift == 0) {
+		if(shift == 0) {
 			return;
 		}
 		var i: u64=0;
-		for: (i=0; i < shift; i=i+1) {
+		for(i=0; i < shift; i=i+1) {
 			var tmp: T=ptr[0];
 			var j: u64=0;
-			for: (j=0; j < n-1; j=j+1) {
+			for(j=0; j < n-1; j=j+1) {
 				ptr[j]=ptr[j+1];
 			}
 			ptr[n-1]=tmp;
@@ -139,14 +139,14 @@ namespace std {
 	}
 	template$T:typename$
 	void sort(ptr: *T,n: u64) {
-		if: (n <= 1) {
+		if(n <= 1) {
 			return;
 		}
 		var i: u64=0;
-		for: (i=0; i < n-1; i=i+1) {
+		for(i=0; i < n-1; i=i+1) {
 			var j: u64=0;
-			for: (j=0; j < n-1-i; j=j+1) {
-				if: (ptr[j] > ptr[j+1]) {
+			for(j=0; j < n-1-i; j=j+1) {
+				if(ptr[j] > ptr[j+1]) {
 					var tmp: T=ptr[j];
 					ptr[j]=ptr[j+1];
 					ptr[j+1]=tmp;
@@ -158,12 +158,12 @@ namespace std {
 	i32 binary_search(ptr: *T,n: u64,val: T) {
 		var lo: i64=0;
 		var hi: i64=i64(n)-1;
-		for: (; lo <= hi; ) {
+		for(; lo <= hi; ) {
 			var mid: i64=(lo+hi)/2;
-			if: (ptr[mid] == val) {
+			if(ptr[mid] == val) {
 				return 1;
 			}
-			if: (ptr[mid] < val) {
+			if(ptr[mid] < val) {
 				lo=mid+1;
 			} else {
 				hi=mid-1;
@@ -175,9 +175,9 @@ namespace std {
 	i64 lower_bound(ptr: *T,n: u64,val: T) {
 		var lo: i64=0;
 		var hi: i64=i64(n);
-		for: (; lo < hi; ) {
+		for(; lo < hi; ) {
 			var mid: i64=(lo+hi)/2;
-			if: (ptr[mid] < val) {
+			if(ptr[mid] < val) {
 				lo=mid+1;
 			} else {
 				hi=mid;
@@ -189,9 +189,9 @@ namespace std {
 	i64 upper_bound(ptr: *T,n: u64,val: T) {
 		var lo: i64=0;
 		var hi: i64=i64(n);
-		for: (; lo < hi; ) {
+		for(; lo < hi; ) {
 			var mid: i64=(lo+hi)/2;
-			if: (ptr[mid] <= val) {
+			if(ptr[mid] <= val) {
 				lo=mid+1;
 			} else {
 				hi=mid;
@@ -202,8 +202,8 @@ namespace std {
 	template$T:typename$
 	i32 all_of(ptr: *T,n: u64,pred: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] != pred) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] != pred) {
 				return 0;
 			}
 		}
@@ -212,8 +212,8 @@ namespace std {
 	template$T:typename$
 	i32 any_of(ptr: *T,n: u64,pred: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] == pred) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] == pred) {
 				return 1;
 			}
 		}
@@ -222,8 +222,8 @@ namespace std {
 	template$T:typename$
 	i32 none_of(ptr: *T,n: u64,pred: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] == pred) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] == pred) {
 				return 0;
 			}
 		}
@@ -233,8 +233,8 @@ namespace std {
 	u64 count(ptr: *T,n: u64,val: T) {
 		var c: u64=0;
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] == val) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] == val) {
 				c=c+1;
 			}
 		}
@@ -243,20 +243,20 @@ namespace std {
 	template$T:typename$
 	void replace(ptr: *T,n: u64,old_val: T,new_val: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
-			if: (ptr[i] == old_val) {
+		for(i=0; i < n; i=i+1) {
+			if(ptr[i] == old_val) {
 				ptr[i]=new_val;
 			}
 		}
 	}
 	template$T:typename$
 	i32 is_sorted(ptr: *T,n: u64) {
-		if: (n <= 1) {
+		if(n <= 1) {
 			return 1;
 		}
 		var i: u64=0;
-		for: (i=0; i < n-1; i=i+1) {
-			if: (ptr[i] > ptr[i+1]) {
+		for(i=0; i < n-1; i=i+1) {
+			if(ptr[i] > ptr[i+1]) {
 				return 0;
 			}
 		}
@@ -264,13 +264,13 @@ namespace std {
 	}
 	template$T:typename$
 	u64 unique(ptr: *T,n: u64) {
-		if: (n <= 1) {
+		if(n <= 1) {
 			return n;
 		}
 		var j: u64=0;
 		var i: u64=1;
-		for: (i=1; i < n; i=i+1) {
-			if: (ptr[i] != ptr[j]) {
+		for(i=1; i < n; i=i+1) {
+			if(ptr[i] != ptr[j]) {
 				j=j+1;
 				ptr[j]=ptr[i];
 			}
@@ -280,7 +280,7 @@ namespace std {
 	template$T:typename$
 	void iota(ptr: *T,n: u64,start: T) {
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
+		for(i=0; i < n; i=i+1) {
 			ptr[i]=start;
 			start=start+1;
 		}
@@ -289,30 +289,30 @@ namespace std {
 	T accumulate(ptr: *T,n: u64,init: T) {
 		var result: T=init;
 		var i: u64=0;
-		for: (i=0; i < n; i=i+1) {
+		for(i=0; i < n; i=i+1) {
 			result=result+ptr[i];
 		}
 		return result;
 	}
 	template$T:typename$
 	i32 next_permutation(ptr: *T,n: u64) {
-		if: (n <= 1) {
+		if(n <= 1) {
 			return 0;
 		}
 		var i: i64=i64(n)-2;
-		for: (; i >= 0 && ptr[i] >= ptr[i+1]; i=i-1) {
+		for(; i >= 0 && ptr[i] >= ptr[i+1]; i=i-1) {
 		}
-		if: (i < 0) {
+		if(i < 0) {
 			reverse(ptr,n);
 			return 0;
 		}
 		var j: i64=i64(n)-1;
-		for: (; ptr[j] <= ptr[i]; j=j-1) {
+		for(; ptr[j] <= ptr[i]; j=j-1) {
 		}
 		swap(ptr+i,ptr+j);
 		var l: i64=i+1;
 		var r: i64=i64(n)-1;
-		for: (; l < r; l=l+1) {
+		for(; l < r; l=l+1) {
 			var tmp: T=ptr[l];
 			ptr[l]=ptr[r];
 			ptr[r]=tmp;
@@ -322,23 +322,23 @@ namespace std {
 	}
 	template$T:typename$
 	i32 prev_permutation(ptr: *T,n: u64) {
-		if: (n <= 1) {
+		if(n <= 1) {
 			return 0;
 		}
 		var i: i64=i64(n)-2;
-		for: (; i >= 0 && ptr[i] <= ptr[i+1]; i=i-1) {
+		for(; i >= 0 && ptr[i] <= ptr[i+1]; i=i-1) {
 		}
-		if: (i < 0) {
+		if(i < 0) {
 			reverse(ptr,n);
 			return 0;
 		}
 		var j: i64=i64(n)-1;
-		for: (; ptr[j] >= ptr[i]; j=j-1) {
+		for(; ptr[j] >= ptr[i]; j=j-1) {
 		}
 		swap(ptr+i,ptr+j);
 		var l: i64=i+1;
 		var r: i64=i64(n)-1;
-		for: (; l < r; l=l+1) {
+		for(; l < r; l=l+1) {
 			var tmp: T=ptr[l];
 			ptr[l]=ptr[r];
 			ptr[r]=tmp;
@@ -375,7 +375,7 @@ namespace std {
 	# ============================================================
 	template$T:typename$
 	T abs(x: T) {
-		if: (x < 0) {
+		if(x < 0) {
 			return -x;
 		}
 		return x;
@@ -407,7 +407,7 @@ namespace std {
 	}
 	template$T:typename$
 	void deallocate(ptr: *T) {
-		if: (ptr != 0) {
+		if(ptr != 0) {
 			free(*char(ptr));
 		}
 	}
@@ -437,7 +437,7 @@ namespace std {
 		string(s: *char) {
 			this.len=strlen(s);
 			this.data=malloc(this.len+1);
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				memcpy(this.data,s,this.len+1);
 			} else {
 				this.len=0;
@@ -446,12 +446,12 @@ namespace std {
 		string(s: string) {
 			this.len=s.len;
 			this.data=malloc(this.len+1);
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				memcpy(this.data,s.data,this.len+1);
 			}
 		}
 		~string() {
-			if: (this.data != 0 && this.len > 0) {
+			if(this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
 		}
@@ -460,7 +460,7 @@ namespace std {
 			var s_len: u64=strlen(s);
 			result.len=this.len+s_len;
 			result.data=malloc(result.len+1);
-			if: (result.data != 0) {
+			if(result.data != 0) {
 				memcpy(result.data,this.data,this.len);
 				memcpy(result.data+this.len,s,s_len+1);
 			}
@@ -472,10 +472,10 @@ namespace std {
 		void operator+=(s: *char) {
 			var new_len: u64=this.len+strlen(s);
 			var new_data: *char=malloc(new_len+1);
-			if: (new_data != 0) {
+			if(new_data != 0) {
 				memcpy(new_data,this.data,this.len);
 				memcpy(new_data+this.len,s,strlen(s)+1);
-				if: (this.data != 0 && this.len > 0) {
+				if(this.data != 0 && this.len > 0) {
 					free(this.data);
 				}
 				this.data=new_data;
@@ -485,10 +485,10 @@ namespace std {
 		void operator+=(other: string) {
 			var new_len: u64=this.len+other.len;
 			var new_data: *char=malloc(new_len+1);
-			if: (new_data != 0) {
+			if(new_data != 0) {
 				memcpy(new_data,this.data,this.len);
 				memcpy(new_data+this.len,other.data,other.len+1);
-				if: (this.data != 0 && this.len > 0) {
+				if(this.data != 0 && this.len > 0) {
 					free(this.data);
 				}
 				this.data=new_data;
@@ -496,7 +496,7 @@ namespace std {
 			}
 		}
 		i32 operator==(s: *char) {
-			if: (strcmp(this.data,s) == 0) {
+			if(strcmp(this.data,s) == 0) {
 				return 1;
 			}
 			return 0;
@@ -511,42 +511,42 @@ namespace std {
 			return !(this == other);
 		}
 		i32 operator<(other: string) {
-			if: (strcmp(this.data,other.data) < 0) {
+			if(strcmp(this.data,other.data) < 0) {
 				return 1;
 			}
 			return 0;
 		}
 		i32 operator>(other: string) {
-			if: (strcmp(this.data,other.data) > 0) {
+			if(strcmp(this.data,other.data) > 0) {
 				return 1;
 			}
 			return 0;
 		}
 		i32 operator<=(other: string) {
-			if: (strcmp(this.data,other.data) <= 0) {
+			if(strcmp(this.data,other.data) <= 0) {
 				return 1;
 			}
 			return 0;
 		}
 		i32 operator>=(other: string) {
-			if: (strcmp(this.data,other.data) >= 0) {
+			if(strcmp(this.data,other.data) >= 0) {
 				return 1;
 			}
 			return 0;
 		}
 		char operator[](idx: u64) {
-			if: (idx < this.len) {
+			if(idx < this.len) {
 				return this.data[idx];
 			}
 			return 0;
 		}
 		string operator=(other: string) {
-			if: (this.data != 0 && this.len > 0) {
+			if(this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
 			this.len=other.len;
 			this.data=malloc(this.len+1);
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				memcpy(this.data,other.data,this.len+1);
 			}
 			return this;
@@ -558,7 +558,7 @@ namespace std {
 			return this.len;
 		}
 		i32 empty() {
-			if: (this.len == 0) {
+			if(this.len == 0) {
 				return 1;
 			}
 			return 0;
@@ -566,10 +566,10 @@ namespace std {
 		void append(s: *char) {
 			var new_len: u64=this.len+strlen(s);
 			var new_data: *char=malloc(new_len+1);
-			if: (new_data != 0) {
+			if(new_data != 0) {
 				memcpy(new_data,this.data,this.len);
 				memcpy(new_data+this.len,s,strlen(s)+1);
-				if: (this.data != 0 && this.len > 0) {
+				if(this.data != 0 && this.len > 0) {
 					free(this.data);
 				}
 				this.data=new_data;
@@ -586,7 +586,7 @@ namespace std {
 			return this == s;
 		}
 		i32 contains(sub: *char) {
-			if: (strstr(this.data,sub) != 0) {
+			if(strstr(this.data,sub) != 0) {
 				return 1;
 			}
 			return 0;
@@ -596,15 +596,15 @@ namespace std {
 		}
 		string substr(start: u64,len: u64) {
 			var result: string;
-			if: (start >= this.len) {
+			if(start >= this.len) {
 				return result;
 			}
 			var actual_len: u64=len;
-			if: (start+len > this.len) {
+			if(start+len > this.len) {
 				actual_len=this.len-start;
 			}
 			result.data=malloc(actual_len+1);
-			if: (result.data != 0) {
+			if(result.data != 0) {
 				memcpy(result.data,this.data+start,actual_len);
 				result.data[actual_len]=0;
 				result.len=actual_len;
@@ -613,25 +613,25 @@ namespace std {
 		}
 		i64 find(sub: *char) {
 			var sub_len: u64=strlen(sub);
-			if: (sub_len > this.len) {
+			if(sub_len > this.len) {
 				return -1;
 			}
 			var i: u64=0;
-			for: (i=0; i <= this.len-sub_len; i=i+1) {
+			for(i=0; i <= this.len-sub_len; i=i+1) {
 				var j: u64=0;
-				for: (j=0; j < sub_len; j=j+1) {
-					if: (this.data[i+j] != sub[j]) {
+				for(j=0; j < sub_len; j=j+1) {
+					if(this.data[i+j] != sub[j]) {
 						break;
 					}
 				}
-				if: (j == sub_len) {
+				if(j == sub_len) {
 					return i64(i);
 				}
 			}
 			return -1;
 		}
 		void clear() {
-			if: (this.data != 0 && this.len > 0) {
+			if(this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
 			this.data="";
@@ -654,7 +654,7 @@ namespace std {
 			this.cap=0;
 		}
 		~vector() {
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				free(this.buffer);
 				this.buffer=0;
 			}
@@ -665,16 +665,16 @@ namespace std {
 			return this.get(idx);
 		}
 		void push_back(val: T) {
-			if: (this.sz >= this.cap) {
+			if(this.sz >= this.cap) {
 				var new_cap: u64=this.cap;
-				if: (new_cap == 0) {
+				if(new_cap == 0) {
 					new_cap=4;
 				} else {
 					new_cap=new_cap * 2;
 				}
 				var new_buf: *char=malloc(new_cap * sizeof(T));
-				if: (new_buf != 0) {
-					if: (this.buffer != 0) {
+				if(new_buf != 0) {
+					if(this.buffer != 0) {
 						memcpy(new_buf,this.buffer,this.sz * sizeof(T));
 						free(this.buffer);
 					}
@@ -682,25 +682,25 @@ namespace std {
 					this.cap=new_cap;
 				}
 			}
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				memcpy(this.buffer+this.sz * sizeof(T),&val,sizeof(T));
 				this.sz=this.sz+1;
 			}
 		}
 		void pop_back() {
-			if: (this.sz > 0) {
+			if(this.sz > 0) {
 				this.sz=this.sz-1;
 			}
 		}
 		T get(idx: u64) {
 			var result: T;
-			if: (idx < this.sz && this.buffer != 0) {
+			if(idx < this.sz && this.buffer != 0) {
 				memcpy(&result,this.buffer+idx * sizeof(T),sizeof(T));
 			}
 			return result;
 		}
 		void set(idx: u64,val: T) {
-			if: (idx < this.sz && this.buffer != 0) {
+			if(idx < this.sz && this.buffer != 0) {
 				memcpy(this.buffer+idx * sizeof(T),&val,sizeof(T));
 			}
 		}
@@ -714,7 +714,7 @@ namespace std {
 			return this.cap;
 		}
 		i32 empty() {
-			if: (this.sz == 0) {
+			if(this.sz == 0) {
 				return 1;
 			}
 			return 0;
@@ -723,10 +723,10 @@ namespace std {
 			this.sz=0;
 		}
 		void reserve(n: u64) {
-			if: (n > this.cap) {
+			if(n > this.cap) {
 				var new_buf: *char=malloc(n * sizeof(T));
-				if: (new_buf != 0) {
-					if: (this.buffer != 0) {
+				if(new_buf != 0) {
+					if(this.buffer != 0) {
 						memcpy(new_buf,this.buffer,this.sz * sizeof(T));
 						free(this.buffer);
 					}
@@ -736,9 +736,9 @@ namespace std {
 			}
 		}
 		void erase(idx: u64) {
-			if: (idx < this.sz) {
+			if(idx < this.sz) {
 				var i: u64=idx;
-				for: (i=idx; i < this.sz-1; i=i+1) {
+				for(i=idx; i < this.sz-1; i=i+1) {
 					memcpy(this.buffer+i * sizeof(T),
 						this.buffer+(i+1) * sizeof(T),
 						sizeof(T));
@@ -772,7 +772,7 @@ namespace std {
 			return this.value;
 		}
 		T value_or(default_val: T) {
-			if: (this.has_value) {
+			if(this.has_value) {
 				return this.value;
 			}
 			return default_val;
@@ -812,7 +812,7 @@ namespace std {
 			return this.error;
 		}
 		T unwrap_or(default_val: T) {
-			if: (this.is_ok) {
+			if(this.is_ok) {
 				return this.value;
 			}
 			return default_val;
@@ -859,15 +859,15 @@ namespace std {
 		}
 		void push_front(val: T) {
 			var node: *ListNode=*LinkedList::ListNode(malloc(sizeof(ListNode)));
-			if: (node != 0) {
+			if(node != 0) {
 				node.value=val;
 				node.next=this.head;
 				node.prev=0;
-				if: (this.head != 0) {
+				if(this.head != 0) {
 					this.head.prev=node;
 				}
 				this.head=node;
-				if: (this.tail == 0) {
+				if(this.tail == 0) {
 					this.tail=node;
 				}
 				this.sz=this.sz+1;
@@ -875,25 +875,25 @@ namespace std {
 		}
 		void push_back(val: T) {
 			var node: *ListNode=*LinkedList::ListNode(malloc(sizeof(ListNode)));
-			if: (node != 0) {
+			if(node != 0) {
 				node.value=val;
 				node.next=0;
 				node.prev=this.tail;
-				if: (this.tail != 0) {
+				if(this.tail != 0) {
 					this.tail.next=node;
 				}
 				this.tail=node;
-				if: (this.head == 0) {
+				if(this.head == 0) {
 					this.head=node;
 				}
 				this.sz=this.sz+1;
 			}
 		}
 		void pop_front() {
-			if: (this.head != 0) {
+			if(this.head != 0) {
 				var node: *ListNode=this.head;
 				this.head=this.head.next;
-				if: (this.head != 0) {
+				if(this.head != 0) {
 					this.head.prev=0;
 				} else {
 					this.tail=0;
@@ -903,10 +903,10 @@ namespace std {
 			}
 		}
 		void pop_back() {
-			if: (this.tail != 0) {
+			if(this.tail != 0) {
 				var node: *ListNode=this.tail;
 				this.tail=this.tail.prev;
-				if: (this.tail != 0) {
+				if(this.tail != 0) {
 					this.tail.next=0;
 				} else {
 					this.head=0;
@@ -917,14 +917,14 @@ namespace std {
 		}
 		T front() {
 			var result: T;
-			if: (this.head != 0) {
+			if(this.head != 0) {
 				result=this.head.value;
 			}
 			return result;
 		}
 		T back() {
 			var result: T;
-			if: (this.tail != 0) {
+			if(this.tail != 0) {
 				result=this.tail.value;
 			}
 			return result;
@@ -933,13 +933,13 @@ namespace std {
 			return this.sz;
 		}
 		i32 empty() {
-			if: (this.sz == 0) {
+			if(this.sz == 0) {
 				return 1;
 			}
 			return 0;
 		}
 		void clear() {
-			for: (; this.head != 0; ) {
+			for(; this.head != 0; ) {
 				this.pop_front();
 			}
 		}
@@ -968,21 +968,21 @@ namespace std {
 			this.cap=0;
 		}
 		~Stack() {
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				free(this.buffer);
 			}
 		}
 		void push(val: T) {
-			if: (this.sz >= this.cap) {
+			if(this.sz >= this.cap) {
 				var new_cap: u64=this.cap;
-				if: (new_cap == 0) {
+				if(new_cap == 0) {
 					new_cap=4;
 				} else {
 					new_cap=new_cap * 2;
 				}
 				var new_buf: *char=malloc(new_cap * sizeof(T));
-				if: (new_buf != 0) {
-					if: (this.buffer != 0) {
+				if(new_buf != 0) {
+					if(this.buffer != 0) {
 						memcpy(new_buf,this.buffer,this.sz * sizeof(T));
 						free(this.buffer);
 					}
@@ -990,19 +990,19 @@ namespace std {
 					this.cap=new_cap;
 				}
 			}
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				memcpy(this.buffer+this.sz * sizeof(T),&val,sizeof(T));
 				this.sz=this.sz+1;
 			}
 		}
 		void pop() {
-			if: (this.sz > 0) {
+			if(this.sz > 0) {
 				this.sz=this.sz-1;
 			}
 		}
 		T top() {
 			var result: T;
-			if: (this.sz > 0 && this.buffer != 0) {
+			if(this.sz > 0 && this.buffer != 0) {
 				memcpy(&result,this.buffer+(this.sz-1) * sizeof(T),sizeof(T));
 			}
 			return result;
@@ -1011,7 +1011,7 @@ namespace std {
 			return this.sz;
 		}
 		i32 empty() {
-			if: (this.sz == 0) {
+			if(this.sz == 0) {
 				return 1;
 			}
 			return 0;
@@ -1035,27 +1035,27 @@ namespace std {
 			this.cap=0;
 		}
 		~queue() {
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				free(this.buffer);
 			}
 		}
 		void push(val: T) {
-			if: (this.tail-this.head >= this.cap) {
+			if(this.tail-this.head >= this.cap) {
 				var new_cap: u64=this.cap;
-				if: (new_cap == 0) {
+				if(new_cap == 0) {
 					new_cap=8;
 				} else {
 					new_cap=new_cap * 2;
 				}
 				var new_buf: *char=malloc(new_cap * sizeof(T));
-				if: (new_buf != 0) {
+				if(new_buf != 0) {
 					var i: u64=0;
-					for: (i=0; i < this.tail-this.head; i=i+1) {
+					for(i=0; i < this.tail-this.head; i=i+1) {
 						memcpy(new_buf+i * sizeof(T),
 							this.buffer+(this.head+i) * sizeof(T),
 							sizeof(T));
 					}
-					if: (this.buffer != 0) {
+					if(this.buffer != 0) {
 						free(this.buffer);
 					}
 					this.buffer=new_buf;
@@ -1064,26 +1064,26 @@ namespace std {
 					this.cap=new_cap;
 				}
 			}
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				memcpy(this.buffer+this.tail * sizeof(T),&val,sizeof(T));
 				this.tail=this.tail+1;
 			}
 		}
 		void pop() {
-			if: (this.head < this.tail) {
+			if(this.head < this.tail) {
 				this.head=this.head+1;
 			}
 		}
 		T front() {
 			var result: T;
-			if: (this.head < this.tail && this.buffer != 0) {
+			if(this.head < this.tail && this.buffer != 0) {
 				memcpy(&result,this.buffer+this.head * sizeof(T),sizeof(T));
 			}
 			return result;
 		}
 		T back() {
 			var result: T;
-			if: (this.head < this.tail && this.buffer != 0) {
+			if(this.head < this.tail && this.buffer != 0) {
 				memcpy(&result,this.buffer+(this.tail-1) * sizeof(T),sizeof(T));
 			}
 			return result;
@@ -1092,7 +1092,7 @@ namespace std {
 			return this.tail-this.head;
 		}
 		i32 empty() {
-			if: (this.head >= this.tail) {
+			if(this.head >= this.tail) {
 				return 1;
 			}
 			return 0;
@@ -1117,29 +1117,29 @@ namespace std {
 			this.cap=0;
 		}
 		~Map() {
-			if: (this.keys != 0) {
+			if(this.keys != 0) {
 				free(this.keys);
 			}
-			if: (this.values != 0) {
+			if(this.values != 0) {
 				free(this.values);
 			}
 		}
 		void insert(key: K,val: V) {
-			if: (this.sz >= this.cap) {
+			if(this.sz >= this.cap) {
 				var new_cap: u64=this.cap;
-				if: (new_cap == 0) {
+				if(new_cap == 0) {
 					new_cap=8;
 				} else {
 					new_cap=new_cap * 2;
 				}
 				var new_keys: *char=malloc(new_cap * sizeof(K));
 				var new_vals: *char=malloc(new_cap * sizeof(V));
-				if: (new_keys != 0 && new_vals != 0) {
-					if: (this.keys != 0) {
+				if(new_keys != 0 && new_vals != 0) {
+					if(this.keys != 0) {
 						memcpy(new_keys,this.keys,this.sz * sizeof(K));
 						free(this.keys);
 					}
-					if: (this.values != 0) {
+					if(this.values != 0) {
 						memcpy(new_vals,this.values,this.sz * sizeof(V));
 						free(this.values);
 					}
@@ -1148,7 +1148,7 @@ namespace std {
 					this.cap=new_cap;
 				}
 			}
-			if: (this.keys != 0 && this.values != 0) {
+			if(this.keys != 0 && this.values != 0) {
 				memcpy(this.keys+this.sz * sizeof(K),&key,sizeof(K));
 				memcpy(this.values+this.sz * sizeof(V),&val,sizeof(V));
 				this.sz=this.sz+1;
@@ -1157,10 +1157,10 @@ namespace std {
 		V get(key: K) {
 			var result: V;
 			var i: u64=0;
-			for: (i=0; i < this.sz; i=i+1) {
+			for(i=0; i < this.sz; i=i+1) {
 				var k: K;
 				memcpy(&k,this.keys+i * sizeof(K),sizeof(K));
-				if: (k == key) {
+				if(k == key) {
 					memcpy(&result,this.values+i * sizeof(V),sizeof(V));
 					return result;
 				}
@@ -1169,10 +1169,10 @@ namespace std {
 		}
 		i32 contains(key: K) {
 			var i: u64=0;
-			for: (i=0; i < this.sz; i=i+1) {
+			for(i=0; i < this.sz; i=i+1) {
 				var k: K;
 				memcpy(&k,this.keys+i * sizeof(K),sizeof(K));
-				if: (k == key) {
+				if(k == key) {
 					return 1;
 				}
 			}
@@ -1180,12 +1180,12 @@ namespace std {
 		}
 		void remove(key: K) {
 			var i: u64=0;
-			for: (i=0; i < this.sz; i=i+1) {
+			for(i=0; i < this.sz; i=i+1) {
 				var k: K;
 				memcpy(&k,this.keys+i * sizeof(K),sizeof(K));
-				if: (k == key) {
+				if(k == key) {
 					var j: u64=i;
-					for: (j=i; j < this.sz-1; j=j+1) {
+					for(j=i; j < this.sz-1; j=j+1) {
 						memcpy(this.keys+j * sizeof(K),
 							this.keys+(j+1) * sizeof(K),
 							sizeof(K));
@@ -1202,7 +1202,7 @@ namespace std {
 			return this.sz;
 		}
 		i32 empty() {
-			if: (this.sz == 0) {
+			if(this.sz == 0) {
 				return 1;
 			}
 			return 0;
@@ -1229,24 +1229,24 @@ namespace std {
 			this.cap=0;
 		}
 		~Set() {
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				free(this.buffer);
 			}
 		}
 		void insert(val: T) {
-			if: (this.contains(val)) {
+			if(this.contains(val)) {
 				return;
 			}
-			if: (this.sz >= this.cap) {
+			if(this.sz >= this.cap) {
 				var new_cap: u64=this.cap;
-				if: (new_cap == 0) {
+				if(new_cap == 0) {
 					new_cap=8;
 				} else {
 					new_cap=new_cap * 2;
 				}
 				var new_buf: *char=malloc(new_cap * sizeof(T));
-				if: (new_buf != 0) {
-					if: (this.buffer != 0) {
+				if(new_buf != 0) {
+					if(this.buffer != 0) {
 						memcpy(new_buf,this.buffer,this.sz * sizeof(T));
 						free(this.buffer);
 					}
@@ -1254,17 +1254,17 @@ namespace std {
 					this.cap=new_cap;
 				}
 			}
-			if: (this.buffer != 0) {
+			if(this.buffer != 0) {
 				memcpy(this.buffer+this.sz * sizeof(T),&val,sizeof(T));
 				this.sz=this.sz+1;
 			}
 		}
 		i32 contains(val: T) {
 			var i: u64=0;
-			for: (i=0; i < this.sz; i=i+1) {
+			for(i=0; i < this.sz; i=i+1) {
 				var v: T;
 				memcpy(&v,this.buffer+i * sizeof(T),sizeof(T));
-				if: (v == val) {
+				if(v == val) {
 					return 1;
 				}
 			}
@@ -1272,12 +1272,12 @@ namespace std {
 		}
 		void remove(val: T) {
 			var i: u64=0;
-			for: (i=0; i < this.sz; i=i+1) {
+			for(i=0; i < this.sz; i=i+1) {
 				var v: T;
 				memcpy(&v,this.buffer+i * sizeof(T),sizeof(T));
-				if: (v == val) {
+				if(v == val) {
 					var j: u64=i;
-					for: (j=i; j < this.sz-1; j=j+1) {
+					for(j=i; j < this.sz-1; j=j+1) {
 						memcpy(this.buffer+j * sizeof(T),
 							this.buffer+(j+1) * sizeof(T),
 							sizeof(T));
@@ -1291,7 +1291,7 @@ namespace std {
 			return this.sz;
 		}
 		i32 empty() {
-			if: (this.sz == 0) {
+			if(this.sz == 0) {
 				return 1;
 			}
 			return 0;
@@ -1318,7 +1318,7 @@ namespace std {
 		SharedPtr(val: T) {
 			this.ptr=*T(malloc(sizeof(T)));
 			this.ref_count=*u64(malloc(sizeof(u64)));
-			if: (this.ptr != 0 && this.ref_count != 0) {
+			if(this.ptr != 0 && this.ref_count != 0) {
 				memcpy(this.ptr,&val,sizeof(T));
 				memcpy(this.ref_count,&1,sizeof(u64));
 			}
@@ -1326,7 +1326,7 @@ namespace std {
 		SharedPtr(other: SharedPtr) {
 			this.ptr=other.ptr;
 			this.ref_count=other.ref_count;
-			if: (this.ref_count != 0) {
+			if(this.ref_count != 0) {
 				var count: u64=0;
 				memcpy(&count,this.ref_count,sizeof(u64));
 				count=count+1;
@@ -1334,11 +1334,11 @@ namespace std {
 			}
 		}
 		~SharedPtr() {
-			if: (this.ref_count != 0) {
+			if(this.ref_count != 0) {
 				var count: u64=0;
 				memcpy(&count,this.ref_count,sizeof(u64));
-				if: (count <= 1) {
-					if: (this.ptr != 0) {
+				if(count <= 1) {
+					if(this.ptr != 0) {
 						free(this.ptr);
 					}
 					free(this.ref_count);
@@ -1350,20 +1350,20 @@ namespace std {
 		}
 		T get() {
 			var result: T;
-			if: (this.ptr != 0) {
+			if(this.ptr != 0) {
 				memcpy(&result,this.ptr,sizeof(T));
 			}
 			return result;
 		}
 		u64 use_count() {
 			var count: u64=0;
-			if: (this.ref_count != 0) {
+			if(this.ref_count != 0) {
 				memcpy(&count,this.ref_count,sizeof(u64));
 			}
 			return count;
 		}
 		i32 unique() {
-			if: (this.use_count() == 1) {
+			if(this.use_count() == 1) {
 				return 1;
 			}
 			return 0;
@@ -1417,12 +1417,12 @@ namespace std {
 			this.current=0;
 		}
 		i32 has_next() {
-			if: (this.step > 0) {
-				if: (this.current < this.end) {
+			if(this.step > 0) {
+				if(this.current < this.end) {
 					return 1;
 				}
 			} else {
-				if: (this.current > this.end) {
+				if(this.current > this.end) {
 					return 1;
 				}
 			}
@@ -1452,44 +1452,44 @@ namespace std {
 			this.num_bits=n;
 			var num_bytes: u64=(n+7)/8;
 			this.data=malloc(num_bytes);
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				var i: u64=0;
-				for: (i=0; i < num_bytes; i=i+1) {
+				for(i=0; i < num_bytes; i=i+1) {
 					this.data[i]=0;
 				}
 			}
 		}
 		~Bitset() {
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				free(this.data);
 			}
 		}
 		void set(idx: u64) {
-			if: (idx < this.num_bits && this.data != 0) {
+			if(idx < this.num_bits && this.data != 0) {
 				var byte_idx: u64=idx/8;
 				var bit_idx: u64=idx % 8;
 				this.data[byte_idx]=this.data[byte_idx] | (1 << bit_idx);
 			}
 		}
 		void reset(idx: u64) {
-			if: (idx < this.num_bits && this.data != 0) {
+			if(idx < this.num_bits && this.data != 0) {
 				var byte_idx: u64=idx/8;
 				var bit_idx: u64=idx % 8;
 				this.data[byte_idx]=this.data[byte_idx] & ~(1 << bit_idx);
 			}
 		}
 		void flip(idx: u64) {
-			if: (idx < this.num_bits && this.data != 0) {
+			if(idx < this.num_bits && this.data != 0) {
 				var byte_idx: u64=idx/8;
 				var bit_idx: u64=idx % 8;
 				this.data[byte_idx]=this.data[byte_idx] ^ (1 << bit_idx);
 			}
 		}
 		i32 test(idx: u64) {
-			if: (idx < this.num_bits && this.data != 0) {
+			if(idx < this.num_bits && this.data != 0) {
 				var byte_idx: u64=idx/8;
 				var bit_idx: u64=idx % 8;
-				if: (this.data[byte_idx] & (1 << bit_idx)) {
+				if(this.data[byte_idx] & (1 << bit_idx)) {
 					return 1;
 				}
 			}
@@ -1499,26 +1499,26 @@ namespace std {
 			return this.num_bits;
 		}
 		i32 all() {
-			if: (this.data == 0) {
+			if(this.data == 0) {
 				return 0;
 			}
 			var num_bytes: u64=(this.num_bits+7)/8;
 			var i: u64=0;
-			for: (i=0; i < num_bytes; i=i+1) {
-				if: (this.data[i] != 0xFF) {
+			for(i=0; i < num_bytes; i=i+1) {
+				if(this.data[i] != 0xFF) {
 					return 0;
 				}
 			}
 			return 1;
 		}
 		i32 any() {
-			if: (this.data == 0) {
+			if(this.data == 0) {
 				return 0;
 			}
 			var num_bytes: u64=(this.num_bits+7)/8;
 			var i: u64=0;
-			for: (i=0; i < num_bytes; i=i+1) {
-				if: (this.data[i] != 0) {
+			for(i=0; i < num_bytes; i=i+1) {
+				if(this.data[i] != 0) {
 					return 1;
 				}
 			}
@@ -1528,10 +1528,10 @@ namespace std {
 			return !this.any();
 		}
 		void clear() {
-			if: (this.data != 0) {
+			if(this.data != 0) {
 				var num_bytes: u64=(this.num_bits+7)/8;
 				var i: u64=0;
-				for: (i=0; i < num_bytes; i=i+1) {
+				for(i=0; i < num_bytes; i=i+1) {
 					this.data[i]=0;
 				}
 			}
@@ -1554,7 +1554,7 @@ namespace std {
 	template$T:typename$
 	i32 is_signed() {
 		var x: T=0;
-		if: (x-1 < x) {
+		if(x-1 < x) {
 			return 1;
 		}
 		return 0;

@@ -143,11 +143,11 @@ void foo() {
 ## 控制流（if）
 **关键字：** `if`、`else`
 ### 基本用法
-条件后面必须跟冒号 `:`
+条件必须用括号括起来
 ```mio
-if: 条件 {
+if (条件) {
     代码块
-} else if: 条件 {
+} else if (条件) {
     代码块
 } else {
     代码块
@@ -155,9 +155,9 @@ if: 条件 {
 ```
 ### 示例
 ```mio
-if: score >= 90 {
+if (score >= 90) {
     printf("A\n");
-} else if: score >= 80 {
+} else if (score >= 80) {
     printf("B\n");
 } else {
     printf("C\n");
@@ -166,17 +166,17 @@ if: score >= 90 {
 ### 单语句简写
 单语句可以省略大括号：
 ```mio
-if: x > 0 printf("正数\n");
+if (x > 0) printf("正数\n");
 ```
 ## 循环
 ### while 循环
 
 **关键字：** `while`
 
-条件后面必须跟冒号 `:`
+条件必须用括号括起来
 ```mio
 var i: i32=0;
-while: i < 5 {
+while (i < 5) {
     printf("%d\n",i);
     i=i+1;
 }
@@ -184,29 +184,28 @@ while: i < 5 {
 ### for 循环
 **关键字：** `for`
 
-**格式：** `for: 初始化; 条件; 更新 { 代码块 }`
+**格式：** `for (初始化; 条件; 更新) { 代码块 }`
 
-冒号 `:` 必须跟在 `for` 后面
 ```mio
 var sum: i32=0;
-for: i=0; i < 10; i += 1 {
+for (i=0; i < 10; i=i+1) {
     sum=sum+i;
 }
 ```
 ### 省略部分
 ```mio
 var i: i32=0;
-for: ; i < 5; i=i+1 {   # 省略初始化
+for (; i < 5; i=i+1) {   # 省略初始化
     printf("%d\n",i);
 }
 ```
 ### break 与 continue
 ```mio
-while: true {
-    if: x > 100 {
+while (true) {
+    if (x > 100) {
         break;       # 跳出循环
     }
-    if: x % 2 == 0 {
+    if (x % 2 == 0) {
         x=x+1;
         continue;    # 跳过本次迭代剩余部分
     }
@@ -222,7 +221,7 @@ var i: i32=0;
 :loop
     printf("%d\n",i);
     i=i+1;
-    if: i < 5 {
+    if (i < 5) {
         goto loop;
     }
 ```
@@ -498,7 +497,7 @@ i32 main() {
 ## 模板
 **关键字：** `template`、`typename`
 
-模板用于编写泛型代码，支持多个模板参数、指定类型和默认值，以及自动类型推导和显式类型参数。
+模板用于编写泛型代码，支持多个模板参数、指定类型和默认值，以及自动类型推导和显式类型参数。支持模板函数和模板类，他们都是在语义解析的时候实例化。
 
 ### 语法
 ```
@@ -513,7 +512,7 @@ template$T:typename,len:i32=100$
 ```mio
 template$T:typename$
 T max(a: T,b: T) {
-    if: a > b {
+    if (a > b) {
         return a;
     }
     return b;

@@ -735,8 +735,9 @@ private:
 	AstNode* parse_if_stmt(){
 		int line=cur->line,col=cur->col;
 		advance();
-		expect(TOK_COLON);
+		expect(TOK_LPAREN);
 		auto* cond=parse_expr();
+		expect(TOK_RPAREN);
 		auto* then_body=parse_stmt();
 		auto* if_node=ast_new_if(cond,then_body,nullptr,line,col,fn());
 		if(match(TOK_ELSE)){
@@ -747,29 +748,33 @@ private:
 	AstNode* parse_while_stmt(){
 		int line=cur->line,col=cur->col;
 		advance();
-		expect(TOK_COLON);
+		expect(TOK_LPAREN);
 		auto* cond=parse_expr();
+		expect(TOK_RPAREN);
 		auto* body=parse_stmt();
 		return ast_new_while(cond,body,line,col,fn());
 	}
 	AstNode* parse_for_stmt(){
 		int line=cur->line,col=cur->col;
 		advance();
-		expect(TOK_COLON);
-		bool has_paren=match(TOK_LPAREN);
+		expect(TOK_LPAREN);
 		AstNode* init=nullptr;
 		AstNode* cond=nullptr;
 		AstNode* update=nullptr;
-		if(!check(TOK_SEMICOLON))
+		if(match(TOK_VAR)){
+			init=parse_var_items(false,false);
+		}else if(match(TOK_CONST)){
+			init=parse_var_items(true,false);
+		}else if(!check(TOK_SEMICOLON)){
 			init=parse_expr();
+		}
 		expect(TOK_SEMICOLON);
 		if(!check(TOK_SEMICOLON)&&!check(TOK_RPAREN))
 			cond=parse_expr();
 		expect(TOK_SEMICOLON);
 		if(!check(TOK_LBRACE)&&!check(TOK_RPAREN))
 			update=parse_expr();
-		if(has_paren)
-			expect(TOK_RPAREN);
+		expect(TOK_RPAREN);
 		auto* body=parse_stmt();
 		return ast_new_for(init,cond,update,body,line,col,fn());
 	}

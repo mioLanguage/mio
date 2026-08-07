@@ -83,10 +83,6 @@ class Compiler{
 	std::unordered_map<std::string,std::vector<std::string>>classVTableOrder;
 	std::unordered_map<std::string,std::vector<llvm::FunctionType*>>classVTableFuncTypes;
 	std::vector<std::pair<std::string,llvm::AllocaInst*>>cleanupStack;
-	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>>templateMap;
-	std::unordered_map<std::string,std::pair<std::string,std::vector<TemplateArg>>>templateInstances;
-	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>>classTemplateMap;
-	std::unordered_set<std::string>classTemplateInstances;
 	std::unordered_map<std::string,AstNode*>funcDefMap;
 	std::unordered_set<std::string>forwardDeclaredClasses;
 	int optLevel;
@@ -128,12 +124,9 @@ class Compiler{
 			case MioTypeKind::CLASS:{
 				if(!mt->name.empty()){
 					if(!mt->param_types.empty()){
-						std::string instName=resolveClassName(mt->name);
+						std::string instName=mt->name;
 						for(auto* pt:mt->param_types)
 							instName+="_"+mio_type_str(pt);
-						if(classTypes.count(instName))
-							return classTypes[instName];
-						instantiateClassTemplate(mt->name,mt->param_types,instName);
 						if(classTypes.count(instName))
 							return classTypes[instName];
 						if(errCtx){
@@ -246,21 +239,13 @@ class Compiler{
 			case AstNodeKind::MEMBER_EXPR:{
 				if(node->type)return convertType(node->type);
 				std::string sn;
-				if(node->member.base->type&&!node->member.base->type->name.empty())
-					sn=resolveClassName(node->member.base->type->name);
-				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+				if(node->member.base->type&&!node->member.base->type->name.empty()){
+					sn=node->member.base->type->name;
+					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
+						sn=node->member.base->type->base_type->name;
+				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty())
 						sn=currentClassName;
-					else{
-						std::string vname=node->member.base->ident.name;
-						if(!node->member.base->ident.namespace_name.empty())
-							vname=node->member.base->ident.namespace_name+"::"+vname;
-						auto it=locals.find(vname);
-						if(it!=locals.end()){
-							llvm::Type* at=it->second->getAllocatedType();
-							if(at->isStructTy())sn=std::string(at->getStructName());
-						}
-					}
 				}
 				if(!sn.empty()&&classFieldIdx.count(sn)){
 					auto mit=classFieldIdx[sn].find(node->member.member);
@@ -448,7 +433,7 @@ class Compiler{
 			case AstNodeKind::ENUM_DEF:		genEnumDef(node);break;
 			case AstNodeKind::UNION_DEF:	genUnionDef(node);break;
 			case AstNodeKind::CLASS_DEF:	genClassDef(node);break;
-			case AstNodeKind::TEMPLATE_DEF:	registerTemplate(node);break;
+			case AstNodeKind::TEMPLATE_DEF:	break;
 			case AstNodeKind::NAMESPACE_DEF:{
 				std::string savedNs=currentNamespace;
 				if(!currentNamespace.empty())
@@ -480,227 +465,6 @@ class Compiler{
 		for(auto* node:prog->program.nodes){
 			genDecl(node);
 		}
-	}
-	void registerTemplate(AstNode* node){
-		std::string name;
-		if(node->template_def.def->kind==AstNodeKind::FUNC_DEF){
-			name=node->template_def.def->func_def.name;
-			if(!currentNamespace.empty())
-				name=currentNamespace+"::"+name;
-			if(templateMap.count(name)){
-				error(node->line,node->col,"internal error: redefinition of template '"+name+"'");
-				return;
-			}
-			templateMap[name]={node->template_def.type_params,node->template_def.def};
-		}else if(node->template_def.def->kind==AstNodeKind::CLASS_DEF){
-			name=node->template_def.def->class_def.name;
-			if(!currentNamespace.empty())
-				name=currentNamespace+"::"+name;
-			if(classTemplateMap.count(name)){
-				error(node->line,node->col,"internal error: redefinition of class template '"+name+"'");
-				return;
-			}
-			classTemplateMap[name]={node->template_def.type_params,node->template_def.def};
-		}else{
-			error(node->line,node->col,"internal error: template only supports functions and classes");
-			return;
-		}
-	}
-	int64_t evalConstExpr(AstNode* node){
-		if(!node)return 0;
-		if(node->kind==AstNodeKind::INT_LIT)return node->int_lit.value;
-		if(node->kind==AstNodeKind::BOOL_LIT)return node->bool_lit.value?1:0;
-		if(node->kind==AstNodeKind::CHAR_LIT)return (int64_t)node->char_lit.value;
-		if(node->kind==AstNodeKind::UNARY_EXPR&&node->unary.op==TOK_MINUS)
-			return -evalConstExpr(node->unary.operand);
-		if(node->kind==AstNodeKind::BINARY_EXPR){
-			int64_t l=evalConstExpr(node->binary.left);
-			int64_t r=evalConstExpr(node->binary.right);
-			switch(node->binary.op){
-				case TOK_PLUS:return l+r;
-				case TOK_MINUS:return l-r;
-				case TOK_STAR:return l*r;
-				case TOK_SLASH:return r!=0?l/r:0;
-				case TOK_PERCENT:return r!=0?l%r:0;
-				default:
-					error(node->line,node->col,"internal error: unsupported operator in constant expression");
-					return 0;
-			}
-		}
-		return 0;
-	}
-	llvm::Value* genTemplateInstantiation(AstNode* node){
-		std::string calleeName=node->call.callee->ident.name;
-		std::string ns=node->call.callee->ident.namespace_name;
-		if(!ns.empty()&&ns!="::")
-			calleeName=ns+"::"+calleeName;
-		auto it=templateMap.find(calleeName);
-		if(it==templateMap.end()){
-			error(node->line,node->col,"internal error: template '"+calleeName+"' not found");
-			return nullptr;
-		}
-		std::string templateNs=ns;
-		if(!ns.empty()&&ns!="::"){
-			templateNs=ns;
-		}else{
-			templateNs="";
-		}
-		auto& params=it->second.first;
-		auto& templateDef=it->second.second;
-		if(node->call.template_args.size()!=params.size()){
-			error(node->line,node->col,"internal error: template '"+calleeName+"' expects "+std::to_string(params.size())+" arguments,got "+std::to_string(node->call.template_args.size()));
-			return nullptr;
-		}
-		std::string mangledName=calleeName;
-		for(auto& ta:node->call.template_args){
-			if(ta.is_type)
-				mangledName+="_"+mio_type_str(ta.type_val);
-			else
-				mangledName+="_V";
-		}
-		auto instIt=templateInstances.find(mangledName);
-		if(instIt!=templateInstances.end()){
-			llvm::Function* fn=mod->getFunction(mangledName);
-			if(fn)return fn;
-			fn=funcDecls[mangledName];
-			if(fn)return fn;
-		}
-		std::string savedNs=currentNamespace;
-		auto savedFn=curFn;
-		auto savedBB=curBB;
-		auto savedThis=thisAlloca;
-		auto savedClassName=currentClassName;
-		auto savedLocals=std::move(locals);
-		auto savedMioTypes=std::move(localMioTypes);
-		auto savedCleanup=std::move(cleanupStack);
-		locals.clear();
-		localMioTypes.clear();
-		cleanupStack.clear();
-		std::unordered_map<std::string,MioType*> typeSubst;
-		std::unordered_map<std::string,int64_t> valueSubst;
-		for(size_t i=0;i<params.size();i++){
-			auto& ta=node->call.template_args[i];
-			if(params[i].is_type){
-				if(!ta.is_type){
-					error(node->line,node->col,"internal error: template parameter '"+params[i].name+"' expects a type argument");
-					return nullptr;
-				}
-				typeSubst[params[i].name]=ta.type_val;
-			}else{
-				if(ta.is_type){
-					error(node->line,node->col,"internal error: template parameter '"+params[i].name+"' expects a value argument");
-					return nullptr;
-				}
-				valueSubst[params[i].name]=evalConstExpr(ta.expr_val);
-			}
-		}
-		AstNode* instDef=instantiateTemplate(templateDef,typeSubst,valueSubst);
-		if(!instDef){
-			currentNamespace=savedNs;
-			locals=std::move(savedLocals);
-			localMioTypes=std::move(savedMioTypes);
-			cleanupStack=std::move(savedCleanup);
-			curFn=savedFn;
-			curBB=savedBB;
-			if(savedBB)b.SetInsertPoint(savedBB);
-			thisAlloca=savedThis;
-			currentClassName=savedClassName;
-			return nullptr;
-		}
-		currentNamespace=templateNs;
-		genFuncDef(instDef);
-		locals=std::move(savedLocals);
-		localMioTypes=std::move(savedMioTypes);
-		cleanupStack=std::move(savedCleanup);
-		curFn=savedFn;
-		curBB=savedBB;
-		if(savedBB)b.SetInsertPoint(savedBB);
-		thisAlloca=savedThis;
-		currentClassName=savedClassName;
-		currentNamespace=savedNs;
-		llvm::Function* fn=mod->getFunction(mangledName);
-		if(fn)funcDecls[mangledName]=fn;
-		templateInstances[mangledName]={calleeName,node->call.template_args};
-		return fn;
-	}
-	MioType* llvmTypeToMioType(llvm::Type* ty){
-		if(!ty)return nullptr;
-		if(ty->isIntegerTy(1))return mio_type_new(MioTypeKind::BOOL);
-		if(ty->isIntegerTy(8))return mio_type_new(MioTypeKind::I8);
-		if(ty->isIntegerTy(16))return mio_type_new(MioTypeKind::I16);
-		if(ty->isIntegerTy(32))return mio_type_new(MioTypeKind::I32);
-		if(ty->isIntegerTy(64))return mio_type_new(MioTypeKind::I64);
-		if(ty->isFloatTy())return mio_type_new(MioTypeKind::F32);
-		if(ty->isDoubleTy())return mio_type_new(MioTypeKind::F64);
-		if(ty->isPointerTy()){
-		llvm::Type* elemTy=nullptr;
-		if(ty->getNumContainedTypes()>0)
-			elemTy=ty->getContainedType(0);
-		MioType* mioElemTy=elemTy?llvmTypeToMioType(elemTy):nullptr;
-		return mio_type_new_pointer(mioElemTy?mioElemTy:mio_type_new(MioTypeKind::VOID));
-	}
-		if(auto* st=llvm::dyn_cast<llvm::StructType>(ty)){
-			std::string name=st->getName().str();
-			if(!name.empty())return mio_type_new_named(MioTypeKind::CLASS,name);
-		}
-		return nullptr;
-	}
-	std::string findOperatorMethod(const std::string& className,TokenKind op,MioType* rightType){
-		std::string opName;
-		switch(op){
-			case TOK_PLUS:opName="operator+";break;
-			case TOK_MINUS:opName="operator-";break;
-			case TOK_STAR:opName="operator*";break;
-			case TOK_SLASH:opName="operator/";break;
-			case TOK_PERCENT:opName="operator%";break;
-			case TOK_EQ:opName="operator==";break;
-			case TOK_NEQ:opName="operator!=";break;
-			case TOK_LT:opName="operator<";break;
-			case TOK_GT:opName="operator>";break;
-			case TOK_LTE:opName="operator<=";break;
-			case TOK_GTE:opName="operator>=";break;
-			case TOK_LBRACKET:opName="operator[";break;
-			case TOK_ASSIGN:opName="operator=";break;
-			case TOK_PLUS_ASSIGN:opName="operator+=";break;
-			case TOK_MINUS_ASSIGN:opName="operator-=";break;
-			case TOK_STAR_ASSIGN:opName="operator*=";break;
-			case TOK_SLASH_ASSIGN:opName="operator/=";break;
-			case TOK_BIT_AND:opName="operator&";break;
-			case TOK_BIT_OR:opName="operator|";break;
-			case TOK_BIT_XOR:opName="operator^";break;
-			case TOK_LSHIFT:opName="operator<<";break;
-			case TOK_RSHIFT:opName="operator>>";break;
-			default:return "";
-		}
-		std::string rightTypeStr=rightType?mio_type_str(rightType):"";
-		std::vector<std::string> candidates;
-		candidates.push_back(className+"::"+opName+"_"+rightTypeStr);
-		candidates.push_back(className+"::"+opName);
-		size_t nsSep=className.find("::");
-		if(nsSep!=std::string::npos){
-			std::string shortName=className.substr(nsSep+2);
-			candidates.push_back(shortName+"::"+opName+"_"+rightTypeStr);
-			candidates.push_back(shortName+"::"+opName);
-		}
-		for(auto& c:candidates){
-			if(funcDecls.count(c))return c;
-		}
-		for(auto& kv:funcDecls){
-			std::string prefix=className+"::"+opName+"_";
-			if(kv.first.size()>prefix.size()&&kv.first.substr(0,prefix.size())==prefix){
-				return kv.first;
-			}
-			size_t nsSep2=className.find("::");
-			if(nsSep2!=std::string::npos){
-				std::string shortName2=className.substr(nsSep2+2);
-				std::string prefix2=shortName2+"::"+opName+"_";
-				if(kv.first.size()>prefix2.size()&&kv.first.substr(0,prefix2.size())==prefix2){
-					return kv.first;
-				}
-			}
-		}
-		if(funcDecls.count(opName))return opName;
-		return "";
 	}
 	MioType* resolveExprMioType(AstNode* node){
 		if(!node)return nullptr;
@@ -739,26 +503,13 @@ class Compiler{
 			case AstNodeKind::CHAR_LIT:	return mio_type_new(MioTypeKind::CHAR);
 			case AstNodeKind::MEMBER_EXPR:{
 				std::string className;
-				if(node->member.base->type&&!node->member.base->type->name.empty())
-					className=resolveClassName(node->member.base->type->name);
-				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+				if(node->member.base->type&&!node->member.base->type->name.empty()){
+					className=node->member.base->type->name;
+					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
+						className=node->member.base->type->base_type->name;
+				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
 						className=currentClassName;
-					}else{
-						std::string vname=node->member.base->ident.name;
-						if(!node->member.base->ident.namespace_name.empty())
-							vname=node->member.base->ident.namespace_name+"::"+vname;
-						auto it=locals.find(vname);
-						if(it!=locals.end()){
-							llvm::Type* at=it->second->getAllocatedType();
-							if(at->isStructTy()){
-								className=std::string(at->getStructName());
-							}else if(at->isPointerTy()){
-								MioType* bm=resolveExprMioType(node->member.base);
-								if(bm&&bm->kind==MioTypeKind::POINTER&&bm->base_type&&bm->base_type->kind==MioTypeKind::CLASS)
-									className=bm->base_type->name;
-							}
-						}
 					}
 				}
 				if(!className.empty()&&classFieldIdx.count(className)){
@@ -784,232 +535,9 @@ class Compiler{
 				if(mit!=localMioTypes.end()&&mit->second){
 					return mio_type_clone(mit->second);
 				}
-				auto it=locals.find(name);
-				if(it!=locals.end()){
-					llvm::Type* at=it->second->getAllocatedType();
-					MioType* mt=llvmTypeToMioType(at);
-					return mt;
-				}
-				auto git=globalVars.find(name);
-				if(git!=globalVars.end()){
-					llvm::Type* gt=git->second->getValueType();
-					return llvmTypeToMioType(gt);
-				}
 				return nullptr;
 			}
 			default:
-				return nullptr;
-		}
-	}
-	std::vector<TemplateArg> tryDeduceTemplateArgs(const std::string& calleeName,AstNode* node){
-		auto it=templateMap.find(calleeName);
-		if(it==templateMap.end())return {};
-		auto& typeParams=it->second.first;
-		auto* templateDef=it->second.second;
-		if(templateDef->kind!=AstNodeKind::FUNC_DEF){
-			return {};
-		}
-		auto& params=templateDef->func_def.params;
-		if(params.size()!=node->call.args.size()){
-			return {};
-		}
-		size_t typeParamCount=0;
-		for(auto& p:typeParams)if(p.is_type)typeParamCount++;
-		std::vector<MioType*> deduced(typeParamCount,nullptr);
-		for(size_t i=0;i<params.size();i++){
-			MioType* paramType=params[i].type;
-			if(!paramType)continue;
-			MioType* argType=resolveExprMioType(node->call.args[i]);
-			if(!argType)continue;
-			deduceTemplateArg(paramType,argType,typeParams,deduced);
-			if(argType!=node->call.args[i]->type)mio_type_free(argType);
-		}
-		for(size_t i=0;i<deduced.size();i++){
-			if(!deduced[i])return {};
-		}
-		std::vector<TemplateArg> result;
-		size_t dedIdx=0;
-		for(auto& p:typeParams){
-			if(p.is_type){
-				result.push_back({true,deduced[dedIdx++],nullptr});
-			}else{
-				AstNode* defVal=p.default_val;
-				if(!defVal)return {};
-				result.push_back({false,nullptr,defVal});
-			}
-		}
-		return result;
-	}
-	void deduceTemplateArg(MioType* paramType,MioType* argType,const std::vector<TemplateParam>& typeParams,std::vector<MioType*>& deduced){
-		if(!paramType||!argType)return;
-		if(paramType->kind==MioTypeKind::POINTER){
-			if(argType->kind==MioTypeKind::POINTER){
-				deduceTemplateArg(paramType->base_type,argType->base_type,typeParams,deduced);
-			}
-			return;
-		}
-		if(paramType->kind==MioTypeKind::ARRAY){
-			deduceTemplateArg(paramType->base_type,argType,typeParams,deduced);
-			return;
-		}
-		size_t dedIdx=0;
-		for(size_t i=0;i<typeParams.size();i++){
-			if(!typeParams[i].is_type)continue;
-			if(paramType->name==typeParams[i].name){
-				if(deduced[dedIdx]&&(deduced[dedIdx]->name!=argType->name||deduced[dedIdx]->kind!=argType->kind)){
-					return;
-				}
-				if(deduced[dedIdx])mio_type_free(deduced[dedIdx]);
-				deduced[dedIdx]=mio_type_clone(argType);
-				return;
-			}
-			dedIdx++;
-		}
-	}
-	AstNode* instantiateTemplate(AstNode* templateDef,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
-		if(templateDef->kind!=AstNodeKind::FUNC_DEF)return nullptr;
-		auto* def=templateDef;
-		MioType* retType=substituteType(def->func_def.return_type,typeSubst,valueSubst);
-		std::string instName=def->func_def.name;
-		auto* inst=ast_new_func_def(instName,retType,nullptr,def->func_def.is_static,def->line,def->col,def->filename);
-		inst->func_def.is_extern=def->func_def.is_extern;
-		inst->func_def.is_variadic=def->func_def.is_variadic;
-		inst->func_def.is_virtual=def->func_def.is_virtual;
-		inst->func_def.is_override=def->func_def.is_override;
-		inst->func_def.is_pure_virtual=def->func_def.is_pure_virtual;
-		inst->func_def.is_operator=def->func_def.is_operator;
-		inst->func_def.op_name=def->func_def.op_name;
-		inst->func_def.access=def->func_def.access;
-		inst->func_def.class_name=def->func_def.class_name;
-		for(auto& p:def->func_def.params){
-			MioType* pt=substituteType(p.type,typeSubst,valueSubst);
-			ast_func_add_param(inst,p.name,pt);
-		}
-		inst->func_def.body=cloneAst(def->func_def.body,typeSubst,valueSubst);
-		return inst;
-	}
-	MioType* substituteType(MioType* mt,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
-		if(!mt)return nullptr;
-		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()){
-			auto it=typeSubst.find(mt->name);
-			if(it!=typeSubst.end()){
-				return mio_type_clone(it->second);
-			}
-		}
-		if(mt->kind==MioTypeKind::POINTER){
-			auto* result=mio_type_new(MioTypeKind::POINTER);
-			result->base_type=substituteType(mt->base_type,typeSubst,valueSubst);
-			return result;
-		}
-		if(mt->kind==MioTypeKind::ARRAY){
-			auto* base=substituteType(mt->base_type,typeSubst,valueSubst);
-			auto* result=new MioType(base,mt->array_size);
-			return result;
-		}
-		return mio_type_clone(mt);
-	}
-	AstNode* cloneAst(AstNode* node,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,int64_t>& valueSubst){
-		if(!node)return nullptr;
-		switch(node->kind){
-			case AstNodeKind::BLOCK:{
-				auto* n=ast_new_block(node->line,node->col,node->filename);
-				n->block.is_scope=node->block.is_scope;
-				for(auto* s:node->block.stmts){
-					auto* cs=cloneAst(s,typeSubst,valueSubst);
-					if(cs)n->block.stmts.push_back(cs);
-				}
-				return n;
-			}
-			case AstNodeKind::RETURN_STMT:
-				return ast_new_return(cloneAst(node->return_stmt.value,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::EXPR_STMT:
-				return ast_new_expr_stmt(cloneAst(node->expr_stmt.expr,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::BINARY_EXPR:{
-				auto* n=ast_new_binary(cloneAst(node->binary.left,typeSubst,valueSubst),node->binary.op,cloneAst(node->binary.right,typeSubst,valueSubst),node->line,node->col,node->filename);
-				return n;
-			}
-			case AstNodeKind::CALL_EXPR:{
-				auto* callee=cloneAst(node->call.callee,typeSubst,valueSubst);
-				auto* n=ast_new_call(callee,node->line,node->col,node->filename);
-				for(auto* a:node->call.args)n->call.args.push_back(cloneAst(a,typeSubst,valueSubst));
-				for(auto& ta:node->call.template_args){
-					if(ta.is_type)
-						n->call.template_args.push_back({true,substituteType(ta.type_val,typeSubst,valueSubst),nullptr});
-					else
-						n->call.template_args.push_back({false,nullptr,cloneAst(ta.expr_val,typeSubst,valueSubst)});
-				}
-				return n;
-			}
-			case AstNodeKind::IDENT_EXPR:{
-				auto it=valueSubst.find(node->ident.name);
-				if(it!=valueSubst.end()){
-					return ast_new_int_lit(it->second,node->line,node->col,node->filename);
-				}
-				auto* n=ast_new_ident(node->ident.name,node->line,node->col,node->filename);
-				n->ident.namespace_name=node->ident.namespace_name;
-				if(node->type){
-					n->type=substituteType(node->type,typeSubst,valueSubst);
-				}
-				return n;
-			}
-			case AstNodeKind::INT_LIT:
-				return ast_new_int_lit(node->int_lit.value,node->line,node->col,node->filename);
-			case AstNodeKind::FLOAT_LIT:
-				return ast_new_float_lit(node->float_lit.value,node->line,node->col,node->filename);
-			case AstNodeKind::STRING_LIT:
-				return ast_new_string_lit(node->string_lit.value,node->line,node->col,node->filename);
-			case AstNodeKind::BOOL_LIT:
-				return ast_new_bool_lit(node->bool_lit.value,node->line,node->col,node->filename);
-			case AstNodeKind::CHAR_LIT:
-				return ast_new_char_lit(node->char_lit.value,node->line,node->col,node->filename);
-			case AstNodeKind::UNARY_EXPR:
-				return ast_new_unary(node->unary.op,cloneAst(node->unary.operand,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::VAR_DECL:{
-				MioType* vt=substituteType(node->var_decl.var_type,typeSubst,valueSubst);
-				auto* n=ast_new_var_decl(node->var_decl.name,vt,cloneAst(node->var_decl.init,typeSubst,valueSubst),node->var_decl.is_static,node->line,node->col,node->filename);
-				return n;
-			}
-			case AstNodeKind::CONST_DECL:{
-				MioType* vt=substituteType(node->const_decl.var_type,typeSubst,valueSubst);
-				auto* n=ast_new_const_decl(node->const_decl.name,vt,cloneAst(node->const_decl.init,typeSubst,valueSubst),node->const_decl.is_static,node->line,node->col,node->filename);
-				return n;
-			}
-			case AstNodeKind::ASSIGN_EXPR:
-				return ast_new_assign(cloneAst(node->assign.left,typeSubst,valueSubst),node->assign.op,cloneAst(node->assign.right,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::SIZEOF_EXPR:{
-				MioType* tt=substituteType(node->sizeof_expr.target_type,typeSubst,valueSubst);
-				return ast_new_sizeof_expr(tt,node->line,node->col,node->filename);
-			}
-			case AstNodeKind::IF_STMT:
-			return ast_new_if(cloneAst(node->if_stmt.cond,typeSubst,valueSubst),cloneAst(node->if_stmt.then_body,typeSubst,valueSubst),cloneAst(node->if_stmt.else_body,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::WHILE_STMT:
-				return ast_new_while(cloneAst(node->while_stmt.cond,typeSubst,valueSubst),cloneAst(node->while_stmt.body,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::FOR_STMT:
-				return ast_new_for(cloneAst(node->for_stmt.init,typeSubst,valueSubst),cloneAst(node->for_stmt.cond,typeSubst,valueSubst),cloneAst(node->for_stmt.update,typeSubst,valueSubst),cloneAst(node->for_stmt.body,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::MEMBER_EXPR:
-				return ast_new_member(cloneAst(node->member.base,typeSubst,valueSubst),node->member.member,node->member.arrow,node->line,node->col,node->filename);
-			case AstNodeKind::INDEX_EXPR:
-				return ast_new_index(cloneAst(node->index_expr.base,typeSubst,valueSubst),cloneAst(node->index_expr.index,typeSubst,valueSubst),node->line,node->col,node->filename);
-			case AstNodeKind::CAST_EXPR:{
-				MioType* tt=substituteType(node->cast_expr.target_type,typeSubst,valueSubst);
-				return ast_new_cast(tt,cloneAst(node->cast_expr.expr,typeSubst,valueSubst),node->line,node->col,node->filename);
-			}
-			case AstNodeKind::BREAK_STMT:
-				return ast_new_break(node->line,node->col,node->filename);
-			case AstNodeKind::CONTINUE_STMT:
-				return ast_new_continue(node->line,node->col,node->filename);
-			case AstNodeKind::GOTO_STMT:
-				return ast_new_goto(node->goto_stmt.label,node->line,node->col,node->filename);
-			case AstNodeKind::LABEL_STMT:
-				return ast_new_label(node->label_stmt.label,node->line,node->col,node->filename);
-			case AstNodeKind::ARRAY_LIT:{
-				auto* n=ast_new_array_lit(node->line,node->col,node->filename);
-				for(auto* e:node->array_lit.elements)
-					n->array_lit.elements.push_back(cloneAst(e,typeSubst,valueSubst));
-				return n;
-			}
-			default:
-				error(node->line,node->col,"internal error: unsupported node in template instantiation");
 				return nullptr;
 		}
 	}
@@ -1255,89 +783,6 @@ class Compiler{
 			enumVariantValues[v.name]=idx;
 			idx++;
 		}
-	}
-	std::string resolveClassName(const std::string& name){
-		if(name.find("::")!=std::string::npos){
-			if(classTemplateMap.count(name)||classTypes.count(name))
-				return name;
-			return name;
-		}
-		if(!currentNamespace.empty()){
-			std::string nsFullName=currentNamespace+"::"+name;
-			if(classTemplateMap.count(nsFullName)||classTypes.count(nsFullName))
-				return nsFullName;
-		}
-		for(auto& impNs:importedNamespaces){
-			std::string fullName=impNs+"::"+name;
-			if(classTemplateMap.count(fullName)||classTypes.count(fullName))
-				return fullName;
-		}
-		return name;
-	}
-	void instantiateClassTemplate(const std::string& name,std::vector<MioType*>& typeArgs,const std::string& instName){
-		std::string fullName=resolveClassName(name);
-		auto it=classTemplateMap.find(fullName);
-		if(it==classTemplateMap.end())return;
-		if(classTemplateInstances.count(instName))return;
-		classTemplateInstances.insert(instName);
-		auto& typeParams=it->second.first;
-		auto* classDef=it->second.second;
-		if(typeArgs.size()!=typeParams.size()){
-			error(classDef->line,classDef->col,"internal error: class template argument count mismatch");
-			return;
-		}
-		std::unordered_map<std::string,MioType*> typeSubst;
-		for(size_t i=0;i<typeParams.size();i++){
-			MioType* cloned=mio_type_clone(typeArgs[i]);
-			if(cloned->kind==MioTypeKind::RVALUE_REFERENCE){
-				cloned->kind=MioTypeKind::REFERENCE;
-			}
-			typeSubst[typeParams[i].name]=cloned;
-		}
-		AstNode* instClass=instantiateClassTemplateAst(classDef,typeSubst,instName);
-		if(!instClass)return;
-		std::string savedNs=currentNamespace;
-		size_t pos=instName.rfind("::");
-		if(pos!=std::string::npos){
-			currentNamespace=instName.substr(0,pos);
-			instClass->class_def.name=instName.substr(pos+2);
-		}else{
-			currentNamespace="";
-			instClass->class_def.name=instName;
-		}
-		genClassDef(instClass);
-		currentNamespace=savedNs;
-	}
-	AstNode* instantiateClassTemplateAst(AstNode* classDef,std::unordered_map<std::string,MioType*>& typeSubst,const std::string& instName){
-		std::unordered_map<std::string,int64_t> emptyVS;
-		auto* c=ast_new_class_def(instName,classDef->class_def.base_name,classDef->class_def.base_access,classDef->line,classDef->col,classDef->filename);
-		for(auto& f:classDef->class_def.fields){
-			MioType* ft=substituteType(f.type,typeSubst,emptyVS);
-			AstNode* init=f.init?cloneAst(f.init,typeSubst,emptyVS):nullptr;
-			ast_class_add_field(c,f.name,ft,init,f.access);
-		}
-		for(auto* m:classDef->class_def.methods){
-			AstNode* instM=instantiateTemplate(m,typeSubst,emptyVS);
-			if(instM){
-				instM->func_def.class_name=instName;
-				ast_class_add_method(c,instM);
-			}
-		}
-		for(auto* ctor:classDef->class_def.constructors){
-			AstNode* instCtor=instantiateTemplate(ctor,typeSubst,emptyVS);
-			if(instCtor){
-				instCtor->func_def.class_name=instName;
-				ast_class_add_method(c,instCtor);
-			}
-		}
-		if(classDef->class_def.destructor){
-			AstNode* instDtor=instantiateTemplate(classDef->class_def.destructor,typeSubst,emptyVS);
-			if(instDtor){
-				instDtor->func_def.class_name=instName;
-				c->class_def.destructor=instDtor;
-			}
-		}
-		return c;
 	}
 	void genUnionDef(AstNode* def){
 		std::string name=def->union_def.name;
@@ -1952,26 +1397,10 @@ class Compiler{
 				return nullptr;
 			}
 			case AstNodeKind::INDEX_EXPR:{
-				
-				MioType* baseMio=resolveExprMioType(node->index_expr.base);
-				std::string className;
-				if(baseMio){
-					if(baseMio->kind==MioTypeKind::CLASS&&!baseMio->name.empty())
-						className=resolveClassName(baseMio->name);
-					else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS)
-						className=resolveClassName(baseMio->base_type->name);
-				}
-				
-				if(!className.empty()){
-					MioType* rmt=resolveExprMioType(node->index_expr.index);
-					std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,rmt);
-					if(opMethod.empty()){
-						error(node->line,node->col,"internal error: class '"+className+"' does not support operator[]");
-						return nullptr;
-					}
-					llvm::Function* callee=funcDecls[opMethod];
+				if(!node->index_expr.resolved_op_method.empty()){
+					llvm::Function* callee=funcDecls[node->index_expr.resolved_op_method];
 					if(!callee){
-						error(node->line,node->col,"internal error: operator[] for class '"+className+"' not found");
+						error(node->line,node->col,"internal error: operator[] for class not found");
 						return nullptr;
 					}
 					std::vector<llvm::Value*> args;
@@ -1994,13 +1423,11 @@ class Compiler{
 					if(idx)args.push_back(idx);
 					return b.CreateCall(callee,args);
 				}
-				
-				
+				MioType* baseMio=resolveExprMioType(node->index_expr.base);
 				if(!baseMio){
 					error(node->line,node->col,"internal error: cannot use operator[] on expression with unknown type");
 					return nullptr;
 				}
-				
 				if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
 				error(node->line,node->col,"internal error: operator[] requires a pointer or class with operator[],but got '"+mio_type_str(baseMio)+"'");
 				return nullptr;
@@ -2025,22 +1452,12 @@ class Compiler{
 				if(!base)base=genExpr(node->member.base);
 				if(!base)return nullptr;
 				std::string className;
-				if(node->member.base->type&&!node->member.base->type->name.empty())
-					className=resolveClassName(node->member.base->type->name);
-				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
-					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
-						className=currentClassName;
-					}else{
-						auto it=locals.find(node->member.base->ident.name);
-						if(it!=locals.end()){
-							llvm::Type* at=it->second->getAllocatedType();
-							if(at->isStructTy())className=std::string(at->getStructName());
-							else if(at->isPointerTy()){
-								if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::CLASS)
-									className=resolveClassName(node->member.base->type->base_type->name);
-							}
-						}
-					}
+				if(node->member.base->type&&!node->member.base->type->name.empty()){
+					className=node->member.base->type->name;
+					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
+						className=node->member.base->type->base_type->name;
+				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->ident.name=="this"&&!currentClassName.empty()){
+					className=currentClassName;
 				}
 				if(className.empty()||!classFieldIdx.count(className))return nullptr;
 				auto mit=classFieldIdx[className].find(node->member.member);
@@ -2227,24 +1644,10 @@ class Compiler{
 			error(node?node->line:0,node?node->col:0,"null operand in binary expression");
 			return nullptr;
 		}
-		MioType* lmt=resolveExprMioType(node->binary.left);
-		std::string className;
-		if(lmt){
-			if(lmt->kind==MioTypeKind::CLASS&&!lmt->name.empty())
-				className=resolveClassName(lmt->name);
-			else if(lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::CLASS)
-				className=resolveClassName(lmt->base_type->name);
-		}
-		if(!className.empty()){
-			MioType* rmt=resolveExprMioType(node->binary.right);
-			std::string opMethod=findOperatorMethod(className,node->binary.op,rmt);
-			if(opMethod.empty()){
-				error(node->line,node->col,"internal error: class '"+className+"' does not support operator"+tok_name(node->binary.op));
-				return nullptr;
-			}
-			llvm::Function* callee=funcDecls[opMethod];
+		if(!node->binary.resolved_op_method.empty()){
+			llvm::Function* callee=funcDecls[node->binary.resolved_op_method];
 			if(!callee){
-				error(node->line,node->col,"internal error: operator"+tok_name(node->binary.op)+" for class '"+className+"' not found");
+				error(node->line,node->col,"internal error: operator method '"+node->binary.resolved_op_method+"' not found");
 				return nullptr;
 			}
 			std::vector<llvm::Value*> args;
@@ -2458,71 +1861,17 @@ class Compiler{
 		if(node->call.callee->kind==AstNodeKind::IDENT_EXPR){
 			calleeName=node->call.callee->ident.name;
 			std::string ns=node->call.callee->ident.namespace_name;
-			if(ns=="::"){
-				auto fit=funcDecls.find(calleeName);
-				if(fit!=funcDecls.end())calleeVal=fit->second;
-				if(!calleeVal){
-					calleeVal=mod->getFunction(calleeName);
-					if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
-				}
-			}else if(!ns.empty()){
+			if(!ns.empty()&&ns!="::")
 				calleeName=ns+"::"+calleeName;
-			}
 			if(!node->call.template_args.empty()){
-				calleeVal=genTemplateInstantiation(node);
-				if(!calleeVal)return nullptr;
-			}else{
-				if(!calleeVal){
-					auto fit=funcDecls.find(calleeName);
-					if(fit!=funcDecls.end())calleeVal=fit->second;
-					if(!calleeVal){
-						calleeVal=mod->getFunction(calleeName);
-						if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
-					}
-					
-					if(!calleeVal&&ns.empty()){
-						for(auto& impNs:importedNamespaces){
-							std::string fullName=impNs+"::"+calleeName;
-							auto fit2=funcDecls.find(fullName);
-							if(fit2!=funcDecls.end()){
-								calleeVal=fit2->second;
-								calleeName=fullName;
-								break;
-							}
-							llvm::Function* fn=mod->getFunction(fullName);
-							if(fn){
-								calleeVal=fn;
-								funcDecls[fullName]=fn;
-								calleeName=fullName;
-								break;
-							}
-						}
-					}
-				}
-			}
-			
-			if(!calleeVal&&node->call.template_args.empty()){
-				auto deduced=tryDeduceTemplateArgs(calleeName,node);
-				if(!deduced.empty()){
-					node->call.template_args=deduced;
-					calleeVal=genTemplateInstantiation(node);
-					if(!calleeVal)return nullptr;
-				}
-			}
-			
-			if(!calleeVal&&ns=="::"){
-				error(node->line,node->col,"internal error: undefined global function '"+calleeName+"'");
+				error(node->line,node->col,"internal error: unresolved template arguments in call to '"+calleeName+"'");
 				return nullptr;
 			}
-			
-			if(!calleeVal&&!classTypes.count(calleeName)&&ns.empty()){
-				for(auto& impNs:importedNamespaces){
-					std::string fullName=impNs+"::"+calleeName;
-					if(classTypes.count(fullName)){
-						calleeName=fullName;
-						break;
-					}
-				}
+			auto fit=funcDecls.find(calleeName);
+			if(fit!=funcDecls.end())calleeVal=fit->second;
+			if(!calleeVal){
+				calleeVal=mod->getFunction(calleeName);
+				if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
 			}
 			
 			if(!calleeVal&&classTypes.count(calleeName)){
@@ -2617,25 +1966,23 @@ class Compiler{
 			std::string method=node->call.callee->member.member;
 			std::string className;
 			if(base->type&&!base->type->name.empty()){
-				className=resolveClassName(base->type->name);
+				className=base->type->name;
 				if(!base->type->param_types.empty()){
 					for(auto* pt:base->type->param_types)
 						className+="_"+mio_type_str(pt);
+				}
+				if(base->type->kind==MioTypeKind::POINTER&&base->type->base_type&&!base->type->base_type->name.empty()){
+					className=base->type->base_type->name;
+					if(!base->type->base_type->param_types.empty()){
+						className=base->type->base_type->name;
+						for(auto* pt:base->type->base_type->param_types)
+							className+="_"+mio_type_str(pt);
+					}
 				}
 			}
 			else if(base->kind==AstNodeKind::IDENT_EXPR){
 				if(base->ident.name=="this"&&!currentClassName.empty()){
 					className=currentClassName;
-				}else{
-					auto it=locals.find(base->ident.name);
-					if(it!=locals.end()){
-						llvm::Type* at=it->second->getAllocatedType();
-						if(at->isStructTy())className=std::string(at->getStructName());
-						else if(at->isPointerTy()){
-							if(base->type&&base->type->base_type&&base->type->base_type->kind==MioTypeKind::CLASS)
-								className=base->type->base_type->name;
-						}
-					}
 				}
 			}
 			if(!className.empty()){
@@ -2861,27 +2208,10 @@ class Compiler{
 			error(node?node->line:0,node?node->col:0,"null operand in index expression");
 			return nullptr;
 		}
-		
-		
-		MioType* baseMio=resolveExprMioType(node->index_expr.base);
-		std::string className;
-		if(baseMio){
-			if(baseMio->kind==MioTypeKind::CLASS&&!baseMio->name.empty())
-				className=resolveClassName(baseMio->name);
-			else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS)
-				className=resolveClassName(baseMio->base_type->name);
-		}
-		
-		if(!className.empty()){
-			MioType* rmt=resolveExprMioType(node->index_expr.index);
-			std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,rmt);
-			if(opMethod.empty()){
-				error(node->line,node->col,"internal error: class '"+className+"' does not support operator[]");
-				return nullptr;
-			}
-			llvm::Function* callee=funcDecls[opMethod];
+		if(!node->index_expr.resolved_op_method.empty()){
+			llvm::Function* callee=funcDecls[node->index_expr.resolved_op_method];
 			if(!callee){
-				error(node->line,node->col,"internal error: operator[] function '"+opMethod+"' not found");
+				error(node->line,node->col,"internal error: operator[] function '"+node->index_expr.resolved_op_method+"' not found");
 				return nullptr;
 			}
 			std::vector<llvm::Value*> args;
@@ -2904,8 +2234,7 @@ class Compiler{
 			if(idx)args.push_back(idx);
 			return b.CreateCall(callee,args);
 		}
-		
-		
+		MioType* baseMio=resolveExprMioType(node->index_expr.base);
 		if(!baseMio){
 			error(node->line,node->col,"internal error: cannot use operator[] on expression with unknown type");
 			return nullptr;
@@ -2955,22 +2284,12 @@ class Compiler{
 			return nullptr;
 		}
 		std::string className;
-		if(node->member.base->type&&!node->member.base->type->name.empty())
-			className=resolveClassName(node->member.base->type->name);
-		else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
-			if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
-				className=currentClassName;
-			}else{
-				auto it=locals.find(node->member.base->ident.name);
-				if(it!=locals.end()){
-					llvm::Type* at=it->second->getAllocatedType();
-					if(at->isStructTy())className=std::string(at->getStructName());
-					else if(at->isPointerTy()){
-						if(node->member.base->type&&node->member.base->type->base_type&&node->member.base->type->base_type->kind==MioTypeKind::CLASS)
-							className=resolveClassName(node->member.base->type->base_type->name);
-					}
-				}
-			}
+		if(node->member.base->type&&!node->member.base->type->name.empty()){
+			className=node->member.base->type->name;
+			if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
+				className=node->member.base->type->base_type->name;
+		}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->ident.name=="this"&&!currentClassName.empty()){
+			className=currentClassName;
 		}
 		if(!className.empty()&&classFieldIdx.count(className)){
 			auto mit=classFieldIdx[className].find(node->member.member);
@@ -3069,40 +2388,28 @@ class Compiler{
 			error(node?node->line:0,node?node->col:0,"null operand in assignment expression");
 			return nullptr;
 		}
-		MioType* leftMio=resolveExprMioType(node->assign.left);
-		std::string className;
-		if(leftMio){
-			if(leftMio->kind==MioTypeKind::CLASS&&!leftMio->name.empty())
-				className=resolveClassName(leftMio->name);
-			else if(leftMio->kind==MioTypeKind::POINTER&&leftMio->base_type&&leftMio->base_type->kind==MioTypeKind::CLASS)
-				className=resolveClassName(leftMio->base_type->name);
-		}
-		if(!className.empty()&&node->assign.op!=TOK_ASSIGN){
-			MioType* rmt=resolveExprMioType(node->assign.right);
-			std::string opMethod=findOperatorMethod(className,node->assign.op,rmt);
-			if(!opMethod.empty()){
-				llvm::Function* callee=funcDecls[opMethod];
-				if(callee){
-					std::vector<llvm::Value*> args;
-					llvm::Value* thisPtr=genLValue(node->assign.left);
-					if(!thisPtr)thisPtr=genExpr(node->assign.left);
-					if(thisPtr){
-						auto* calleeThisTy=callee->getFunctionType()->getParamType(0);
-						if(thisPtr->getType()!=calleeThisTy){
-							if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isPointerTy()){
-								thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
-							}else if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isStructTy()){
-								thisPtr=b.CreateLoad(calleeThisTy,thisPtr);
-							}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
-								thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
-							}
+		if(!node->assign.resolved_op_method.empty()){
+			llvm::Function* callee=funcDecls[node->assign.resolved_op_method];
+			if(callee){
+				std::vector<llvm::Value*> args;
+				llvm::Value* thisPtr=genLValue(node->assign.left);
+				if(!thisPtr)thisPtr=genExpr(node->assign.left);
+				if(thisPtr){
+					auto* calleeThisTy=callee->getFunctionType()->getParamType(0);
+					if(thisPtr->getType()!=calleeThisTy){
+						if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isPointerTy()){
+							thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
+						}else if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isStructTy()){
+							thisPtr=b.CreateLoad(calleeThisTy,thisPtr);
+						}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
 						}
 					}
-					args.push_back(thisPtr);
-					llvm::Value* r=genExpr(node->assign.right);
-					if(r)args.push_back(r);
-					return b.CreateCall(callee,args);
 				}
+				args.push_back(thisPtr);
+				llvm::Value* r=genExpr(node->assign.right);
+				if(r)args.push_back(r);
+				return b.CreateCall(callee,args);
 			}
 		}
 		
@@ -3133,7 +2440,7 @@ class Compiler{
 						}else if(elemTy->isIntegerTy()||elemTy->isFloatingPointTy()){
 							rhs=b.CreateAdd(lhs,rhs);
 						}else{
-							error(node->line,node->col,"internal error: unsupported operator+= for type '"+mio_type_str(leftMio)+"'");
+							error(node->line,node->col,"internal error: unsupported operator+=");
 							return nullptr;
 						}
 						break;
@@ -3147,7 +2454,7 @@ class Compiler{
 						}else if(elemTy->isIntegerTy()||elemTy->isFloatingPointTy()){
 							rhs=b.CreateSub(lhs,rhs);
 						}else{
-							error(node->line,node->col,"internal error: unsupported operator-= for type '"+mio_type_str(leftMio)+"'");
+							error(node->line,node->col,"internal error: unsupported operator-=");
 							return nullptr;
 						}
 						break;

@@ -179,6 +179,7 @@ public:
 		AstNode*left;
 		TokenKind op;
 		AstNode*right;
+		std::string resolved_op_method;
 	} binary;
 	struct{
 		TokenKind op;
@@ -192,6 +193,7 @@ public:
 	struct{
 		AstNode*base;
 		AstNode*index;
+		std::string resolved_op_method;
 	} index_expr;
 	struct{
 		AstNode*base;
@@ -227,6 +229,7 @@ public:
 	struct{
 		AstNode*left,*right;
 		TokenKind op;
+		std::string resolved_op_method;
 	} assign;
 	struct{
 		std::string name,value;

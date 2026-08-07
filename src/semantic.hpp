@@ -201,6 +201,14 @@ public:
 		if(!prog) return;
 		registerPass(prog);
 		analyzeProgram(prog);
+		while(!pendingFuncInstantiations.empty()){
+			auto pending=std::move(pendingFuncInstantiations);
+			pendingFuncInstantiations.clear();
+			for(auto* inst:pending){
+				prog->program.nodes.push_back(inst);
+				analyzeFuncDef(inst);
+			}
+		}
 	}
 	
 	void registerPass(AstNode* prog){
@@ -391,6 +399,8 @@ public:
 	std::unordered_map<std::string,std::string> enumVariantMap;
 	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>> classTemplateMap;
 	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>> templateMap;
+	std::unordered_set<std::string> instantiatedFuncNames;
+	std::vector<AstNode*> pendingFuncInstantiations;
 	std::unordered_map<std::string,std::unordered_set<std::string>> classFields;
 	std::unordered_map<std::string,std::unordered_map<std::string,MioType*>> classFieldTypes;
 	std::unordered_map<std::string,std::unordered_set<std::string>> unionFields;
@@ -486,8 +496,7 @@ private:
 		auto savedLocals=locals;
 		auto savedMioTypes=localMioTypes;
 		if(!node->func_def.class_name.empty()){
-			MioType* thisType=mio_type_new(MioTypeKind::CLASS);
-			thisType->name=node->func_def.class_name;
+			MioType* thisType=mio_type_new_pointer(mio_type_new_named(MioTypeKind::CLASS,node->func_def.class_name));
 			locals["this"]=thisType;
 			localMioTypes["this"]=thisType;
 		}
@@ -526,8 +535,13 @@ private:
 						stmt->var_decl.init->type=mio_type_clone(stmt->var_decl.var_type);
 					}
 				}
-				locals[stmt->var_decl.name]=stmt->var_decl.var_type;
-				localMioTypes[stmt->var_decl.name]=stmt->var_decl.var_type;
+				MioType* inferredType=stmt->var_decl.var_type;
+				if(!inferredType&&stmt->var_decl.init){
+					inferredType=resolveExprMioType(stmt->var_decl.init);
+					stmt->var_decl.var_type=inferredType;
+				}
+				locals[stmt->var_decl.name]=inferredType;
+				localMioTypes[stmt->var_decl.name]=inferredType;
 				break;
 			}
 			case AstNodeKind::CONST_DECL:{
@@ -540,8 +554,13 @@ private:
 						stmt->const_decl.init->type=mio_type_clone(stmt->const_decl.var_type);
 					}
 				}
-				locals[stmt->const_decl.name]=stmt->const_decl.var_type;
-				localMioTypes[stmt->const_decl.name]=stmt->const_decl.var_type;
+				MioType* inferredType=stmt->const_decl.var_type;
+				if(!inferredType&&stmt->const_decl.init){
+					inferredType=resolveExprMioType(stmt->const_decl.init);
+					stmt->const_decl.var_type=inferredType;
+				}
+				locals[stmt->const_decl.name]=inferredType;
+				localMioTypes[stmt->const_decl.name]=inferredType;
 				break;
 			}
 			case AstNodeKind::EXPR_STMT:
@@ -557,7 +576,12 @@ private:
 				analyzeBlock(stmt->while_stmt.body);
 				break;
 			case AstNodeKind::FOR_STMT:
-				if(stmt->for_stmt.init) checkExpr(stmt->for_stmt.init);
+				if(stmt->for_stmt.init){
+					if(stmt->for_stmt.init->kind==AstNodeKind::VAR_DECL||stmt->for_stmt.init->kind==AstNodeKind::CONST_DECL)
+						analyzeDecl(stmt->for_stmt.init);
+					else
+						checkExpr(stmt->for_stmt.init);
+				}
 				if(stmt->for_stmt.cond) checkExpr(stmt->for_stmt.cond);
 				if(stmt->for_stmt.update) checkExpr(stmt->for_stmt.update);
 				analyzeBlock(stmt->for_stmt.body);
@@ -669,6 +693,7 @@ private:
 			if(opMethod.empty()){
 				error(node,"class '"+className+"' does not support operator"+tok_name(node->binary.op));
 			}
+			node->binary.resolved_op_method=opMethod;
 		}
 		switch(node->binary.op){
 			case TOK_PLUS:
@@ -735,6 +760,8 @@ private:
 			if(locals.count(calleeName)) return;
 			std::string resolvedClass=resolveClassName(calleeName);
 			if(classTypes.count(resolvedClass)){
+				node->call.callee->ident.name=resolvedClass;
+				node->call.callee->ident.namespace_name="";
 				auto it=classConstructorSigs.find(resolvedClass);
 				if(it!=classConstructorSigs.end()){
 					int argCount=(int)node->call.args.size();
@@ -757,7 +784,10 @@ private:
 				bool found=funcDecls.count(calleeName)>0;
 				if(!found){
 					for(auto& impNs:importedNamespaces){
-						if(funcDecls.count(impNs+"::"+calleeName)){
+						std::string fullName=impNs+"::"+calleeName;
+						if(funcDecls.count(fullName)){
+							node->call.callee->ident.namespace_name=impNs;
+							calleeName=fullName;
 							found=true;
 							break;
 						}
@@ -767,8 +797,29 @@ private:
 					auto deduced=tryDeduceTemplateArgs(calleeName,node);
 					if(deduced.empty()){
 						error(node,"undefined function '"+calleeName+"'");
+					}else{
+						node->call.template_args=deduced;
 					}
 				}
+			}
+			if(!node->call.template_args.empty()){
+				std::string mangledName=calleeName;
+				for(auto& ta:node->call.template_args){
+					if(ta.is_type)
+						mangledName+="_"+mio_type_str(ta.type_val);
+					else
+						mangledName+="_V";
+				}
+				if(instantiatedFuncNames.find(mangledName)==instantiatedFuncNames.end()){
+					instantiatedFuncNames.insert(mangledName);
+					AstNode* inst=instantiateStandaloneFuncTemplate(calleeName,node->call.template_args,mangledName,node);
+					if(inst){
+						pendingFuncInstantiations.push_back(inst);
+					}
+				}
+				node->call.callee->ident.name=mangledName;
+				node->call.template_args.clear();
+				funcDecls.insert(mangledName);
 			}
 		}else if(node->call.callee->kind==AstNodeKind::MEMBER_EXPR){
 			auto* base=node->call.callee->member.base;
@@ -779,13 +830,16 @@ private:
 			}else if(base->kind==AstNodeKind::IDENT_EXPR){
 				if(base->ident.name=="this"){
 					auto it=locals.find("this");
-					if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::CLASS){
-						className=resolveClassName(it->second->name);
+					if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS){
+						className=resolveClassName(it->second->base_type->name);
 					}
 				}else{
 					auto it=locals.find(base->ident.name);
-					if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::CLASS){
-						className=resolveClassName(it->second->name);
+					if(it!=locals.end()&&it->second){
+						if(it->second->kind==MioTypeKind::CLASS)
+							className=resolveClassName(it->second->name);
+						else if(it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS)
+							className=resolveClassName(it->second->base_type->name);
 					}
 				}
 			}
@@ -820,6 +874,7 @@ private:
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator[]");
 				}
+				node->index_expr.resolved_op_method=opMethod;
 			}else if(baseMio->kind!=MioTypeKind::ARRAY&&baseMio->kind!=MioTypeKind::POINTER){
 				error(node,"operator[] requires array or pointer type");
 			}
@@ -835,14 +890,16 @@ private:
 		else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 			if(node->member.base->ident.name=="this"){
 				auto it=locals.find("this");
-				if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::CLASS){
-					className=resolveClassName(it->second->name);
+				if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS){
+					className=resolveClassName(it->second->base_type->name);
 				}
 			}else{
 				auto it=locals.find(node->member.base->ident.name);
 				if(it!=locals.end()&&it->second){
 					if(it->second->kind==MioTypeKind::CLASS||it->second->kind==MioTypeKind::UNION){
 						className=resolveClassName(it->second->name);
+					}else if(it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&(it->second->base_type->kind==MioTypeKind::CLASS||it->second->base_type->kind==MioTypeKind::UNION)){
+						className=resolveClassName(it->second->base_type->name);
 					}else if(it->second->kind!=MioTypeKind::POINTER&&it->second->kind!=MioTypeKind::REFERENCE&&it->second->kind!=MioTypeKind::RVALUE_REFERENCE){
 						error(node,"cannot access member '"+node->member.member+"' on non-class type");
 						return;
@@ -922,6 +979,7 @@ private:
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator"+tok_name(binOp));
 				}
+				node->assign.resolved_op_method=opMethod;
 			}
 		}
 		switch(node->assign.op){
@@ -1171,12 +1229,16 @@ private:
 				else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"){
 						auto it=localMioTypes.find("this");
-						if(it!=localMioTypes.end()&&it->second&&it->second->kind==MioTypeKind::CLASS)
-							className=it->second->name;
+						if(it!=localMioTypes.end()&&it->second&&it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS)
+							className=it->second->base_type->name;
 					}else{
 						auto it=locals.find(node->member.base->ident.name);
-						if(it!=locals.end()&&it->second&&it->second->kind==MioTypeKind::CLASS)
-							className=it->second->name;
+						if(it!=locals.end()&&it->second){
+							if(it->second->kind==MioTypeKind::CLASS)
+								className=it->second->name;
+							else if(it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS)
+								className=it->second->base_type->name;
+						}
 					}
 				}
 				if(!className.empty()){
@@ -1341,6 +1403,48 @@ private:
 		inst->func_def.is_virtual=def->func_def.is_virtual;
 		inst->func_def.is_override=def->func_def.is_override;
 		inst->func_def.is_pure_virtual=def->func_def.is_pure_virtual;
+		return inst;
+	}
+	
+	AstNode* instantiateStandaloneFuncTemplate(const std::string& templateName,std::vector<TemplateArg>& templateArgs,const std::string& mangledName,AstNode* ctx){
+		auto it=templateMap.find(templateName);
+		if(it==templateMap.end()){
+			error(ctx,"internal error: template '"+templateName+"' not found");
+			return nullptr;
+		}
+		auto& typeParams=it->second.first;
+		auto* templateDef=it->second.second;
+		if(templateDef->kind!=AstNodeKind::FUNC_DEF) return nullptr;
+		if(templateArgs.size()!=typeParams.size()){
+			error(ctx,"template '"+templateName+"' requires "+std::to_string(typeParams.size())+" arguments, got "+std::to_string(templateArgs.size()));
+			return nullptr;
+		}
+		std::unordered_map<std::string,MioType*> typeSubst;
+		for(size_t i=0;i<typeParams.size();i++){
+			if(typeParams[i].is_type){
+				typeSubst[typeParams[i].name]=templateArgs[i].type_val;
+			}
+		}
+		auto* def=templateDef;
+		MioType* retType=substituteType(def->func_def.return_type,typeSubst);
+		auto* inst=ast_new_func_def(mangledName,retType,nullptr,def->func_def.is_static,def->line,def->col,def->filename);
+		inst->func_def.is_extern=def->func_def.is_extern;
+		inst->func_def.is_variadic=def->func_def.is_variadic;
+		inst->func_def.is_operator=def->func_def.is_operator;
+		inst->func_def.is_virtual=def->func_def.is_virtual;
+		inst->func_def.is_override=def->func_def.is_override;
+		inst->func_def.is_pure_virtual=def->func_def.is_pure_virtual;
+		inst->func_def.class_name=def->func_def.class_name;
+		for(auto& p:def->func_def.params){
+			MioType* pt=substituteType(p.type,typeSubst);
+			inst->func_def.params.push_back({p.name,pt,nullptr});
+		}
+		if(def->func_def.body){
+			AstCloner cloner;
+			cloner.typeSubst=&typeSubst;
+			cloner.fn=def->filename;
+			inst->func_def.body=cloner.cloneNode(def->func_def.body);
+		}
 		return inst;
 	}
 	
