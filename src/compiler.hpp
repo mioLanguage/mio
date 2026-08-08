@@ -246,6 +246,15 @@ class Compiler{
 				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty())
 						sn=currentClassName;
+					else{
+						auto mit=localMioTypes.find(node->member.base->ident.name);
+						if(mit!=localMioTypes.end()&&mit->second){
+							if(mit->second->kind==MioTypeKind::CLASS||mit->second->kind==MioTypeKind::UNION)
+								sn=mit->second->name;
+							else if(mit->second->kind==MioTypeKind::POINTER&&mit->second->base_type&&(mit->second->base_type->kind==MioTypeKind::CLASS||mit->second->base_type->kind==MioTypeKind::UNION))
+								sn=mit->second->base_type->name;
+						}
+					}
 				}
 				if(!sn.empty()&&classFieldIdx.count(sn)){
 					auto mit=classFieldIdx[sn].find(node->member.member);
@@ -510,6 +519,14 @@ class Compiler{
 				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
 					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
 						className=currentClassName;
+					}else{
+						auto mit=localMioTypes.find(node->member.base->ident.name);
+						if(mit!=localMioTypes.end()&&mit->second){
+							if(mit->second->kind==MioTypeKind::CLASS||mit->second->kind==MioTypeKind::UNION)
+								className=mit->second->name;
+							else if(mit->second->kind==MioTypeKind::POINTER&&mit->second->base_type&&(mit->second->base_type->kind==MioTypeKind::CLASS||mit->second->base_type->kind==MioTypeKind::UNION))
+								className=mit->second->base_type->name;
+						}
 					}
 				}
 				if(!className.empty()&&classFieldIdx.count(className)){
@@ -1456,8 +1473,18 @@ class Compiler{
 					className=node->member.base->type->name;
 					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
 						className=node->member.base->type->base_type->name;
-				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->ident.name=="this"&&!currentClassName.empty()){
-					className=currentClassName;
+				}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+					if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
+						className=currentClassName;
+					}else{
+						auto mit=localMioTypes.find(node->member.base->ident.name);
+						if(mit!=localMioTypes.end()&&mit->second){
+							if(mit->second->kind==MioTypeKind::CLASS||mit->second->kind==MioTypeKind::UNION)
+								className=mit->second->name;
+							else if(mit->second->kind==MioTypeKind::POINTER&&mit->second->base_type&&(mit->second->base_type->kind==MioTypeKind::CLASS||mit->second->base_type->kind==MioTypeKind::UNION))
+								className=mit->second->base_type->name;
+						}
+					}
 				}
 				if(className.empty()||!classFieldIdx.count(className))return nullptr;
 				auto mit=classFieldIdx[className].find(node->member.member);
@@ -2288,8 +2315,18 @@ class Compiler{
 			className=node->member.base->type->name;
 			if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
 				className=node->member.base->type->base_type->name;
-		}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->ident.name=="this"&&!currentClassName.empty()){
-			className=currentClassName;
+		}else if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+			if(node->member.base->ident.name=="this"&&!currentClassName.empty()){
+				className=currentClassName;
+			}else{
+				auto mit=localMioTypes.find(node->member.base->ident.name);
+				if(mit!=localMioTypes.end()&&mit->second){
+					if(mit->second->kind==MioTypeKind::CLASS||mit->second->kind==MioTypeKind::UNION)
+						className=mit->second->name;
+					else if(mit->second->kind==MioTypeKind::POINTER&&mit->second->base_type&&(mit->second->base_type->kind==MioTypeKind::CLASS||mit->second->base_type->kind==MioTypeKind::UNION))
+						className=mit->second->base_type->name;
+				}
+			}
 		}
 		if(!className.empty()&&classFieldIdx.count(className)){
 			auto mit=classFieldIdx[className].find(node->member.member);

@@ -300,6 +300,14 @@ public:
 					return;
 				}
 				funcDecls.insert(fullName);
+				if(m->func_def.is_operator&&m->func_def.params.size()>0){
+					std::string mangledFullName=fullName+"_";
+					for(size_t i=0;i<m->func_def.params.size();i++){
+						if(i>0)mangledFullName+="_";
+						mangledFullName+=resolveClassName(mio_type_str(m->func_def.params[i].type));
+					}
+					funcDecls.insert(mangledFullName);
+				}
 			}
 				for(auto* c:node->class_def.constructors){
 				std::string ctorName=name+"::"+node->class_def.name;
@@ -875,6 +883,14 @@ private:
 					error(node,"class '"+className+"' does not support operator[]");
 				}
 				node->index_expr.resolved_op_method=opMethod;
+			}else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS&&!baseMio->base_type->name.empty()){
+				std::string className=resolveClassName(baseMio->base_type->name);
+				MioType* idxMio=resolveExprMioType(node->index_expr.index);
+				std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio);
+				if(opMethod.empty()){
+					error(node,"class '"+className+"' does not support operator[]");
+				}
+				node->index_expr.resolved_op_method=opMethod;
 			}else if(baseMio->kind!=MioTypeKind::ARRAY&&baseMio->kind!=MioTypeKind::POINTER){
 				error(node,"operator[] requires array or pointer type");
 			}
@@ -895,12 +911,16 @@ private:
 				}
 			}else{
 				auto it=locals.find(node->member.base->ident.name);
-				if(it!=locals.end()&&it->second){
-					if(it->second->kind==MioTypeKind::CLASS||it->second->kind==MioTypeKind::UNION){
-						className=resolveClassName(it->second->name);
-					}else if(it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&(it->second->base_type->kind==MioTypeKind::CLASS||it->second->base_type->kind==MioTypeKind::UNION)){
-						className=resolveClassName(it->second->base_type->name);
-					}else if(it->second->kind!=MioTypeKind::POINTER&&it->second->kind!=MioTypeKind::REFERENCE&&it->second->kind!=MioTypeKind::RVALUE_REFERENCE){
+				auto mit=localMioTypes.find(node->member.base->ident.name);
+				MioType* baseType=nullptr;
+				if(it!=locals.end())baseType=it->second;
+				else if(mit!=localMioTypes.end())baseType=mit->second;
+				if(baseType){
+					if(baseType->kind==MioTypeKind::CLASS||baseType->kind==MioTypeKind::UNION){
+						className=resolveClassName(baseType->name);
+					}else if(baseType->kind==MioTypeKind::POINTER&&baseType->base_type&&(baseType->base_type->kind==MioTypeKind::CLASS||baseType->base_type->kind==MioTypeKind::UNION)){
+						className=resolveClassName(baseType->base_type->name);
+					}else if(baseType->kind!=MioTypeKind::POINTER&&baseType->kind!=MioTypeKind::REFERENCE&&baseType->kind!=MioTypeKind::RVALUE_REFERENCE){
 						error(node,"cannot access member '"+node->member.member+"' on non-class type");
 						return;
 					}
@@ -1022,6 +1042,15 @@ private:
 		if(!found){
 			error(node,"undefined variable '"+node->ident.name+"'");
 		}
+		auto mit=localMioTypes.find(name);
+		if(mit!=localMioTypes.end()){
+			node->type=mio_type_clone(mit->second);
+		}else{
+			auto lit=locals.find(name);
+			if(lit!=locals.end()){
+				node->type=mio_type_clone(lit->second);
+			}
+		}
 	}
 	
 	void checkType(MioType* mt,AstNode* ctx){
@@ -1106,11 +1135,15 @@ private:
 		if(name.find("::")!=std::string::npos) return name;
 		for(auto& ns:importedNamespaces){
 			std::string fullName=ns+"::"+name;
-			if(classTemplateMap.count(fullName)||classTypes.count(fullName)) return fullName;
+			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
+				return fullName;
+			}
 		}
 		if(!currentNamespace.empty()){
 			std::string fullName=currentNamespace+"::"+name;
-			if(classTemplateMap.count(fullName)||classTypes.count(fullName)) return fullName;
+			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
+				return fullName;
+			}
 		}
 		return name;
 	}
@@ -1153,7 +1186,9 @@ private:
 			candidates.push_back(shortName+"::"+opName);
 		}
 		for(auto& c:candidates){
-			if(funcDecls.count(c))return c;
+			if(funcDecls.count(c)){
+				return c;
+			}
 		}
 		for(auto& kv:funcDecls){
 			std::string prefix=className+"::"+opName+"_";
@@ -1230,14 +1265,19 @@ private:
 					if(node->member.base->ident.name=="this"){
 						auto it=localMioTypes.find("this");
 						if(it!=localMioTypes.end()&&it->second&&it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS)
-							className=it->second->base_type->name;
+							className=resolveClassName(it->second->base_type->name);
 					}else{
 						auto it=locals.find(node->member.base->ident.name);
-						if(it!=locals.end()&&it->second){
-							if(it->second->kind==MioTypeKind::CLASS)
-								className=it->second->name;
-							else if(it->second->kind==MioTypeKind::POINTER&&it->second->base_type&&it->second->base_type->kind==MioTypeKind::CLASS)
-								className=it->second->base_type->name;
+						auto mit=localMioTypes.find(node->member.base->ident.name);
+						MioType* baseType=nullptr;
+						if(it!=locals.end())baseType=it->second;
+						else if(mit!=localMioTypes.end())baseType=mit->second;
+						if(baseType){
+							if(baseType->kind==MioTypeKind::CLASS||baseType->kind==MioTypeKind::UNION){
+								className=resolveClassName(baseType->name);
+							}else if(baseType->kind==MioTypeKind::POINTER&&baseType->base_type&&(baseType->base_type->kind==MioTypeKind::CLASS||baseType->base_type->kind==MioTypeKind::UNION)){
+								className=resolveClassName(baseType->base_type->name);
+							}
 						}
 					}
 				}
@@ -1245,8 +1285,9 @@ private:
 					auto fit=classFieldTypes.find(className);
 					if(fit!=classFieldTypes.end()){
 						auto fi=fit->second.find(node->member.member);
-						if(fi!=fit->second.end())
+						if(fi!=fit->second.end()){
 							return mio_type_clone(fi->second);
+						}
 					}
 				}
 				return nullptr;
