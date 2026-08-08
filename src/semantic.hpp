@@ -351,6 +351,8 @@ public:
 					return;
 				}
 				varDecls.insert(name);
+				if(node->var_decl.var_type)
+					globalMioTypes[name]=mio_type_clone(node->var_decl.var_type);
 				break;
 			}
 			case AstNodeKind::CONST_DECL:{
@@ -362,6 +364,8 @@ public:
 					return;
 				}
 				varDecls.insert(name);
+				if(node->const_decl.var_type)
+					globalMioTypes[name]=mio_type_clone(node->const_decl.var_type);
 				break;
 			}
 			case AstNodeKind::ENUM_DEF:{
@@ -402,6 +406,7 @@ public:
 	std::unordered_set<std::string> classTypes;
 	std::unordered_set<std::string> funcDecls;
 	std::unordered_set<std::string> varDecls;
+	std::unordered_map<std::string,MioType*> globalMioTypes;
 	std::unordered_set<std::string> enumNames;
 	std::unordered_set<std::string> unionNames;
 	std::unordered_map<std::string,std::string> enumVariantMap;
@@ -583,17 +588,39 @@ private:
 				checkExpr(stmt->while_stmt.cond);
 				analyzeBlock(stmt->while_stmt.body);
 				break;
-			case AstNodeKind::FOR_STMT:
+			case AstNodeKind::FOR_STMT:{
+				auto savedLocals=locals;
+				auto savedMioTypes=localMioTypes;
 				if(stmt->for_stmt.init){
-					if(stmt->for_stmt.init->kind==AstNodeKind::VAR_DECL||stmt->for_stmt.init->kind==AstNodeKind::CONST_DECL)
+					if(stmt->for_stmt.init->kind==AstNodeKind::VAR_DECL||stmt->for_stmt.init->kind==AstNodeKind::CONST_DECL){
 						analyzeDecl(stmt->for_stmt.init);
-					else
+						if(stmt->for_stmt.init->kind==AstNodeKind::VAR_DECL){
+							MioType* inferredType=stmt->for_stmt.init->var_decl.var_type;
+							if(!inferredType&&stmt->for_stmt.init->var_decl.init){
+								inferredType=resolveExprMioType(stmt->for_stmt.init->var_decl.init);
+								stmt->for_stmt.init->var_decl.var_type=inferredType;
+							}
+							locals[stmt->for_stmt.init->var_decl.name]=inferredType;
+							localMioTypes[stmt->for_stmt.init->var_decl.name]=inferredType;
+						}else{
+							MioType* inferredType=stmt->for_stmt.init->const_decl.var_type;
+							if(!inferredType&&stmt->for_stmt.init->const_decl.init){
+								inferredType=resolveExprMioType(stmt->for_stmt.init->const_decl.init);
+								stmt->for_stmt.init->const_decl.var_type=inferredType;
+							}
+							locals[stmt->for_stmt.init->const_decl.name]=inferredType;
+							localMioTypes[stmt->for_stmt.init->const_decl.name]=inferredType;
+						}
+					}else
 						checkExpr(stmt->for_stmt.init);
 				}
 				if(stmt->for_stmt.cond) checkExpr(stmt->for_stmt.cond);
 				if(stmt->for_stmt.update) checkExpr(stmt->for_stmt.update);
 				analyzeBlock(stmt->for_stmt.body);
+				locals=savedLocals;
+				localMioTypes=savedMioTypes;
 				break;
+			}
 			case AstNodeKind::RETURN_STMT:
 				if(stmt->return_stmt.value){
 					checkExpr(stmt->return_stmt.value);
@@ -1049,6 +1076,11 @@ private:
 			auto lit=locals.find(name);
 			if(lit!=locals.end()){
 				node->type=mio_type_clone(lit->second);
+			}else{
+				auto git=globalMioTypes.find(name);
+				if(git!=globalMioTypes.end()){
+					node->type=mio_type_clone(git->second);
+				}
 			}
 		}
 	}
@@ -1299,6 +1331,10 @@ private:
 				auto mit=localMioTypes.find(name);
 				if(mit!=localMioTypes.end()&&mit->second){
 					return mio_type_clone(mit->second);
+				}
+				auto git=globalMioTypes.find(name);
+				if(git!=globalMioTypes.end()&&git->second){
+					return mio_type_clone(git->second);
 				}
 				return nullptr;
 			}

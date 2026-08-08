@@ -631,7 +631,12 @@ class Compiler{
 				paramTys.push_back(llvm::PointerType::get(ctx,0));
 			}
 		}
-		for(auto& p:def->func_def.params)paramTys.push_back(convertType(p.type));
+		for(auto& p:def->func_def.params){
+			if(p.type&&p.type->kind==MioTypeKind::ARRAY&&p.type->array_size>0)
+				paramTys.push_back(llvm::PointerType::get(ctx,0));
+			else
+				paramTys.push_back(convertType(p.type));
+		}
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		std::string mangledName=name;
 		if(isMethod&&!def->func_def.is_static){
@@ -1009,7 +1014,12 @@ class Compiler{
 				paramTys.push_back(llvm::PointerType::get(ctx,0));
 			}
 		}
-		for(auto& p:def->func_def.params)paramTys.push_back(convertType(p.type));
+		for(auto& p:def->func_def.params){
+			if(p.type&&p.type->kind==MioTypeKind::ARRAY&&p.type->array_size>0)
+				paramTys.push_back(llvm::PointerType::get(ctx,0));
+			else
+				paramTys.push_back(convertType(p.type));
+		}
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		std::string mangledName=name;
 		if(isMethod&&!def->func_def.is_static){
@@ -1310,6 +1320,8 @@ class Compiler{
 	}
 	void genForStmt(AstNode* stmt){
 		llvm::Function* fn=curBB->getParent();
+		auto savedLocals=locals;
+		auto savedMioTypes=localMioTypes;
 		if(stmt->for_stmt.init)genStmt(stmt->for_stmt.init);
 		llvm::BasicBlock* condBB=llvm::BasicBlock::Create(ctx,"for.cond",fn);
 		llvm::BasicBlock* bodyBB=llvm::BasicBlock::Create(ctx,"for.body",fn);
@@ -1334,6 +1346,8 @@ class Compiler{
 		curBB=endBB;
 		breakStack.pop_back();
 		continueStack.pop_back();
+		locals=savedLocals;
+		localMioTypes=savedMioTypes;
 	}
 	void genBreakStmt(AstNode* stmt){
 		if(!breakStack.empty())b.CreateBr(breakStack.back());
