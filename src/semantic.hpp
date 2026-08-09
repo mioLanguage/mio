@@ -530,8 +530,12 @@ private:
 	
 	void analyzeBlock(AstNode* block){
 		if(!block) return;
-		for(auto* stmt:block->block.stmts){
-			analyzeStmt(stmt);
+		if(block->kind==AstNodeKind::BLOCK){
+			for(auto* stmt:block->block.stmts){
+				analyzeStmt(stmt);
+			}
+		}else{
+			analyzeStmt(block);
 		}
 	}
 	
