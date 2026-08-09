@@ -769,10 +769,10 @@ private:
 			init=parse_expr();
 		}
 		expect(TOK_SEMICOLON);
-		if(!check(TOK_SEMICOLON)&&!check(TOK_RPAREN))
+		if(!check(TOK_SEMICOLON))
 			cond=parse_expr();
 		expect(TOK_SEMICOLON);
-		if(!check(TOK_LBRACE)&&!check(TOK_RPAREN))
+		if(!check(TOK_RPAREN))
 			update=parse_expr();
 		expect(TOK_RPAREN);
 		auto* body=parse_stmt();
