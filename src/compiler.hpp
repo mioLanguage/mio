@@ -1172,9 +1172,13 @@ class Compiler{
 	}
 	void genBlock(AstNode* block){
 		size_t savedSize=cleanupStack.size();
-		for(auto* stmt:block->block.stmts)genStmt(stmt);
-		if(curBB&&!curBB->getTerminator()&&block->block.is_scope){
-			genScopeExit(savedSize);
+		if(block->kind==AstNodeKind::BLOCK){
+			for(auto* stmt:block->block.stmts)genStmt(stmt);
+			if(curBB&&!curBB->getTerminator()&&block->block.is_scope){
+				genScopeExit(savedSize);
+			}
+		}else{
+			genStmt(block);
 		}
 	}
 	llvm::Function* findDestructor(const std::string& typeName){
