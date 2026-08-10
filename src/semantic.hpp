@@ -842,7 +842,7 @@ private:
 			return true;
 		}
 		if(a->kind==MioTypeKind::POINTER&&b->kind==MioTypeKind::POINTER){
-			return isTypeCompatible(a->base_type,b->base_type);
+			return true;
 		}
 		if(a->kind==MioTypeKind::ARRAY&&b->kind==MioTypeKind::ARRAY){
 			return isTypeCompatible(a->base_type,b->base_type);
@@ -1790,4 +1790,5 @@ private:
 	std::unordered_map<std::string,MioType*> locals;
 	std::unordered_map<std::string,MioType*> localMioTypes;
 };
+
 #endif
