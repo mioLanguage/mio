@@ -194,7 +194,7 @@ private:
 			return nullptr;
 		}else{
 			std::string path=parse_import_path();
-			if(!path.empty()){
+			if(!path.empty()&&path!="void"){
 				return ast_new_namespace_import(path,line,col,fn());
 			}
 			return nullptr;
@@ -253,7 +253,7 @@ private:
 		}
 		if(buf.empty()){
 			error_expected("import path");
-			return "void";
+			return "";
 		}
 		return buf;
 	}
@@ -327,6 +327,7 @@ private:
 		if(match(TOK_BIT_AND)){
 			if(match(TOK_BIT_AND)){
 				error("too many '&' in reference type");
+				return mio_type_new(MioTypeKind::VOID);
 			}
 			auto* base=parse_type_prefix();
 			return mio_type_add_ref(base,false);
@@ -518,6 +519,9 @@ private:
 					}
 					expr=call;
 					continue;
+				}else{
+					error("unexpected '$' after identifier");
+					advance();
 				}
 			}
 			if(match(TOK_LPAREN)){
@@ -697,6 +701,11 @@ private:
 			type=parse_type();
 		if(match(TOK_ASSIGN))
 			init=parse_expr();
+		if(!type&&!init){
+			char buf[256];
+			snprintf(buf,sizeof(buf),"variable '%s' requires a type or an initializer",name.c_str());
+			error(buf);
+		}
 		if(init&&init->kind==AstNodeKind::ARRAY_LIT){
 			if(type&&type->kind==MioTypeKind::ARRAY&&type->array_size==0){
 				type->array_size=init->array_lit.elements.size();
@@ -837,7 +846,8 @@ private:
 				}
 				if(match(TOK_SEMICOLON))
 					return ast_new_expr_stmt(expr,expr->line,expr->col,fn());
-				return ast_new_return(expr,expr->line,expr->col,fn());
+				error_expected("';' after expression");
+				return ast_new_expr_stmt(expr,expr->line,expr->col,fn());
 			}
 		}
 	}
@@ -889,6 +899,12 @@ private:
 				expect(TOK_IDENT);
 				expect(TOK_COLON);
 				auto* ptype=parse_type();
+				if(!ptype){
+					error("expected type for parameter '"+pname+"'");
+					mio_type_free(return_type);
+					delete func;
+					return nullptr;
+				}
 				AstNode* default_val=nullptr;
 				if(match(TOK_ASSIGN)){
 					default_val=parse_expr();
