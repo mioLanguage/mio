@@ -59,12 +59,10 @@ private:
 		g_error_count++;
 	}
 	void error_expected(const std::string& expected){
-		char buf[256];
 		if(cur->kind==TOK_ERROR)
-			snprintf(buf,sizeof(buf),"%s",cur->lexeme.c_str());
+			error(cur->lexeme);
 		else
-			snprintf(buf,sizeof(buf),"expected %s,got '%s'",expected.c_str(),tok_name(cur->kind).c_str());
-		error(buf);
+			error("expected  '"+expected+"',got '"+tok_name(cur->kind)+"'");
 	}
 	void advance(){
 		cur=lexer->next();
@@ -188,13 +186,11 @@ private:
 			if(!resolved.empty()){
 				return parse_import_file(resolved,path,line,col);
 			}
-			char buf[512];
-			snprintf(buf,sizeof(buf),"imported file '%s' not found",path.c_str());
-			error(buf);
+			error("imported file '"+path+"' not found");
 			return nullptr;
 		}else{
 			std::string path=parse_import_path();
-			if(!path.empty()&&path!="void"){
+			if(!path.empty()){
 				return ast_new_namespace_import(path,line,col,fn());
 			}
 			return nullptr;
@@ -205,9 +201,7 @@ private:
 		mark_imported(resolved);
 		std::string source=read_file_content(resolved);
 		if(source.empty()){
-			char buf[512];
-			snprintf(buf,sizeof(buf),"cannot read imported file '%s'",display_path.c_str());
-			error(buf);
+			error("cannot read imported file '"+display_path+"'");
 			return nullptr;
 		}
 		auto* old_lexer=lexer;
@@ -253,7 +247,7 @@ private:
 		}
 		if(buf.empty()){
 			error_expected("import path");
-			return "";
+			return "void";
 		}
 		return buf;
 	}
@@ -702,9 +696,7 @@ private:
 		if(match(TOK_ASSIGN))
 			init=parse_expr();
 		if(!type&&!init){
-			char buf[256];
-			snprintf(buf,sizeof(buf),"variable '%s' requires a type or an initializer",name.c_str());
-			error(buf);
+			error("variable '"+name+"' requires a type or an initializer");
 		}
 		if(init&&init->kind==AstNodeKind::ARRAY_LIT){
 			if(type&&type->kind==MioTypeKind::ARRAY&&type->array_size==0){
@@ -846,8 +838,7 @@ private:
 				}
 				if(match(TOK_SEMICOLON))
 					return ast_new_expr_stmt(expr,expr->line,expr->col,fn());
-				error_expected("';' after expression");
-				return ast_new_expr_stmt(expr,expr->line,expr->col,fn());
+				return ast_new_return(expr,expr->line,expr->col,fn());
 			}
 		}
 	}
@@ -939,14 +930,10 @@ private:
 						auto* init_expr=parse_expr();
 						ast_func_add_init(func,field_name,init_expr);
 					}else{
-						char buf[128];
-						snprintf(buf,sizeof(buf),"expected '(' or '=' after field name '%s' in initializer list",field_name.c_str());
-						error(buf);
+						error("expected '(' or '=' after field name '"+field_name+"' in initializer list");
 					}
 				}else{
-					char buf[128];
-					snprintf(buf,sizeof(buf),"expected field name in initializer list,got '%s'",tok_name(cur->kind).c_str());
-					error(buf);
+					error("expected field name in initializer list,got '"+tok_name(cur->kind)+"'");
 					advance();
 				}
 				if(!match(TOK_COMMA))break;
@@ -1019,9 +1006,7 @@ private:
 		std::string name=cur->lexeme;
 		advance();
 		if(class_names.count(name)){
-			char buf[256];
-			snprintf(buf,sizeof(buf),"class '%s' is already defined",name.c_str());
-			error(buf);
+			error("class '"+name+"' is already defined");
 		}
 		class_names.insert(name);
 		std::string base_name;
@@ -1034,9 +1019,7 @@ private:
 			base_name=cur->lexeme;
 			advance();
 			if(!class_names.count(base_name)){
-				char buf[256];
-				snprintf(buf,sizeof(buf),"base class '%s' is not defined (forward declaration not supported)",base_name.c_str());
-				error(buf);
+				error("base class '"+base_name+"' is not defined (forward declaration not supported)");
 			}
 			if(match(TOK_COLON)){
 				if(cur->kind==TOK_PUBLIC||cur->kind==TOK_PRIVATE||cur->kind==TOK_PROTECTED){
@@ -1088,9 +1071,7 @@ private:
 						if(matched_override&&!base_name.empty()){
 							auto it=class_virtual_methods.find(base_name);
 							if(it!=class_virtual_methods.end()&&!it->second.count(method->func_def.name)){
-								char buf[256];
-								snprintf(buf,sizeof(buf),"method '%s' marked 'override' but does not override any base class virtual method",method->func_def.name.c_str());
-								error(buf);
+								error("method '"+method->func_def.name+"' marked 'override' but does not override any base class virtual method");
 							}
 						}
 						if(matched_virtual&&!method->func_def.is_pure_virtual){
@@ -1103,9 +1084,7 @@ private:
 							class_virtual_methods[name][method->func_def.name]=true;
 						}
 						if(!method->func_def.is_operator&&class_method_names[name].count(method->func_def.name)){
-							char buf[256];
-							snprintf(buf,sizeof(buf),"method '%s' is already defined in class '%s'",method->func_def.name.c_str(),name.c_str());
-							error(buf);
+							error("method '"+method->func_def.name+"' is already defined in class '"+name+"'");
 						}
 						class_method_names[name].insert(method->func_def.name);
 						if(method->func_def.name==name){
@@ -1123,9 +1102,7 @@ private:
 					}
 					std::string dname=cur->lexeme;
 					if(dname!=name){
-						char buf[256];
-						snprintf(buf,sizeof(buf),"destructor name '%s' must match class name '%s'",dname.c_str(),name.c_str());
-						error(buf);
+						error("destructor name '"+dname+"' must match class name '"+name+"'");
 						advance();
 						if(match(TOK_LPAREN)){match(TOK_RPAREN);}
 						if(check(TOK_LBRACE))parse_block();
@@ -1153,9 +1130,7 @@ private:
 						std::string fname=cur->lexeme;
 						advance();
 						if(field_names.count(fname)){
-							char buf[256];
-							snprintf(buf,sizeof(buf),"field '%s' is already defined in class '%s'",fname.c_str(),name.c_str());
-							error(buf);
+							error("field '"+fname+"' is already defined in class '"+name+"'");
 						}
 						field_names.insert(fname);
 						expect(TOK_COLON);
@@ -1174,9 +1149,7 @@ private:
 								c->class_def.constructors.push_back(method);
 							}else{
 								if(!method->func_def.is_operator&&class_method_names[name].count(method->func_def.name)){
-									char buf[256];
-									snprintf(buf,sizeof(buf),"method '%s' is already defined in class '%s'",method->func_def.name.c_str(),name.c_str());
-									error(buf);
+									error("method '"+method->func_def.name+"' is already defined in class '"+name+"'");
 								}
 								class_method_names[name].insert(method->func_def.name);
 								ast_class_add_method(c,method);
@@ -1184,9 +1157,7 @@ private:
 						}
 					}
 				}else{
-					char buf[128];
-					snprintf(buf,sizeof(buf),"expected field,method,or access specifier in class '%s',got '%s'",name.c_str(),tok_name(cur->kind).c_str());
-					error(buf);
+					error("expected field,method,or access specifier in class '"+name+"',got '"+tok_name(cur->kind)+"'");
 					advance();
 				}
 			}
@@ -1422,9 +1393,7 @@ private:
 					}
 				}
 				if(is_macro_defined(name)){
-					char buf[256];
-					snprintf(buf,sizeof(buf),"macro '%s' is already defined",name.c_str());
-					error(buf);
+					error("macro '"+name+"' is already defined");
 				}
 				add_macro(name,value.empty()?"1":value);
 				auto* node=ast_new_macro_def(name,value.empty()?"1":value,line,col,fn());
