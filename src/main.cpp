@@ -55,7 +55,7 @@ int main(int argc,char* argv[]){
 	try{
 		if(argc<2){help(argv[0]);exit(0);}
 		if(argc==2&&(strcmp(argv[1],"-v")==0||strcmp(argv[1],"--version")==0))
-			printf("mio version 2.1.2\nCopyright (c) 2026 mioLanguage\nMIT License\n"),
+			printf("mio version 3.7.20\nCopyright (c) 2026 mioLanguage\nMIT License\n"),
 			help(argv[0]),
 			exit(0);
 		else if(argc==2&&(strcmp(argv[1],"-h")==0||strcmp(argv[1],"--help")==0))
