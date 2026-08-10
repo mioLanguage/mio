@@ -519,17 +519,29 @@ private:
 	
 	void analyzeVarDecl(AstNode* node){
 		if(!node) return;
-		if(node->var_decl.var_type){
-			checkType(node->var_decl.var_type,node);
+		MioType* varType=nullptr;
+		AstNode* init=nullptr;
+		std::string name;
+		if(node->kind==AstNodeKind::CONST_DECL){
+			varType=node->const_decl.var_type;
+			init=node->const_decl.init;
+			name=node->const_decl.name;
+		}else{
+			varType=node->var_decl.var_type;
+			init=node->var_decl.init;
+			name=node->var_decl.name;
 		}
-		if(node->var_decl.init){
-			checkExpr(node->var_decl.init);
-			if(node->var_decl.init->kind==AstNodeKind::ARRAY_LIT&&node->var_decl.var_type){
-				node->var_decl.init->type=mio_type_clone(node->var_decl.var_type);
+		if(varType){
+			checkType(varType,node);
+		}
+		if(init){
+			checkExpr(init);
+			if(init->kind==AstNodeKind::ARRAY_LIT&&varType){
+				init->type=mio_type_clone(varType);
 			}
 		}
-		if(!node->var_decl.var_type&&!node->var_decl.init){
-			error(node,"variable '"+node->var_decl.name+"' requires a type or an initializer");
+		if(!varType&&!init){
+			error(node,"variable '"+name+"' requires a type or an initializer");
 		}
 	}
 	
@@ -798,6 +810,29 @@ private:
 		}
 	}
 	
+	bool isNumericKind(MioTypeKind k){
+		switch(k){
+			case MioTypeKind::I8:
+			case MioTypeKind::I16:
+			case MioTypeKind::I32:
+			case MioTypeKind::I64:
+			case MioTypeKind::I128:
+			case MioTypeKind::U8:
+			case MioTypeKind::U16:
+			case MioTypeKind::U32:
+			case MioTypeKind::U64:
+			case MioTypeKind::U128:
+			case MioTypeKind::USIZE:
+			case MioTypeKind::ISIZE:
+			case MioTypeKind::F32:
+			case MioTypeKind::F64:
+			case MioTypeKind::CHAR:
+			case MioTypeKind::BOOL:
+				return true;
+			default:
+				return false;
+		}
+	}
 	bool isTypeCompatible(MioType* a,MioType* b){
 		if(!a||!b) return true;
 		if(a->kind==b->kind){
@@ -811,6 +846,15 @@ private:
 		}
 		if(a->kind==MioTypeKind::ARRAY&&b->kind==MioTypeKind::ARRAY){
 			return isTypeCompatible(a->base_type,b->base_type);
+		}
+		if(isNumericKind(a->kind)&&isNumericKind(b->kind)){
+			return true;
+		}
+		if(a->kind==MioTypeKind::POINTER&&isNumericKind(b->kind)){
+			return true;
+		}
+		if(b->kind==MioTypeKind::POINTER&&isNumericKind(a->kind)){
+			return true;
 		}
 		return false;
 	}
@@ -1746,5 +1790,4 @@ private:
 	std::unordered_map<std::string,MioType*> locals;
 	std::unordered_map<std::string,MioType*> localMioTypes;
 };
-
 #endif
