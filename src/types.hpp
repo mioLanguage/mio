@@ -181,11 +181,17 @@ inline void mio_type_free(MioType* type){
 	delete type;
 }
 inline const char* mio_type_c_name(const MioType* type){
-	if(!type) return "void";
+	if(!type){
+		fprintf(stderr,"error: mio_type_c_name called with null type\n");
+		return "";
+	}
 	return type->c_name();
 }
 inline std::string mio_type_str(const MioType* type){
-	if(!type) return "void";
+	if(!type){
+		fprintf(stderr,"error: mio_type_str called with null type\n");
+		return "";
+	}
 	switch(type->kind){
 		case MioTypeKind::VOID: return "void";
 		case MioTypeKind::I8: return "i8";
@@ -226,8 +232,10 @@ inline std::string mio_type_str(const MioType* type){
 		case MioTypeKind::CLASS:
 		case MioTypeKind::ENUM:
 		case MioTypeKind::UNION:
-			return type->name.empty()?"void":type->name;
-		default: return "void";
+			return type->name.empty()?"":type->name;
+		default:
+			fprintf(stderr,"error: mio_type_str called with unknown type kind %d\n",(int)type->kind);
+			return "";
 	}
 }
 #endif

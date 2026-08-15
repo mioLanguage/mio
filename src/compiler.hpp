@@ -184,7 +184,7 @@ class Compiler{
 					if(git!=globalVars.end())
 						return git->second->getValueType();
 					error(node->line,node->col,"internal error: undefined global variable '"+name+"'");
-					return llvm::Type::getInt64Ty(ctx);
+					return llvm::Type::getVoidTy(ctx);
 				}
 				std::string fullName=resolveNamespaceName(name,ns);
 				auto it=locals.find(fullName);
@@ -202,7 +202,8 @@ class Compiler{
 				std::string foundName=findInImportedNs(name,globalVars,gv);
 				if(!foundName.empty())
 					return gv->getValueType();
-				return llvm::Type::getInt64Ty(ctx);
+				error(node->line,node->col,"internal error: cannot resolve type for identifier '"+name+"'");
+				return llvm::Type::getVoidTy(ctx);
 			}
 			case AstNodeKind::BINARY_EXPR:{
 				llvm::Type* lt=resolveExprType(node->binary.left);
@@ -221,7 +222,8 @@ class Compiler{
 			}
 			case AstNodeKind::CALL_EXPR:
 				if(node->type)return convertType(node->type);
-				return llvm::Type::getInt64Ty(ctx);
+				error(node->line,node->col,"internal error: cannot resolve type for call expression");
+				return llvm::Type::getVoidTy(ctx);
 			case AstNodeKind::INDEX_EXPR:{
 				if(node->type)return convertType(node->type);
 				MioType* baseMio=resolveExprMioType(node->index_expr.base);
@@ -231,11 +233,13 @@ class Compiler{
 					if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type)
 						return convertType(baseMio->base_type);
 				}
-				return llvm::Type::getInt64Ty(ctx);
+				error(node->line,node->col,"internal error: cannot resolve type for index expression");
+				return llvm::Type::getVoidTy(ctx);
 			}
 			case AstNodeKind::CAST_EXPR:
 				if(node->cast_expr.target_type)return convertType(node->cast_expr.target_type);
-				return llvm::Type::getInt64Ty(ctx);
+				error(node->line,node->col,"internal error: cannot resolve type for cast expression");
+				return llvm::Type::getVoidTy(ctx);
 			case AstNodeKind::MEMBER_EXPR:{
 				if(node->type)return convertType(node->type);
 				std::string sn;
@@ -267,7 +271,8 @@ class Compiler{
 									return convertType(fti->second);
 								}
 							}
-							return llvm::Type::getInt64Ty(ctx);
+							error(node->line,node->col,"internal error: union field type not found for '"+node->member.member+"'");
+							return llvm::Type::getVoidTy(ctx);
 						}
 						auto sit=classTypes.find(sn);
 						if(sit!=classTypes.end()){
@@ -281,10 +286,11 @@ class Compiler{
 				}else{
 					error(node->line,node->col,"internal error: cannot resolve type for member access '"+node->member.member+"'");
 				}
-				return llvm::Type::getInt64Ty(ctx);
+				return llvm::Type::getVoidTy(ctx);
 			}
 			default:
-				return llvm::Type::getInt64Ty(ctx);
+				error(node->line,node->col,"internal error: cannot resolve type for expression kind "+std::to_string((int)node->kind));
+				return llvm::Type::getVoidTy(ctx);
 		}
 	}
 	llvm::AllocaInst* createEntryAlloca(llvm::Function* fn,const std::string& name,llvm::Type* ty){
@@ -494,16 +500,21 @@ class Compiler{
 					MioType* inner=resolveExprMioType(node->unary.operand);
 					if(inner&&inner->kind==MioTypeKind::POINTER)return inner->base_type;
 					if(inner&&inner->kind==MioTypeKind::REFERENCE)return inner->base_type;
+					error(node->line,node->col,"internal error: cannot dereference non-pointer type in code generation");
 					return nullptr;
 				}
 				return resolveExprMioType(node->unary.operand);
 			case AstNodeKind::INDEX_EXPR:{
 			MioType* baseMio=resolveExprMioType(node->index_expr.base);
-			if(!baseMio)return nullptr;
+			if(!baseMio){
+				error(node->line,node->col,"internal error: cannot resolve base type for index expression");
+				return nullptr;
+			}
 			if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type)
 				return mio_type_clone(baseMio->base_type);
 			if(baseMio->kind==MioTypeKind::ARRAY&&baseMio->base_type)
 				return mio_type_clone(baseMio->base_type);
+			error(node->line,node->col,"internal error: index expression base is not array or pointer");
 			return nullptr;
 		}
 			case AstNodeKind::INT_LIT:	return mio_type_new(MioTypeKind::I32);
@@ -542,6 +553,7 @@ class Compiler{
 						}
 					}
 				}
+				error(node->line,node->col,"internal error: cannot resolve member '"+node->member.member+"' type in code generation");
 				return nullptr;
 			}
 			case AstNodeKind::IDENT_EXPR:{
@@ -552,9 +564,23 @@ class Compiler{
 				if(mit!=localMioTypes.end()&&mit->second){
 					return mio_type_clone(mit->second);
 				}
+				error(node->line,node->col,"internal error: cannot resolve mio type for identifier '"+name+"'");
 				return nullptr;
 			}
+			case AstNodeKind::STRING_LIT:
+				return mio_type_new_pointer(mio_type_new(MioTypeKind::CHAR));
+			case AstNodeKind::BINARY_EXPR:
+				return resolveExprMioType(node->binary.left);
+			case AstNodeKind::CALL_EXPR:
+				return nullptr;
+			case AstNodeKind::ASSIGN_EXPR:
+				return resolveExprMioType(node->assign.left);
+			case AstNodeKind::CAST_EXPR:
+				return node->cast_expr.target_type?mio_type_clone(node->cast_expr.target_type):nullptr;
+			case AstNodeKind::SIZEOF_EXPR:
+				return mio_type_new(MioTypeKind::USIZE);
 			default:
+				error(node->line,node->col,"internal error: cannot resolve mio type for expression kind "+std::to_string((int)node->kind));
 				return nullptr;
 		}
 	}
@@ -1621,7 +1647,7 @@ class Compiler{
 				return b.CreateLoad(ty,git->second,name);
 			}
 			error(node->line,node->col,"internal error: undefined global variable '"+name+"'");
-			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+			return nullptr;
 		}
 		if(!ns.empty()){
 			std::string fullName=ns+"::"+name;
@@ -1646,7 +1672,7 @@ class Compiler{
 			auto fit=funcDecls.find(fullName);
 			if(fit!=funcDecls.end())return fit->second;
 			error(node->line,node->col,"internal error: undefined variable '"+fullName+"'");
-			return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+			return nullptr;
 		}
 		auto it=locals.find(name);
 		if(it!=locals.end()){
@@ -1682,7 +1708,7 @@ class Compiler{
 		if(evit!=enumVariantValues.end())
 			return llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),evit->second);
 		error(node->line,node->col,"internal error: undefined variable '"+name+"'");
-		return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
+		return nullptr;
 	}
 	llvm::Value* genBinaryExpr(AstNode* node){
 		if(!node||!node->binary.left||!node->binary.right){
@@ -2203,7 +2229,6 @@ class Compiler{
 						if(av->getType()!=paramTy)av=b.CreateBitCast(av,paramTy);
 					}
 				}
-				mio_type_free(argMio);
 			}
 			if(!av)av=genExpr(node->call.args[i]);
 			if(!av){

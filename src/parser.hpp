@@ -83,6 +83,34 @@ private:
 		error_expected(tok_name(kind));
 		return false;
 	}
+	bool is_keyword_token(TokenKind kind){
+		switch(kind){
+			case TOK_IMPORT:case TOK_EXTERN:case TOK_VAR:case TOK_CONST:
+			case TOK_IF:case TOK_ELSE:case TOK_WHILE:case TOK_FOR:case TOK_BREAK:case TOK_CONTINUE:
+			case TOK_GOTO:case TOK_RETURN:case TOK_ENUM:case TOK_UNION:case TOK_CLASS:
+			case TOK_NAMESPACE:case TOK_PUBLIC:case TOK_PRIVATE:case TOK_PROTECTED:
+			case TOK_VIRTUAL:case TOK_OVERRIDE:case TOK_STATIC:case TOK_OPERATOR:
+			case TOK_TRUE:case TOK_FALSE:case TOK_THIS:case TOK_MACRO:
+			case TOK_I8:case TOK_I16:case TOK_I32:case TOK_I64:case TOK_I128:
+			case TOK_U8:case TOK_U16:case TOK_U32:case TOK_U64:case TOK_U128:
+			case TOK_USIZE:case TOK_ISIZE:case TOK_F32:case TOK_F64:case TOK_BOOL:case TOK_CHAR:
+			case TOK_VOID:case TOK_TEMPLATE:case TOK_TYPENAME:case TOK_SIZEOF:
+				return true;
+			default: return false;
+		}
+	}
+	bool expect_ident(){
+		if(cur->kind==TOK_IDENT){
+			advance();
+			return true;
+		}
+		if(is_keyword_token(cur->kind)){
+			error("keyword '"+tok_name(cur->kind)+"' cannot be used as an identifier");
+		}else{
+			error_expected("identifier");
+		}
+		return false;
+	}
 	std::string normalize_path(const std::string& path){
 		std::vector<std::string> parts;
 		size_t start=0;
@@ -247,7 +275,7 @@ private:
 		}
 		if(buf.empty()){
 			error_expected("import path");
-			return "void";
+			return "";
 		}
 		return buf;
 	}
@@ -277,7 +305,7 @@ private:
 				if(match(TOK_DOUBLE_COLON)){
 					if(cur->kind!=TOK_IDENT){
 						error_expected("type name after '::'");
-						return mio_type_new(MioTypeKind::VOID);
+						return mio_type_new_named(MioTypeKind::CLASS,"");
 					}
 					std::string fullName=name+"::"+cur->lexeme;
 					advance();
@@ -307,7 +335,7 @@ private:
 			}
 			default:
 				error_expected("type");
-				return mio_type_new(MioTypeKind::VOID);
+				return mio_type_new_named(MioTypeKind::CLASS,"");
 		}
 	}
 	MioType* parse_type(){
@@ -321,7 +349,7 @@ private:
 		if(match(TOK_BIT_AND)){
 			if(match(TOK_BIT_AND)){
 				error("too many '&' in reference type");
-				return mio_type_new(MioTypeKind::VOID);
+				return mio_type_new_named(MioTypeKind::CLASS,"");
 			}
 			auto* base=parse_type_prefix();
 			return mio_type_add_ref(base,false);
@@ -461,7 +489,7 @@ private:
 					case TOK_F64: k=MioTypeKind::F64;break;
 					case TOK_BOOL: k=MioTypeKind::BOOL;break;
 					case TOK_CHAR: k=MioTypeKind::CHAR;break;
-					default: k=MioTypeKind::VOID;break;
+					default: k=MioTypeKind::CLASS;break;
 				}
 				advance();
 				if(check(TOK_STAR)&&peek->kind==TOK_LPAREN){
@@ -533,14 +561,22 @@ private:
 				expr=ast_new_index(expr,index,expr->line,expr->col,fn());
 			}else if(match(TOK_DOT)){
 				if(cur->kind!=TOK_IDENT){
-					error_expected("identifier after '.'");
+					if(is_keyword_token(cur->kind)){
+						error("keyword '"+tok_name(cur->kind)+"' cannot be used as a member name");
+					}else{
+						error_expected("identifier after '.'");
+					}
 					break;
 				}
 				expr=ast_new_member(expr,cur->lexeme,false,expr->line,expr->col,fn());
 				advance();
 			}else if(match(TOK_ARROW)){
 				if(cur->kind!=TOK_IDENT){
-					error_expected("identifier after '->'");
+					if(is_keyword_token(cur->kind)){
+						error("keyword '"+tok_name(cur->kind)+"' cannot be used as a member name");
+					}else{
+						error_expected("identifier after '->'");
+					}
 					break;
 				}
 				expr=ast_new_member(expr,cur->lexeme,true,expr->line,expr->col,fn());
@@ -688,7 +724,9 @@ private:
 	AstNode* parse_var_items(bool is_const,bool is_static){
 		int line=cur->line,col=cur->col;
 		std::string name=cur->lexeme;
-		expect(TOK_IDENT);
+		if(!expect_ident()){
+			return ast_new_int_lit(0,line,col,fn());
+		}
 		MioType* type=nullptr;
 		AstNode* init=nullptr;
 		if(match(TOK_COLON))
@@ -812,7 +850,7 @@ private:
 				advance();
 				int line=cur->line,col=cur->col;
 				std::string label=cur->lexeme;
-				expect(TOK_IDENT);
+				if(!expect_ident()){expect(TOK_SEMICOLON);return nullptr;}
 				expect(TOK_SEMICOLON);
 				return ast_new_goto(label,line,col,fn());
 			}
@@ -820,7 +858,7 @@ private:
 				advance();
 				int line=cur->line,col=cur->col;
 				std::string label=cur->lexeme;
-				expect(TOK_IDENT);
+				if(!expect_ident())return nullptr;
 				return ast_new_label(label,line,col,fn());
 			}
 			case TOK_RETURN:
@@ -871,6 +909,10 @@ private:
 			advance();
 		}else if(cur->kind==TOK_LPAREN){
 			func_name=return_type->name.empty()?"constructor":return_type->name;
+		}else if(is_keyword_token(cur->kind)){
+			error("keyword '"+tok_name(cur->kind)+"' cannot be used as a function name");
+			mio_type_free(return_type);
+			return nullptr;
 		}else{
 			error_expected("function name");
 			mio_type_free(return_type);
@@ -887,7 +929,7 @@ private:
 					break;
 				}
 				std::string pname=cur->lexeme;
-				expect(TOK_IDENT);
+				if(!expect_ident()){mio_type_free(return_type);delete func;return nullptr;}
 				expect(TOK_COLON);
 				auto* ptype=parse_type();
 				if(!ptype){
@@ -951,13 +993,13 @@ private:
 		int line=cur->line,col=cur->col;
 		advance();
 		std::string name=cur->lexeme;
-		expect(TOK_IDENT);
+		if(!expect_ident())return nullptr;
 		expect(TOK_LBRACE);
 		auto* e=ast_new_enum_def(name,line,col,fn());
 		if(!check(TOK_RBRACE)){
 			do{
 				std::string vname=cur->lexeme;
-				expect(TOK_IDENT);
+				if(!expect_ident())continue;
 				AstNode* init=nullptr;
 				if(match(TOK_ASSIGN))
 					init=parse_expr();
@@ -971,12 +1013,12 @@ private:
 		int line=cur->line,col=cur->col;
 		advance();
 		std::string name=cur->lexeme;
-		expect(TOK_IDENT);
+		if(!expect_ident())return nullptr;
 		expect(TOK_LBRACE);
 		auto* u=ast_new_union_def(name,line,col,fn());
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
 			std::string fname=cur->lexeme;
-			expect(TOK_IDENT);
+			if(!expect_ident()){while(!check(TOK_SEMICOLON)&&!check(TOK_EOF)&&!check(TOK_RBRACE))advance();if(!check(TOK_RBRACE))advance();continue;}
 			expect(TOK_COLON);
 			auto* ftype=parse_type();
 			expect(TOK_SEMICOLON);
@@ -999,12 +1041,8 @@ private:
 	AstNode* parse_class_def(bool class_consumed=false){
 		int line=cur->line,col=cur->col;
 		if(!class_consumed)advance();
-		if(cur->kind!=TOK_IDENT){
-			error("expected class name");
-			return nullptr;
-		}
 		std::string name=cur->lexeme;
-		advance();
+		if(!expect_ident())return nullptr;
 		if(class_names.count(name)){
 			error("class '"+name+"' is already defined");
 		}
@@ -1095,20 +1133,16 @@ private:
 					}
 				}else if(match(TOK_BIT_NOT)){
 					int dline=cur->line,dcol=cur->col;
-					if(cur->kind!=TOK_IDENT){
-						error("expected destructor name after '~'");
-						advance();
+					std::string dname=cur->lexeme;
+					if(!expect_ident()){
 						continue;
 					}
-					std::string dname=cur->lexeme;
 					if(dname!=name){
 						error("destructor name '"+dname+"' must match class name '"+name+"'");
-						advance();
 						if(match(TOK_LPAREN)){match(TOK_RPAREN);}
 						if(check(TOK_LBRACE))parse_block();
 						continue;
 					}
-					advance();
 					expect(TOK_LPAREN);
 					expect(TOK_RPAREN);
 					auto* dtor=ast_new_func_def("~"+name,mio_type_new(MioTypeKind::VOID),nullptr,false,dline,dcol,fn());
@@ -1126,7 +1160,7 @@ private:
 						c->class_def.nested_classes.push_back(nested);
 					}
 				}else if(is_type_token(cur->kind)){
-										if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
+					if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
 						std::string fname=cur->lexeme;
 						advance();
 						if(field_names.count(fname)){
@@ -1156,6 +1190,9 @@ private:
 							}
 						}
 					}
+				}else if(is_keyword_token(cur->kind)){
+					error("keyword '"+tok_name(cur->kind)+"' cannot be used as a class member name");
+					advance();
 				}else{
 					error("expected field,method,or access specifier in class '"+name+"',got '"+tok_name(cur->kind)+"'");
 					advance();
@@ -1169,12 +1206,8 @@ private:
 	AstNode* parse_namespace_def(){
 		int line=cur->line,col=cur->col;
 		advance();
-		if(cur->kind!=TOK_IDENT){
-			error("expected namespace name");
-			return nullptr;
-		}
 		std::string name=cur->lexeme;
-		advance();
+		if(!expect_ident())return nullptr;
 		auto* n=ast_new_namespace_def(name,line,col,fn());
 		expect(TOK_LBRACE);
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
@@ -1198,12 +1231,9 @@ private:
 			tp.type=nullptr;
 			tp.default_type=nullptr;
 			tp.default_val=nullptr;
-			if(cur->kind!=TOK_IDENT){
-				error_expected("template parameter name");
-				return nullptr;
-			}
-			tp.name=cur->lexeme;
-			advance();
+			std::string tp_name=cur->lexeme;
+			if(!expect_ident())return nullptr;
+			tp.name=tp_name;
 			if(match(TOK_COLON)){
 				if(match(TOK_TYPENAME)){
 					tp.is_type=true;
