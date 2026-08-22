@@ -3,6 +3,7 @@ macro STD;
 import "stdlib";
 import "string";
 import "stdio";
+import "clib";
 
 namespace std {
 	# ============================================================
