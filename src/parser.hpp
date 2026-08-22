@@ -721,7 +721,7 @@ private:
 		expect(TOK_RBRACE);
 		return block;
 	}
-	AstNode* parse_var_items(bool is_const,bool is_static){
+	AstNode* parse_var_items(bool is_const,bool is_static,bool is_extern){
 		int line=cur->line,col=cur->col;
 		std::string name=cur->lexeme;
 		if(!expect_ident()){
@@ -757,17 +757,17 @@ private:
 			}
 		}
 		if(is_const)
-			return ast_new_const_decl(name,type,init,is_static,line,col,fn());
+			return ast_new_const_decl(name,type,init,is_static,is_extern,line,col,fn());
 		else
-			return ast_new_var_decl(name,type,init,is_static,line,col,fn());
+			return ast_new_var_decl(name,type,init,is_static,is_extern,line,col,fn());
 	}
-	AstNode* parse_var_decl(bool is_const,bool is_static){
-		advance();
+	AstNode* parse_var_decl(bool is_const,bool is_static,bool is_extern=false,bool skip_advance=false){
+		if(!skip_advance) advance();
 		auto* block=ast_new_block(cur->line,cur->col,fn());
 		block->block.is_scope=false;
-		block->block.stmts.push_back(parse_var_items(is_const,is_static));
+		block->block.stmts.push_back(parse_var_items(is_const,is_static,is_extern));
 		while(match(TOK_COMMA))
-			block->block.stmts.push_back(parse_var_items(is_const,is_static));
+			block->block.stmts.push_back(parse_var_items(is_const,is_static,is_extern));
 		expect(TOK_SEMICOLON);
 		return block;
 	}
@@ -801,9 +801,9 @@ private:
 		AstNode* cond=nullptr;
 		AstNode* update=nullptr;
 		if(match(TOK_VAR)){
-			init=parse_var_items(false,false);
+			init=parse_var_items(false,false,false);
 		}else if(match(TOK_CONST)){
-			init=parse_var_items(true,false);
+			init=parse_var_items(true,false,false);
 		}else if(!check(TOK_SEMICOLON)){
 			init=parse_expr();
 		}
@@ -1369,6 +1369,10 @@ private:
 			}
 			case TOK_EXTERN:{
 				advance();
+				if(match(TOK_VAR))
+					return parse_var_decl(false,false,true,true);
+				if(match(TOK_CONST))
+					return parse_var_decl(true,false,true,true);
 				return parse_func_def(false,true);
 			}
 			case TOK_VAR:

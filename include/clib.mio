@@ -1,0 +1,107 @@
+# clib.mio - C 标准库完整声明 (mio 语法)
+@if !CLIB
+macro CLIB;
+
+# ============================================================
+# stdio.h - 标准输入输出
+# ============================================================
+
+# 注意: Mio 没有 FILE 类型，用 *char 替代
+
+# ---- 文件操作 ----
+
+extern *char fopen(filename: *char,mode: *char);
+extern i32 fclose(stream: *char);
+extern u64 fread(ptr: *char,size: u64,nmemb: u64,stream: *char);
+extern u64 fwrite(ptr: *char,size: u64,nmemb: u64,stream: *char);
+extern *char fgets(s: *char,size: i32,stream: *char);
+extern i32 fputs(s: *char,stream: *char);
+extern i32 fprintf(stream: *char,format: *char,...);
+extern i32 fscanf(stream: *char,format: *char,...);
+extern i32 fgetc(stream: *char);
+extern i32 fputc(c: i32,stream: *char);
+extern i32 fseek(stream: *char,offset: i64,whence: i32);
+extern i64 ftell(stream: *char);
+extern void rewind(stream: *char);
+extern i32 feof(stream: *char);
+extern i32 ferror(stream: *char);
+extern i32 fflush(stream: *char);
+
+# ---- 标准流 ----
+
+extern var stdin: *char;
+extern var stdout: *char;
+extern var stderr: *char;
+
+# ---- 控制台 I/O ----
+
+extern i32 printf(format: *char,...);
+extern i32 puts(s: *char);
+extern i32 putchar(c: i32);
+extern i32 getchar();
+
+# ============================================================
+# stdlib.h - 标准库工具
+# ============================================================
+
+# ---- 内存管理 ----
+
+extern *void malloc(size: u64);
+extern *void calloc(nmemb: u64,size: u64);
+extern *void realloc(ptr: *void,size: u64);
+extern void free(ptr: *void);
+
+# ---- 程序控制 ----
+
+extern void exit(status: i32);
+extern i32 atexit(func: *void);
+
+# ---- 字符串转数值 ----
+
+extern i32 atoi(nptr: *char);
+extern i64 atol(nptr: *char);
+extern i64 strtol(nptr: *char,endptr: **char,base: i32);
+extern u64 strtoul(nptr: *char,endptr: **char,base: i32);
+extern f64 strtod(nptr: *char,endptr: **char);
+
+# ============================================================
+# string.h - 字符串操作
+# ============================================================
+
+# ---- 长度与复制 ----
+
+extern u64 strlen(s: *char);
+extern *char strcpy(dest: *char,src: *char);
+extern *char strncpy(dest: *char,src: *char,n: u64);
+extern *char strcat(dest: *char,src: *char);
+extern *char strncat(dest: *char,src: *char,n: u64);
+
+# ---- 比较与查找 ----
+
+extern i32 strcmp(s1: *char,s2: *char);
+extern i32 strncmp(s1: *char,s2: *char,n: u64);
+extern *char strchr(s: *char,c: i32);
+extern *char strrchr(s: *char,c: i32);
+extern *char strstr(haystack: *char,needle: *char);
+extern *char strtok(s: *char,delim: *char);
+
+# ============================================================
+# 内存操作 (string.h)
+# ============================================================
+
+extern *void memset(s: *void,c: i32,n: u64);
+extern *void memcpy(dest: *void,src: *void,n: u64);
+extern *void memmove(dest: *void,src: *void,n: u64);
+extern i32 memcmp(s1: *void,s2: *void,n: u64);
+
+# ============================================================
+# 常量
+# ============================================================
+
+extern const SEEK_SET: i32;
+extern const SEEK_CUR: i32;
+extern const SEEK_END: i32;
+extern const EOF: i32;
+extern const NULL: *void;
+
+@end

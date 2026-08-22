@@ -502,18 +502,32 @@ private:
 	
 	void analyzeVarDecl(AstNode* node){
 		if(!node) return;
-		if(node->var_decl.var_type){
-			checkType(node->var_decl.var_type,node);
+		bool isConst=(node->kind==AstNodeKind::CONST_DECL);
+		bool isExtern=isConst?node->const_decl.is_extern:node->var_decl.is_extern;
+		MioType* varType=isConst?node->const_decl.var_type:node->var_decl.var_type;
+		AstNode* initExpr=isConst?node->const_decl.init:node->var_decl.init;
+		std::string varName=isConst?node->const_decl.name:node->var_decl.name;
+		if(varType){
+			checkType(varType,node);
 		}
-		if(node->var_decl.init){
-			checkExpr(node->var_decl.init);
-			if(node->var_decl.init->kind==AstNodeKind::ARRAY_LIT&&node->var_decl.var_type){
-				node->var_decl.init->type=mio_type_clone(node->var_decl.var_type);
+		if(isExtern){
+			if(initExpr){
+				error(node,"extern variable '"+varName+"' cannot have an initializer");
 			}
-			if(node->var_decl.var_type){
-				MioType* initType=resolveExprMioType(node->var_decl.init);
-				if(initType&&!isTypeCompatible(node->var_decl.var_type,initType)){
-					error(node,"type mismatch: variable '"+node->var_decl.name+"' declared as '"+mio_type_str(node->var_decl.var_type)+"', initialized with '"+mio_type_str(initType)+"'");
+			if(!varType){
+				error(node,"extern variable '"+varName+"' requires an explicit type");
+			}
+			return;
+		}
+		if(initExpr){
+			checkExpr(initExpr);
+			if(initExpr->kind==AstNodeKind::ARRAY_LIT&&varType){
+				initExpr->type=mio_type_clone(varType);
+			}
+			if(varType){
+				MioType* initType=resolveExprMioType(initExpr);
+				if(initType&&!isTypeCompatible(varType,initType)){
+					error(node,"type mismatch: variable '"+varName+"' declared as '"+mio_type_str(varType)+"', initialized with '"+mio_type_str(initType)+"'");
 				}
 			}
 		}

@@ -587,6 +587,7 @@ class Compiler{
 	void genGlobalVar(AstNode* decl){
 		if(!decl)return;
 		bool isConst=(decl->kind==AstNodeKind::CONST_DECL);
+		bool isExtern=isConst?decl->const_decl.is_extern:decl->var_decl.is_extern;
 		std::string name=isConst?decl->const_decl.name:decl->var_decl.name;
 		std::string mangled=mangleName(name);
 		if(!currentNamespace.empty())
@@ -599,6 +600,11 @@ class Compiler{
 		llvm::Type* ty=convertType(mt,decl);
 		llvm::Constant* init=nullptr;
 		AstNode* initExpr=isConst?decl->const_decl.init:decl->var_decl.init;
+		if(isExtern){
+			auto* gv=new llvm::GlobalVariable(*mod,ty,isConst,llvm::GlobalValue::ExternalLinkage,nullptr,mangled);
+			globalVars[mangled]=gv;
+			return;
+		}
 		if(initExpr){
 			llvm::Value* val=genConstExpr(initExpr);
 			if(val&&llvm::isa<llvm::Constant>(val)){

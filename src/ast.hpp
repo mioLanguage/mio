@@ -107,12 +107,14 @@ public:
 		MioType*var_type;
 		AstNode*init;
 		bool is_static;
+		bool is_extern;
 	} var_decl;
 	struct{
 		std::string name;
 		MioType*var_type;
 		AstNode*init;
 		bool is_static;
+		bool is_extern;
 	} const_decl;
 	struct{
 		std::string name;
@@ -381,20 +383,22 @@ inline AstNode*ast_new_import(const std::string& path,int line,int col,const std
 	n->import.path=path;
 	return n;
 }
-inline AstNode*ast_new_var_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col,const std::string* fn){
+inline AstNode*ast_new_var_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,bool is_extern,int line,int col,const std::string* fn){
 	auto*n=new AstNode(AstNodeKind::VAR_DECL,line,col,fn);
 	n->var_decl.name=name;
 	n->var_decl.var_type=type;
 	n->var_decl.init=init;
 	n->var_decl.is_static=is_static;
+	n->var_decl.is_extern=is_extern;
 	return n;
 }
-inline AstNode*ast_new_const_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,int line,int col,const std::string* fn){
+inline AstNode*ast_new_const_decl(const std::string& name,MioType*type,AstNode*init,bool is_static,bool is_extern,int line,int col,const std::string* fn){
 	auto*n=new AstNode(AstNodeKind::CONST_DECL,line,col,fn);
 	n->const_decl.name=name;
 	n->const_decl.var_type=type;
 	n->const_decl.init=init;
 	n->const_decl.is_static=is_static;
+	n->const_decl.is_extern=is_extern;
 	return n;
 }
 inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,AstNode* body,bool is_static,int line,int col,const std::string* fn){
