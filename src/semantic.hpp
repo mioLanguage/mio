@@ -556,6 +556,15 @@ private:
 				localMioTypes[p.name]=p.type;
 			}
 		}
+		bool seenDefault=false;
+		for(size_t i=0;i<node->func_def.params.size();i++){
+			bool hasDefault=node->func_def.params[i].default_val!=nullptr;
+			if(hasDefault){
+				seenDefault=true;
+			}else if(seenDefault){
+				error(node,"parameter '"+node->func_def.params[i].name+"' must have a default value (preceding parameter has one)");
+			}
+		}
 		if(node->func_def.body){
 			analyzeBlock(node->func_def.body);
 		}
@@ -1065,8 +1074,17 @@ private:
 				return;
 			}
 		}else{
-			if(argCount!=paramCount){
-				error(node,"function '"+it->first+"' requires "+std::to_string(paramCount)+" argument(s), got "+std::to_string(argCount));
+			size_t requiredCount=paramCount;
+			for(size_t i=paramCount;i>0;i--){
+				if(!params[i-1].default_val) break;
+				requiredCount--;
+			}
+			if(argCount<requiredCount){
+				error(node,"function '"+it->first+"' requires at least "+std::to_string(requiredCount)+" argument(s), got "+std::to_string(argCount));
+				return;
+			}
+			if(argCount>paramCount){
+				error(node,"function '"+it->first+"' requires at most "+std::to_string(paramCount)+" argument(s), got "+std::to_string(argCount));
 				return;
 			}
 		}
