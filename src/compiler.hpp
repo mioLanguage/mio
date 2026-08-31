@@ -24,9 +24,9 @@
 #include"llvm/TargetParser/Host.h"
 #include"llvm/TargetParser/Triple.h"
 #include"llvm/Support/raw_ostream.h"
-#include"llvm/IR/LegacyPassManager.h"
-#include"llvm/InitializePasses.h"
-#include"llvm/PassRegistry.h"
+#include"llvm/Passes/PassBuilder.h"
+#include"llvm/Analysis/CGSCCPassManager.h"
+#include"llvm/Analysis/LoopAnalysisManager.h"
 #include"llvm/MC/TargetRegistry.h"
 #include"llvm/Support/CodeGen.h"
 #include"lld/Common/Driver.h"
@@ -2655,6 +2655,28 @@ public:
 		mod->print(os,nullptr);
 		return true;
 	}
+	void optimizeModule(){
+		if(optLevel==0)return;
+		llvm::LoopAnalysisManager LAM;
+		llvm::FunctionAnalysisManager FAM;
+		llvm::CGSCCAnalysisManager CGAM;
+		llvm::ModuleAnalysisManager MAM;
+		llvm::PassBuilder PB;
+		PB.registerModuleAnalyses(MAM);
+		PB.registerCGSCCAnalyses(CGAM);
+		PB.registerFunctionAnalyses(FAM);
+		PB.registerLoopAnalyses(LAM);
+		PB.crossRegisterProxies(LAM,FAM,CGAM,MAM);
+		llvm::OptimizationLevel level;
+		switch(optLevel){
+			case 1:level=llvm::OptimizationLevel::O1;break;
+			case 2:level=llvm::OptimizationLevel::O2;break;
+			case 3:level=llvm::OptimizationLevel::O3;break;
+			default:level=llvm::OptimizationLevel::O2;break;
+		}
+		llvm::ModulePassManager MPM=PB.buildPerModuleDefaultPipeline(level);
+		MPM.run(*mod,MAM);
+	}
 	bool emitObject(const std::string& path){
 		LLVMInitializeAllTargetInfos();
 		LLVMInitializeAllTargets();
@@ -2926,14 +2948,17 @@ public:
 			if(ok)fprintf(stdout,"Generated: %s\n",ll_path.c_str());
 		}else if(emit_asm||isAssemblyFile(output_file)){
 			std::string asm_path=output_file.empty()?base_name+".s":output_file;
+			optimizeModule();
 			ok=emitAssembly(asm_path);
 			if(ok)fprintf(stdout,"Generated: %s\n",asm_path.c_str());
 		}else if(compile_only||isObjectFile(output_file)){
 			std::string obj_path=output_file.empty()?base_name+".o":output_file;
+			optimizeModule();
 			ok=emitObject(obj_path);
 			if(ok)fprintf(stdout,"Generated: %s\n",obj_path.c_str());
 		}else{
 			std::string obj_path=base_name+".o";
+			optimizeModule();
 			ok=emitObject(obj_path);
 			if(!ok){
 				fprintf(stderr,"error: failed to emit object file '%s'\n",obj_path.c_str());

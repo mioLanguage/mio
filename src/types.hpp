@@ -145,26 +145,8 @@ inline MioType* mio_type_new_named(MioTypeKind kind,const std::string& name){
 inline MioType* mio_type_new_array(MioType* base,int size){
 	return new MioType(base,size);
 }
-inline MioType* mio_type_new_pointer(MioType* base){
-	MioType* mt=new MioType(MioTypeKind::POINTER);
-	mt->base_type=base;
-	return mt;
-}
-inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue=false){
-	if(!base)return nullptr;
-	if(base->kind==MioTypeKind::REFERENCE){
-		base->ref_count++;
-		return base;
-	}
-	if(base->kind==MioTypeKind::RVALUE_REFERENCE){
-		base->ref_count++;
-		return base;
-	}
-	MioType* mt=new MioType(is_rvalue?MioTypeKind::RVALUE_REFERENCE:MioTypeKind::REFERENCE);
-	mt->base_type=base;
-	mt->ref_count=1;
-	return mt;
-}
+inline MioType* mio_type_new_pointer(MioType* base);
+inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue=false);
 inline MioType* mio_type_add_ref(MioType* base,bool is_rvalue=false){
 	if(!base)return nullptr;
 	if(base->kind==MioTypeKind::REFERENCE||base->kind==MioTypeKind::RVALUE_REFERENCE){
@@ -176,6 +158,26 @@ inline MioType* mio_type_add_ref(MioType* base,bool is_rvalue=false){
 inline MioType* mio_type_clone(const MioType* type){
 	if(!type) return nullptr;
 	return new MioType(*type);
+}
+inline MioType* mio_type_new_pointer(MioType* base){
+	MioType* mt=new MioType(MioTypeKind::POINTER);
+	mt->base_type=mio_type_clone(base);
+	return mt;
+}
+inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue){
+	if(!base)return nullptr;
+	if(base->kind==MioTypeKind::REFERENCE){
+		base->ref_count++;
+		return base;
+	}
+	if(base->kind==MioTypeKind::RVALUE_REFERENCE){
+		base->ref_count++;
+		return base;
+	}
+	MioType* mt=new MioType(is_rvalue?MioTypeKind::RVALUE_REFERENCE:MioTypeKind::REFERENCE);
+	mt->base_type=mio_type_clone(base);
+	mt->ref_count=1;
+	return mt;
 }
 inline void mio_type_free(MioType* type){
 	delete type;
