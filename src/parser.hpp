@@ -38,7 +38,7 @@ public:
 	AstNode* parse(){
 		auto* program=new AstNode(AstNodeKind::PROGRAM,0,0,g_filename_pool.get(filename));
 		while(!check(TOK_EOF)){
-			if(check(TOK_AT_END)){advance();continue;}
+			if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 			auto* decl=parse_decl();
 			if(decl)program->program.nodes.push_back(decl);
 		}
@@ -245,7 +245,7 @@ private:
 		auto* fn_ptr=g_filename_pool.get(norm_resolved);
 		auto* block=new AstNode(AstNodeKind::BLOCK,line,col,fn_ptr);
 	while(!check(TOK_EOF)){
-		if(check(TOK_AT_END)){advance();continue;}
+		if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 		auto* decl=parse_decl();
 			if(decl)add_import_to_block(block,decl);
 		}
@@ -434,7 +434,7 @@ private:
 				if(match(TOK_DOUBLE_COLON)){
 					if(cur->kind!=TOK_IDENT){
 						error_expected("identifier after '::'");
-						return nullptr;
+						return ast_new_ident(name,line,col,fn());
 					}
 					auto* n=ast_new_ident(cur->lexeme,cur->line,cur->col,fn());
 					n->ident.namespace_name=name;
@@ -447,7 +447,7 @@ private:
 				advance();
 				if(cur->kind!=TOK_IDENT){
 					error_expected("identifier after '::'");
-					return nullptr;
+					return ast_new_int_lit(0,t->line,t->col,fn());
 				}
 				auto* n=ast_new_ident(cur->lexeme,cur->line,cur->col,fn());
 				n->ident.namespace_name="::";
@@ -863,6 +863,8 @@ private:
 			}
 			case TOK_RETURN:
 				return parse_return_stmt();
+			case TOK_AT_IF:
+				return parse_cond_comp_stmt(cur->line,cur->col);
 			case TOK_LBRACE:
 				return parse_block();
 			case TOK_SEMICOLON:
@@ -929,12 +931,11 @@ private:
 					break;
 				}
 				std::string pname=cur->lexeme;
-				if(!expect_ident()){mio_type_free(return_type);delete func;return nullptr;}
+				if(!expect_ident()){delete func;return nullptr;}
 				expect(TOK_COLON);
 				auto* ptype=parse_type();
 				if(!ptype){
 					error("expected type for parameter '"+pname+"'");
-					mio_type_free(return_type);
 					delete func;
 					return nullptr;
 				}
@@ -944,6 +945,7 @@ private:
 					if(!default_val){
 						error("expected default value after '='");
 						mio_type_free(ptype);
+						delete func;
 						return nullptr;
 					}
 				}
@@ -1211,6 +1213,7 @@ private:
 		auto* n=ast_new_namespace_def(name,line,col,fn());
 		expect(TOK_LBRACE);
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
+			if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 			auto* decl=parse_decl();
 			if(decl)n->namespace_def.body.push_back(decl);
 		}
@@ -1297,7 +1300,8 @@ private:
 			advance();
 		}
 	}
-	AstNode* parse_cond_comp(int line,int col){
+	typedef AstNode*(Parser::*ParseItemFn)();
+	AstNode* parse_cond_comp_impl(int line,int col,ParseItemFn parse_item){
 		advance();
 		bool negate=false;
 		if(check(TOK_NOT)){
@@ -1311,11 +1315,11 @@ private:
 			if(result){
 				auto* block=ast_new_block(line,col,fn());
 				while(!check(TOK_EOF)&&!check(TOK_AT_ELIF)&&!check(TOK_AT_ELSE)&&!check(TOK_AT_END)){
-					auto* decl=parse_decl();
-					if(decl)block->block.stmts.push_back(decl);
+					auto* item=(this->*parse_item)();
+					if(item)block->block.stmts.push_back(item);
 				}
 				skip_cond_to_end();
-				if(check(TOK_AT_ELIF))parse_cond_comp(cur->line,cur->col);
+				if(check(TOK_AT_ELIF))parse_cond_comp_impl(cur->line,cur->col,parse_item);
 				if(check(TOK_AT_ELSE)){
 					advance();
 					skip_cond_block();
@@ -1325,14 +1329,14 @@ private:
 			}else{
 				skip_cond_block();
 				if(check(TOK_AT_ELIF)){
-					return parse_cond_comp(cur->line,cur->col);
+					return parse_cond_comp_impl(cur->line,cur->col,parse_item);
 				}
 				if(check(TOK_AT_ELSE)){
 					advance();
 					auto* block=ast_new_block(line,col,fn());
 					while(!check(TOK_EOF)&&!check(TOK_AT_ELIF)&&!check(TOK_AT_ELSE)&&!check(TOK_AT_END)){
-						auto* decl=parse_decl();
-						if(decl)block->block.stmts.push_back(decl);
+						auto* item=(this->*parse_item)();
+						if(item)block->block.stmts.push_back(item);
 					}
 					if(check(TOK_AT_END))advance();
 					return block;
@@ -1346,6 +1350,12 @@ private:
 			if(check(TOK_AT_END))advance();
 			return nullptr;
 		}
+	}
+	AstNode* parse_cond_comp(int line,int col){
+		return parse_cond_comp_impl(line,col,&Parser::parse_decl);
+	}
+	AstNode* parse_cond_comp_stmt(int line,int col){
+		return parse_cond_comp_impl(line,col,&Parser::parse_stmt);
 	}
 	AstNode* parse_decl(){
 		while(match(TOK_SEMICOLON));
@@ -1440,6 +1450,8 @@ private:
 				return parse_template_def();
 			case TOK_EOF:
 			case TOK_AT_END:
+				error("stray '@end' outside of conditional compilation block");
+				advance();
 				return nullptr;
 			default:{
 				bool mv=match(TOK_VIRTUAL);
