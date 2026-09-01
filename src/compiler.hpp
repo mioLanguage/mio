@@ -186,6 +186,16 @@ class Compiler{
 					error(node->line,node->col,"internal error: undefined global variable '"+name+"'");
 					return llvm::Type::getVoidTy(ctx);
 				}
+				if(ns.empty()){
+					auto it=locals.find(name);
+					if(it!=locals.end()){
+						auto mit=localMioTypes.find(name);
+						if(mit!=localMioTypes.end()&&(mit->second->kind==MioTypeKind::REFERENCE||mit->second->kind==MioTypeKind::RVALUE_REFERENCE)){
+							return convertType(mit->second->base_type);
+						}
+						return it->second->getAllocatedType();
+					}
+				}
 				std::string fullName=resolveNamespaceName(name,ns);
 				auto it=locals.find(fullName);
 				if(it!=locals.end()){
@@ -476,7 +486,41 @@ class Compiler{
 		}
 	}
 	
+	void declareFuncForward(AstNode* node){
+		if(!node)return;
+		switch(node->kind){
+			case AstNodeKind::FUNC_DEF:
+				declareFunc(node);
+				break;
+			case AstNodeKind::BLOCK:
+				for(auto* stmt:node->block.stmts){
+					declareFuncForward(stmt);
+				}
+				break;
+			case AstNodeKind::NAMESPACE_DEF:{
+				std::string savedNs=currentNamespace;
+				if(!currentNamespace.empty())
+					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+				else
+					currentNamespace=node->namespace_def.name;
+				for(auto* decl:node->namespace_def.body){
+					declareFuncForward(decl);
+				}
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::IMPORT:
+				for(auto* stmt:node->block.stmts){
+					declareFuncForward(stmt);
+				}
+				break;
+			default:break;
+		}
+	}
 	void genProgram(AstNode* prog){
+		for(auto* node:prog->program.nodes){
+			declareFuncForward(node);
+		}
 		for(auto* node:prog->program.nodes){
 			genDecl(node);
 		}
@@ -620,25 +664,8 @@ class Compiler{
 		auto* gv=new llvm::GlobalVariable(*mod,ty,isConst,llvm::GlobalValue::InternalLinkage,init,mangled);
 		globalVars[mangled]=gv;
 	}
-	void genFuncDef(AstNode* def){
-		if(!def){
-			error("null function definition");
-			return;
-		}
-		std::string dbgName=def->func_def.name;
-		auto* savedFn=curFn;
-		auto* savedBB=curBB;
-		auto* savedThisAlloca=thisAlloca;
-		std::string savedClassName=currentClassName;
-		std::vector<std::pair<std::string,llvm::AllocaInst*>> savedCleanupStack=cleanupStack;
-		auto savedLocals=locals;
-		auto savedLocalMioTypes=localMioTypes;
-		llvm::IRBuilderBase::InsertPoint savedIP;
-		bool hadInsertPoint=(b.GetInsertBlock()!=nullptr);
-		if(hadInsertPoint){
-			savedIP=b.saveIP();
-		}
-		
+	llvm::Function* declareFunc(AstNode* def){
+		if(!def)return nullptr;
 		std::string name=def->func_def.name;
 		bool isMethod=!def->func_def.class_name.empty();
 		std::string shortClassName=def->func_def.class_name;
@@ -647,7 +674,6 @@ class Compiler{
 			if(pos!=std::string::npos)shortClassName=shortClassName.substr(pos+2);
 		}
 		bool isCtor=isMethod&&def->func_def.name==shortClassName;
-		bool isDtor=isMethod&&!name.empty()&&name[0]=='~';
 		llvm::Type* retTy=nullptr;
 		if(isCtor){
 			retTy=llvm::Type::getVoidTy(ctx);
@@ -694,17 +720,10 @@ class Compiler{
 		auto fnIt=funcDecls.find(mangledName);
 		if(fnIt!=funcDecls.end()){
 			fn=fnIt->second;
-			if(fn->size()>0){
-				if(hadInsertPoint)b.restoreIP(savedIP);
-				curFn=savedFn;curBB=savedBB;thisAlloca=savedThisAlloca;
-				currentClassName=savedClassName;cleanupStack=savedCleanupStack;
-				locals=savedLocals;localMioTypes=savedLocalMioTypes;
-				return;
-			}
 		}else{
 			if(funcDecls.count(mangledName)&&!def->func_def.is_extern&&!def->func_def.is_pure_virtual){
 				error(def,"internal error: redefinition of function '"+mangledName+"'");
-				return;
+				return nullptr;
 			}
 			fn=llvm::Function::Create(ft,llvm::Function::ExternalLinkage,0,mangledName,mod.get());
 			funcDecls[mangledName]=fn;
@@ -713,9 +732,54 @@ class Compiler{
 		if(name!=mangledName&&!isCtor&&!def->func_def.is_operator&&!isMethod){
 			if(funcDecls.count(name)&&funcDecls[name]!=fn){
 				error(def,"internal error: redefinition of function '"+name+"'");
-				return;
+				return nullptr;
 			}
 			funcDecls[name]=fn;
+		}
+		return fn;
+	}
+	void genFuncDef(AstNode* def){
+		if(!def){
+			error("null function definition");
+			return;
+		}
+		std::string dbgName=def->func_def.name;
+		auto* savedFn=curFn;
+		auto* savedBB=curBB;
+		auto* savedThisAlloca=thisAlloca;
+		std::string savedClassName=currentClassName;
+		std::vector<std::pair<std::string,llvm::AllocaInst*>> savedCleanupStack=cleanupStack;
+		auto savedLocals=locals;
+		auto savedLocalMioTypes=localMioTypes;
+		llvm::IRBuilderBase::InsertPoint savedIP;
+		bool hadInsertPoint=(b.GetInsertBlock()!=nullptr);
+		if(hadInsertPoint){
+			savedIP=b.saveIP();
+		}
+		
+		std::string name=def->func_def.name;
+		bool isMethod=!def->func_def.class_name.empty();
+		std::string shortClassName=def->func_def.class_name;
+		{
+			auto pos=shortClassName.rfind("::");
+			if(pos!=std::string::npos)shortClassName=shortClassName.substr(pos+2);
+		}
+		bool isCtor=isMethod&&def->func_def.name==shortClassName;
+		bool isDtor=isMethod&&!name.empty()&&name[0]=='~';
+		llvm::Type* retTy=nullptr;
+		if(isCtor){
+			retTy=llvm::Type::getVoidTy(ctx);
+		}else{
+			retTy=convertType(def->func_def.return_type);
+		}
+		llvm::Function* fn=declareFunc(def);
+		if(!fn)return;
+		if(fn->size()>0){
+			if(hadInsertPoint)b.restoreIP(savedIP);
+			curFn=savedFn;curBB=savedBB;thisAlloca=savedThisAlloca;
+			currentClassName=savedClassName;cleanupStack=savedCleanupStack;
+			locals=savedLocals;localMioTypes=savedLocalMioTypes;
+			return;
 		}
 		if(def->func_def.is_extern)return;
 		if(def->func_def.is_pure_virtual)return;
@@ -880,12 +944,9 @@ class Compiler{
 			declareMethod(def->class_def.destructor,mangled);
 		}
 	}
-	void genClassDef(AstNode* def){
-		std::string savedFilename=filename;
-		if(def->filename) filename=*def->filename;
+	void setupClassFields(AstNode* def){
 		std::string name=def->class_def.name;
 		std::string mangled=mangleName(name);
-		
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
 		bool isForwardDecl=forwardDeclaredClasses.count(mangled)>0;
@@ -907,7 +968,7 @@ class Compiler{
 			classBaseMap[mangled]=base_mangled;
 			classBaseAccessMap[mangled]=def->class_def.base_access.empty()?"private":def->class_def.base_access;
 		}
-				classVTableOrder[mangled].clear();
+		classVTableOrder[mangled].clear();
 		if(!def->class_def.base_name.empty()){
 			auto it=classVTableOrder.find(base_mangled);
 			if(it!=classVTableOrder.end()){
@@ -922,19 +983,6 @@ class Compiler{
 						if(vn==m->func_def.name){found=true;break;}
 					}
 					if(!found)classVTableOrder[mangled].push_back(m->func_def.name);
-				}
-			}
-		}
-		if(!def->class_def.base_name.empty()){
-			auto it=classVTableOrder.find(base_mangled);
-			if(it!=classVTableOrder.end()){
-				for(auto& vn:it->second){
-					bool overridden=false;
-					for(auto& mn:classVTableOrder[mangled]){
-						if(mn==vn){overridden=true;break;}
-					}
-					if(!overridden){
-					}
 				}
 			}
 		}
@@ -984,6 +1032,10 @@ class Compiler{
 				}
 			}
 		}
+	}
+	void genClassMethods(AstNode* def){
+		std::string name=def->class_def.name;
+		std::string mangled=mangleName(name);
 		for(auto* m:def->class_def.methods){
 			if(m->kind==AstNodeKind::FUNC_DEF){
 				m->func_def.class_name=mangled;
@@ -1005,6 +1057,7 @@ class Compiler{
 				genFuncBody(m);
 			}
 		}
+		bool hasVTable=!classVTableOrder[mangled].empty();
 		if(hasVTable) genVTable(mangled);
 		if(!def->class_def.constructors.empty()){
 			for(auto* ctor:def->class_def.constructors){
@@ -1012,10 +1065,15 @@ class Compiler{
 			}
 		}
 		if(def->class_def.destructor){
-			auto* dtor=def->class_def.destructor;
-			genFuncBody(dtor);
+			genFuncBody(def->class_def.destructor);
 			classDestructorMap[mangled]=mangled+"::~"+name;
 		}
+	}
+	void genClassDef(AstNode* def){
+		std::string savedFilename=filename;
+		if(def->filename) filename=*def->filename;
+		setupClassFields(def);
+		genClassMethods(def);
 		for(auto* nc:def->class_def.nested_classes){
 			genClassDef(nc);
 		}
@@ -1959,8 +2017,6 @@ class Compiler{
 				unsigned expectedArgs=1+node->call.args.size();
 				llvm::Function* ctor=nullptr;
 				int matchCount=0;
-				
-				
 				std::vector<llvm::Function*> candidates;
 				for(auto& f:mod->functions()){
 					std::string fnName=f.getName().str();
@@ -1970,10 +2026,7 @@ class Compiler{
 						}
 					}
 				}
-				
-				
 				if(candidates.size()>1){
-					
 					std::vector<llvm::Type*> argTypes;
 					for(auto* a:node->call.args){
 						llvm::Value* av=genExpr(a);
@@ -2628,6 +2681,7 @@ public:
 				currentNamespace="";
 			}
 			declareClassMethods(inst);
+			setupClassFields(inst);
 			currentNamespace=savedNs;
 		}
 		genProgram(program);
@@ -2639,7 +2693,7 @@ public:
 			}else{
 				currentNamespace="";
 			}
-			genClassDef(inst);
+			genClassMethods(inst);
 			currentNamespace=savedNs;
 		}
 		if(llvm::verifyModule(*mod,&llvm::errs()))
