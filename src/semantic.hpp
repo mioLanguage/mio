@@ -545,7 +545,12 @@ private:
 		auto savedLocals=locals;
 		auto savedMioTypes=localMioTypes;
 		auto savedHasReturn=hasReturnStmt;
+		auto savedLabels=labels;
 		hasReturnStmt=false;
+		labels.clear();
+		if(node->func_def.body){
+			collectLabels(node->func_def.body);
+		}
 		if(!node->func_def.class_name.empty()){
 			MioType* thisType=mio_type_new_pointer(mio_type_new_named(MioTypeKind::CLASS,node->func_def.class_name));
 			locals["this"]=thisType;
@@ -582,6 +587,7 @@ private:
 		localMioTypes=savedMioTypes;
 		currentFuncReturnType=savedReturnType;
 		hasReturnStmt=savedHasReturn;
+		labels=savedLabels;
 	}
 	
 	void analyzeBlock(AstNode* block){
@@ -592,6 +598,27 @@ private:
 			}
 		}else{
 			analyzeStmt(block);
+		}
+	}
+	
+	void collectLabels(AstNode* block){
+		if(!block) return;
+		if(block->kind==AstNodeKind::BLOCK){
+			for(auto* stmt:block->block.stmts){
+				collectLabels(stmt);
+			}
+		}else if(block->kind==AstNodeKind::LABEL_STMT){
+			if(labels.find(block->label_stmt.label)!=labels.end()){
+				error(block,"duplicate label '"+block->label_stmt.label+"' in current function");
+			}
+			labels.insert(block->label_stmt.label);
+		}else if(block->kind==AstNodeKind::IF_STMT){
+			collectLabels(block->if_stmt.then_body);
+			if(block->if_stmt.else_body) collectLabels(block->if_stmt.else_body);
+		}else if(block->kind==AstNodeKind::WHILE_STMT){
+			collectLabels(block->while_stmt.body);
+		}else if(block->kind==AstNodeKind::FOR_STMT){
+			collectLabels(block->for_stmt.body);
 		}
 	}
 	
@@ -739,6 +766,13 @@ private:
 				break;
 			case AstNodeKind::BLOCK:
 				analyzeBlock(stmt);
+				break;
+			case AstNodeKind::GOTO_STMT:
+				if(labels.find(stmt->goto_stmt.label)==labels.end()){
+					error(stmt,"goto target label '"+stmt->goto_stmt.label+"' not found in current function");
+				}
+				break;
+			case AstNodeKind::LABEL_STMT:
 				break;
 			default:
 				break;
@@ -1952,6 +1986,7 @@ private:
 	std::unordered_set<std::string> importedNamespaces;
 	std::unordered_map<std::string,MioType*> locals;
 	std::unordered_map<std::string,MioType*> localMioTypes;
+	std::unordered_set<std::string> labels;
 };
 
 #endif

@@ -62,6 +62,7 @@ class Compiler{
 	std::unordered_map<std::string,std::string> namespaceMembers;
 	std::vector<llvm::BasicBlock*>breakStack;
 	std::vector<llvm::BasicBlock*>continueStack;
+	std::unordered_map<std::string,llvm::BasicBlock*>labelMap;
 	std::unordered_map<std::string,llvm::AllocaInst*>locals;
 	std::unordered_map<std::string,MioType*>localMioTypes;
 	std::unordered_map<std::string,llvm::StructType*>classTypes;
@@ -751,6 +752,8 @@ class Compiler{
 		std::vector<std::pair<std::string,llvm::AllocaInst*>> savedCleanupStack=cleanupStack;
 		auto savedLocals=locals;
 		auto savedLocalMioTypes=localMioTypes;
+		auto savedLabelMap=labelMap;
+		labelMap.clear();
 		llvm::IRBuilderBase::InsertPoint savedIP;
 		bool hadInsertPoint=(b.GetInsertBlock()!=nullptr);
 		if(hadInsertPoint){
@@ -778,7 +781,7 @@ class Compiler{
 			if(hadInsertPoint)b.restoreIP(savedIP);
 			curFn=savedFn;curBB=savedBB;thisAlloca=savedThisAlloca;
 			currentClassName=savedClassName;cleanupStack=savedCleanupStack;
-			locals=savedLocals;localMioTypes=savedLocalMioTypes;
+			locals=savedLocals;localMioTypes=savedLocalMioTypes;labelMap=savedLabelMap;
 			return;
 		}
 		if(def->func_def.is_extern)return;
@@ -881,6 +884,7 @@ class Compiler{
 		cleanupStack=savedCleanupStack;
 		locals=savedLocals;
 		localMioTypes=savedLocalMioTypes;
+		labelMap=savedLabelMap;
 		if(hadInsertPoint){
 			b.restoreIP(savedIP);
 		}
@@ -1303,7 +1307,12 @@ class Compiler{
 		cleanupStack.resize(savedSize);
 	}
 	void genStmt(AstNode* stmt){
-		if(!curBB||curBB->getTerminator())return;
+		if(!curBB)return;
+		if(stmt&&stmt->kind==AstNodeKind::LABEL_STMT){
+			genLabelStmt(stmt);
+			return;
+		}
+		if(curBB->getTerminator())return;
 		switch(stmt->kind){
 			case AstNodeKind::VAR_DECL:		genVarDecl(stmt);break;
 			case AstNodeKind::CONST_DECL:	genVarDecl(stmt);break;
@@ -1316,8 +1325,8 @@ class Compiler{
 			case AstNodeKind::BLOCK:		genBlock(stmt);break;
 			case AstNodeKind::BREAK_STMT:	genBreakStmt(stmt);break;
 			case AstNodeKind::CONTINUE_STMT:genContinueStmt(stmt);break;
-			case AstNodeKind::GOTO_STMT:	break;
-			case AstNodeKind::LABEL_STMT:	break;
+			case AstNodeKind::GOTO_STMT:	genGotoStmt(stmt);break;
+			case AstNodeKind::LABEL_STMT:	genLabelStmt(stmt);break;
 			default:{
 				llvm::Value* v=genExpr(stmt);
 				if(!v)error(stmt->line,stmt->col,"failed to generate expression statement");
@@ -1448,6 +1457,34 @@ class Compiler{
 	}
 	void genContinueStmt(AstNode* stmt){
 		if(!continueStack.empty())b.CreateBr(continueStack.back());
+	}
+	void genGotoStmt(AstNode* stmt){
+		std::string label=stmt->goto_stmt.label;
+		auto it=labelMap.find(label);
+		llvm::BasicBlock* target=nullptr;
+		if(it!=labelMap.end()){
+			target=it->second;
+		}else{
+			target=llvm::BasicBlock::Create(ctx,label,curFn);
+			labelMap[label]=target;
+		}
+		b.CreateBr(target);
+	}
+	void genLabelStmt(AstNode* stmt){
+		std::string label=stmt->label_stmt.label;
+		auto it=labelMap.find(label);
+		llvm::BasicBlock* target=nullptr;
+		if(it!=labelMap.end()){
+			target=it->second;
+		}else{
+			target=llvm::BasicBlock::Create(ctx,label,curFn);
+			labelMap[label]=target;
+		}
+		if(curBB&&!curBB->getTerminator()){
+			b.CreateBr(target);
+		}
+		curBB=target;
+		b.SetInsertPoint(target);
 	}
 	void genReturnStmt(AstNode* stmt){
 		genCleanupAll();
