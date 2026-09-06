@@ -44,7 +44,6 @@ enum class AstNodeKind{
 	ARRAY_LIT,
 	CAST_EXPR,
 	ASSIGN_EXPR,
-	MACRO_DEF,
 	TEMPLATE_DEF,
 	SIZEOF_EXPR,
 };
@@ -234,9 +233,6 @@ public:
 		std::string resolved_op_method;
 	} assign;
 	struct{
-		std::string name,value;
-	} macro_def;
-	struct{
 		std::vector<TemplateParam> type_params;
 		AstNode* def;
 	} template_def;
@@ -348,8 +344,6 @@ inline AstNode::~AstNode(){
 		case AstNodeKind::ASSIGN_EXPR:
 			delete assign.left;
 			delete assign.right;
-			break;
-		case AstNodeKind::MACRO_DEF:
 			break;
 		case AstNodeKind::TEMPLATE_DEF:
 			for(auto& tp:template_def.type_params){
@@ -571,12 +565,6 @@ inline AstNode*ast_new_assign(AstNode*left,TokenKind op,AstNode*right,int line,i
 	n->assign.left=left;
 	n->assign.op=op;
 	n->assign.right=right;
-	return n;
-}
-inline AstNode*ast_new_macro_def(const std::string& name,const std::string& value,int line,int col,const std::string* fn){
-	auto*n=new AstNode(AstNodeKind::MACRO_DEF,line,col,fn);
-	n->macro_def.name=name;
-	n->macro_def.value=value.empty()?"1":value;
 	return n;
 }
 inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_params,AstNode* def,int line,int col,const std::string* fn){

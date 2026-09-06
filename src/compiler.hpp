@@ -477,7 +477,6 @@ class Compiler{
 				importedNamespaces.insert(ns);
 				break;
 			}
-			case AstNodeKind::MACRO_DEF:	break;
 			case AstNodeKind::IMPORT:
 				for(auto* stmt:node->block.stmts){
 					genDecl(stmt);
@@ -2990,7 +2989,7 @@ public:
 		file.close();
 		Lexer lexer(source,input_file);
 		Parser parser(&lexer,input_file,include_paths);
-		for(const auto& m:defines)parser.add_macro(m,"1");
+		for(const auto& m:defines)lexer.add_macro(m,"1");
 		AstNode* program=parser.parse();
 		if(!program) return false;
 		if(g_error_count){

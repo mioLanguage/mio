@@ -1,5 +1,5 @@
 @if !STDLIB
-macro STDLIB;
+@macro STDLIB
 extern *char malloc(size: u64);
 extern *char calloc(count: u64,size: u64);
 extern *char realloc(ptr: *char,size: u64);

@@ -11,12 +11,21 @@ struct KeywordEntry{
 	const char* keyword;
 	TokenKind kind;
 };
+struct Macro{
+	std::string name;
+	std::string value;
+};
+struct CondState{
+	bool in_true_branch;
+	bool skipping;
+	bool has_else;
+};
 class Lexer{
 	friend class Parser;
 public:
 	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0){
-		current=token();
-		peekToken=token();
+		current=preprocess_token();
+		peekToken=preprocess_token();
 	}
 	~Lexer(){
 		tok_free(current);
@@ -24,20 +33,39 @@ public:
 	}
 	Token* next(){
 		current=peekToken;
-		peekToken=token();
+		peekToken=preprocess_token();
 		return current;
 	}
 	Token* peek(){
 		return peekToken;
 	}
+	void add_macro(const std::string& name,const std::string& value){
+		for(auto& m:macros){
+			if(m.name==name){
+				m.value=value;
+				return;
+			}
+		}
+		macros.push_back({name,value});
+	}
+	bool is_macro_defined(const std::string& name){
+		for(const auto& m:macros)
+			if(m.name==name)return true;
+		return false;
+	}
+	void copy_macros_from(const std::vector<Macro>& src){
+		for(const auto& m:src)
+			add_macro(m.name,m.value);
+	}
+	const std::vector<Macro>& get_macros()const{return macros;}
 	bool is_template_instantiation(){
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
 		Token* saved_peek=peekToken;
-		Token* t1=token();
+		Token* t1=raw_token();
 		bool result=false;
 		if(t1->kind==TOK_DOLLAR){
-			Token* t2=token();
+			Token* t2=raw_token();
 			result=(t2->kind==TOK_LPAREN);
 		}
 		pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
@@ -45,6 +73,9 @@ public:
 		return result;
 	}
 private:
+	enum InternalKind:int{
+		IK_AT_IF=1000,IK_AT_ELIF,IK_AT_ELSE,IK_AT_END,IK_AT_MACRO
+	};
 	#define match(c) (cur()==c?(advance(),true):false)
 	#define cur() (source[pos])
 	std::string source;
@@ -52,6 +83,8 @@ private:
 	int pos,line,col,bol;
 	Token* current;
 	Token* peekToken;
+	std::vector<Macro> macros;
+	std::vector<CondState> cond_stack;
 	static char* mioStrndup(const char* s,int n){
 		char* buf=(char*)malloc(n+1);
 		if(!buf){
@@ -224,109 +257,318 @@ private:
 		t->char_val=c;
 		return t;
 	}
-	Token* token(){
-		skipWhitespace();
-		if(cur()=='\0')return tok_new(TOK_EOF,std::string(),line,col);
-		int lineNum=line;
-		int colNum=col;
-		char c=advance();
-		if(isalpha(c)||c=='_'){
-			pos--;
-			col--;
-			return ident();
-		}
-		if(isdigit(c)){
-			pos--;
-			col--;
-			return number();
-		}
-		switch(c){
-			case '"': pos--;col--;return stringLit();
-			case '\'': pos--;col--;return charLit();
-			case '+': 
-				if(match('='))return tok_new(TOK_PLUS_ASSIGN,"+=",lineNum,colNum);
-				return tok_new(TOK_PLUS,std::string(),lineNum,colNum);
-			case '-':
-				if(match('='))return tok_new(TOK_MINUS_ASSIGN,"-=",lineNum,colNum);
-				if(match('>'))return tok_new(TOK_ARROW,std::string(),lineNum,colNum);
-				return tok_new(TOK_MINUS,std::string(),lineNum,colNum);
-			case '*': 
-				if(match('='))return tok_new(TOK_STAR_ASSIGN,"*=",lineNum,colNum);
-				return tok_new(TOK_STAR,std::string(),lineNum,colNum);
-			case '/': 
-				if(match('='))return tok_new(TOK_SLASH_ASSIGN,"/=",lineNum,colNum);
-				return tok_new(TOK_SLASH,std::string(),lineNum,colNum);
-			case '%': 
-				if(match('='))return tok_new(TOK_PERCENT_ASSIGN,"%=",lineNum,colNum);
-				return tok_new(TOK_PERCENT,std::string(),lineNum,colNum);
-			case '(': return tok_new(TOK_LPAREN,std::string(),lineNum,colNum);
-			case ')': return tok_new(TOK_RPAREN,std::string(),lineNum,colNum);
-			case '{': return tok_new(TOK_LBRACE,std::string(),lineNum,colNum);
-			case '}': return tok_new(TOK_RBRACE,std::string(),lineNum,colNum);
-			case '[': return tok_new(TOK_LBRACKET,std::string(),lineNum,colNum);
-			case ']': return tok_new(TOK_RBRACKET,std::string(),lineNum,colNum);
-			case ';': return tok_new(TOK_SEMICOLON,std::string(),lineNum,colNum);
-			case ':': 
-				if(match(':'))return tok_new(TOK_DOUBLE_COLON,"::",lineNum,colNum);
-				return tok_new(TOK_COLON,std::string(),lineNum,colNum);
-			case ',': return tok_new(TOK_COMMA,std::string(),lineNum,colNum);
-			case '.': 
-				if(match('.')&&match('.'))return tok_new(TOK_VARARG,"...",lineNum,colNum);
-				return tok_new(TOK_DOT,std::string(),lineNum,colNum);
-			case '=':
-				if(match('='))return tok_new(TOK_EQ,std::string(),lineNum,colNum);
-				return tok_new(TOK_ASSIGN,std::string(),lineNum,colNum);
-			case '!':
-				if(match('='))return tok_new(TOK_NEQ,std::string(),lineNum,colNum);
-				return tok_new(TOK_NOT,std::string(),lineNum,colNum);
-			case '<':
-				if(match('='))return tok_new(TOK_LTE,std::string(),lineNum,colNum);
-				if(match('<')){
-					if(match('='))return tok_new(TOK_LSHIFT_ASSIGN,"<<=",lineNum,colNum);
-					return tok_new(TOK_LSHIFT,std::string(),lineNum,colNum);
-				}
-				return tok_new(TOK_LT,std::string(),lineNum,colNum);
-			case '>':
-				if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
-				if(match('>')){
-					if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
-					return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
-				}
-				return tok_new(TOK_GT,std::string(),lineNum,colNum);
-			case '&':
-				if(match('&'))return tok_new(TOK_AND,std::string(),lineNum,colNum);
-				if(match('='))return tok_new(TOK_AND_ASSIGN,"&=",lineNum,colNum);
-				return tok_new(TOK_BIT_AND,std::string(),lineNum,colNum);
-			case '|':
-				if(match('|'))return tok_new(TOK_OR,std::string(),lineNum,colNum);
-				if(match('='))return tok_new(TOK_OR_ASSIGN,"|=",lineNum,colNum);
-				return tok_new(TOK_BIT_OR,std::string(),lineNum,colNum);
-			case '^': 
-				if(match('='))return tok_new(TOK_XOR_ASSIGN,"^=",lineNum,colNum);
-				return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
-			case '~': return tok_new(TOK_BIT_NOT,std::string(),lineNum,colNum);
-			case '$': return tok_new(TOK_DOLLAR,std::string(),lineNum,colNum);
-			case '@':{
-				int start=pos;
-				int startCol=col;
-				while(isalnum(cur())||cur()=='_')
-					advance();
-				int len=pos-start;
-				char* text=mioStrndup(source.c_str()+start,len);
-				if(strcmp(text,"if")==0){free(text);return tok_new(TOK_AT_IF,std::string(),lineNum,startCol);}
-				if(strcmp(text,"elif")==0){free(text);return tok_new(TOK_AT_ELIF,std::string(),lineNum,startCol);}
-				if(strcmp(text,"else")==0){free(text);return tok_new(TOK_AT_ELSE,std::string(),lineNum,startCol);}
-				if(strcmp(text,"end")==0){free(text);return tok_new(TOK_AT_END,std::string(),lineNum,startCol);}
-				char buf[64];
-				snprintf(buf,sizeof(buf),"unknown directive '@%s'",text);
-				free(text);
-				return tok_new(TOK_ERROR,buf,lineNum,colNum);
+	void skip_cond_block(){
+		int depth=0;
+		while(true){
+			Token* t=raw_token();
+			if(t->kind==TOK_EOF){
+				tok_free(t);
+				return;
 			}
-			default:{
-				char buf[64];
-				snprintf(buf,sizeof(buf),"unexpected character '%c'",c);
-				Token* t=tok_new(TOK_ERROR,buf,lineNum,colNum);
+			if((int)t->kind==IK_AT_IF){
+				depth++;
+				tok_free(t);
+				continue;
+			}
+			if(depth==0&&((int)t->kind==IK_AT_ELIF||(int)t->kind==IK_AT_ELSE||(int)t->kind==IK_AT_END)){
+				pos=t->line;line=t->line;col=t->col;bol=t->line;
+				tok_free(t);
+				return;
+			}
+			if((int)t->kind==IK_AT_END){
+				depth--;
+				tok_free(t);
+				continue;
+			}
+			tok_free(t);
+		}
+	}
+	void skip_cond_to_end(){
+		int depth=0;
+		while(true){
+			Token* t=raw_token();
+			if(t->kind==TOK_EOF){
+				tok_free(t);
+				return;
+			}
+			if((int)t->kind==IK_AT_IF){
+				depth++;
+				tok_free(t);
+				continue;
+			}
+			if(depth==0&&(int)t->kind==IK_AT_END){
+				tok_free(t);
+				return;
+			}
+			if((int)t->kind==IK_AT_END){
+				depth--;
+			}
+			tok_free(t);
+		}
+	}
+	Token* preprocess_token(){
+		while(true){
+			Token* t=raw_token();
+			switch((int)t->kind){
+			case IK_AT_IF:{
+				int line=t->line;
+				int col=t->col;
+				tok_free(t);
+				bool negate=false;
+				t=raw_token();
+				if(t->kind==TOK_NOT){
+					negate=true;
+					tok_free(t);
+					t=raw_token();
+				}
+				bool defined=false;
+				if(t->kind==TOK_IDENT){
+					defined=is_macro_defined(t->lexeme);
+				}
+				tok_free(t);
+				bool result=negate?!defined:defined;
+				if(result){
+					cond_stack.push_back({true,false,false});
+				}else{
+					cond_stack.push_back({false,true,false});
+				}
+				continue;
+			}
+			case IK_AT_ELIF:{
+				tok_free(t);
+				if(cond_stack.empty()){
+					fprintf(stderr,"%s:%d:%d: error: stray '@elif' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
+					t=raw_token();
+					if(t->kind==TOK_NOT){tok_free(t);t=raw_token();}
+					tok_free(t);
+					continue;
+				}
+				auto& state=cond_stack.back();
+				if(state.has_else){
+					fprintf(stderr,"%s:%d:%d: error: '@elif' after '@else'\n",filename.c_str(),t->line,t->col);
+					t=raw_token();
+					if(t->kind==TOK_NOT){tok_free(t);t=raw_token();}
+					tok_free(t);
+					continue;
+				}
+				if(state.in_true_branch){
+					state.skipping=true;
+				}else{
+					bool negate=false;
+					t=raw_token();
+					if(t->kind==TOK_NOT){
+						negate=true;
+						tok_free(t);
+						t=raw_token();
+					}
+					bool defined=false;
+					if(t->kind==TOK_IDENT){
+						defined=is_macro_defined(t->lexeme);
+					}
+					tok_free(t);
+					bool result=negate?!defined:defined;
+					if(result){
+						state.in_true_branch=true;
+						state.skipping=false;
+					}
+				}
+				continue;
+			}
+			case IK_AT_ELSE:{
+				tok_free(t);
+				if(cond_stack.empty()){
+					fprintf(stderr,"%s:%d:%d: error: stray '@else' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
+					continue;
+				}
+				auto& state=cond_stack.back();
+				if(state.has_else){
+					fprintf(stderr,"%s:%d:%d: error: duplicate '@else'\n",filename.c_str(),t->line,t->col);
+					continue;
+				}
+				state.has_else=true;
+				if(state.in_true_branch){
+					state.skipping=true;
+				}else{
+					state.in_true_branch=true;
+					state.skipping=false;
+				}
+				continue;
+			}
+			case IK_AT_END:{
+				tok_free(t);
+				if(cond_stack.empty()){
+					fprintf(stderr,"%s:%d:%d: error: stray '@end' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
+					continue;
+				}
+				cond_stack.pop_back();
+				continue;
+			}
+			case IK_AT_MACRO:{
+				int at_line=t->line;
+				int at_col=t->col;
+				tok_free(t);
+				while(cur()==' '||cur()=='\t'||cur()=='\r')advance();
+				if(cur()=='\0'||cur()=='\n'){
+					fprintf(stderr,"%s:%d:%d: error: expected macro name after '@macro'\n",filename.c_str(),at_line,at_col);
+					continue;
+				}
+				int name_start=pos;
+				if(!isalpha(cur())&&cur()!='_'){
+					fprintf(stderr,"%s:%d:%d: error: expected macro name after '@macro'\n",filename.c_str(),at_line,at_col);
+					continue;
+				}
+				while(isalnum(cur())||cur()=='_')advance();
+				int name_len=pos-name_start;
+				char* name_buf=mioStrndup(source.c_str()+name_start,name_len);
+				std::string name(name_buf);
+				free(name_buf);
+				int macro_line=line;
+				int macro_col=col;
+				while(cur()==' '||cur()=='\t'||cur()=='\r')advance();
+				std::string value="1";
+				if(cur()!='\0'&&cur()!='\n'){
+					int val_start=pos;
+					if(isalpha(cur())||cur()=='_'){
+						while(isalnum(cur())||cur()=='_')advance();
+					}else if(isdigit(cur())){
+						while(isdigit(cur())||cur()=='.')advance();
+					}else if(cur()=='"'){
+						advance();
+						while(cur()!='"'&&cur()!='\0'&&cur()!='\n')advance();
+						if(cur()=='"')advance();
+					}
+					int val_len=pos-val_start;
+					if(val_len>0){
+						char* val_buf=mioStrndup(source.c_str()+val_start,val_len);
+						value=std::string(val_buf);
+						free(val_buf);
+					}
+				}
+				if(is_macro_defined(name)){
+					fprintf(stderr,"%s:%d:%d: error: macro '%s' is already defined\n",filename.c_str(),macro_line,macro_col,name.c_str());
+				}
+				add_macro(name,value);
+				continue;
+			}
+			case TOK_EOF:
+				if(!cond_stack.empty()){
+					fprintf(stderr,"%s:%d:%d: error: unclosed '@if' (expected '@end')\n",filename.c_str(),t->line,t->col);
+					cond_stack.clear();
+				}
 				return t;
+			default:
+				if(!cond_stack.empty()&&cond_stack.back().skipping){
+					tok_free(t);
+					continue;
+				}
+				return t;
+			}
+		}
+	}
+	Token* raw_token(){
+		while(true){
+			skipWhitespace();
+			if(cur()=='\0')return tok_new(TOK_EOF,std::string(),line,col);
+			int lineNum=line;
+			int colNum=col;
+			char c=advance();
+			if(isalpha(c)||c=='_'){
+				pos--,col--;
+				return ident();
+			}
+			if(isdigit(c)){
+				pos--,col--;
+				return number();
+			}
+			switch(c){
+				case '"': pos--,col--;return stringLit();
+				case '\'': pos--,col--;return charLit();
+				case '+': 
+					if(match('='))return tok_new(TOK_PLUS_ASSIGN,"+=",lineNum,colNum);
+					return tok_new(TOK_PLUS,std::string(),lineNum,colNum);
+				case '-':
+					if(match('='))return tok_new(TOK_MINUS_ASSIGN,"-=",lineNum,colNum);
+					if(match('>'))return tok_new(TOK_ARROW,std::string(),lineNum,colNum);
+					return tok_new(TOK_MINUS,std::string(),lineNum,colNum);
+				case '*': 
+					if(match('='))return tok_new(TOK_STAR_ASSIGN,"*=",lineNum,colNum);
+					return tok_new(TOK_STAR,std::string(),lineNum,colNum);
+				case '/': 
+					if(match('='))return tok_new(TOK_SLASH_ASSIGN,"/=",lineNum,colNum);
+					return tok_new(TOK_SLASH,std::string(),lineNum,colNum);
+				case '%': 
+					if(match('='))return tok_new(TOK_PERCENT_ASSIGN,"%=",lineNum,colNum);
+					return tok_new(TOK_PERCENT,std::string(),lineNum,colNum);
+				case '(': return tok_new(TOK_LPAREN,std::string(),lineNum,colNum);
+				case ')': return tok_new(TOK_RPAREN,std::string(),lineNum,colNum);
+				case '{': return tok_new(TOK_LBRACE,std::string(),lineNum,colNum);
+				case '}': return tok_new(TOK_RBRACE,std::string(),lineNum,colNum);
+				case '[': return tok_new(TOK_LBRACKET,std::string(),lineNum,colNum);
+				case ']': return tok_new(TOK_RBRACKET,std::string(),lineNum,colNum);
+				case ';': return tok_new(TOK_SEMICOLON,std::string(),lineNum,colNum);
+				case ':': 
+					if(match(':'))return tok_new(TOK_DOUBLE_COLON,"::",lineNum,colNum);
+					return tok_new(TOK_COLON,std::string(),lineNum,colNum);
+				case ',': return tok_new(TOK_COMMA,std::string(),lineNum,colNum);
+				case '.': 
+					if(match('.')&&match('.'))return tok_new(TOK_VARARG,"...",lineNum,colNum);
+					return tok_new(TOK_DOT,std::string(),lineNum,colNum);
+				case '=':
+					if(match('='))return tok_new(TOK_EQ,std::string(),lineNum,colNum);
+					return tok_new(TOK_ASSIGN,std::string(),lineNum,colNum);
+				case '!':
+					if(match('='))return tok_new(TOK_NEQ,std::string(),lineNum,colNum);
+					return tok_new(TOK_NOT,std::string(),lineNum,colNum);
+				case '<':
+					if(match('='))return tok_new(TOK_LTE,std::string(),lineNum,colNum);
+					if(match('<')){
+						if(match('='))return tok_new(TOK_LSHIFT_ASSIGN,"<<=",lineNum,colNum);
+						return tok_new(TOK_LSHIFT,std::string(),lineNum,colNum);
+					}
+					return tok_new(TOK_LT,std::string(),lineNum,colNum);
+				case '>':
+					if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
+					if(match('>')){
+						if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
+						return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
+					}
+					return tok_new(TOK_GT,std::string(),lineNum,colNum);
+				case '&':
+					if(match('&'))return tok_new(TOK_AND,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_AND_ASSIGN,"&=",lineNum,colNum);
+					return tok_new(TOK_BIT_AND,std::string(),lineNum,colNum);
+				case '|':
+					if(match('|'))return tok_new(TOK_OR,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_OR_ASSIGN,"|=",lineNum,colNum);
+					return tok_new(TOK_BIT_OR,std::string(),lineNum,colNum);
+				case '^': 
+					if(match('='))return tok_new(TOK_XOR_ASSIGN,"^=",lineNum,colNum);
+					return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
+				case '~': return tok_new(TOK_BIT_NOT,std::string(),lineNum,colNum);
+				case '$': return tok_new(TOK_DOLLAR,std::string(),lineNum,colNum);
+				case '@':{
+					int start=pos;
+					int startCol=col;
+					while(isalnum(cur())||cur()=='_')
+						advance();
+					int len=pos-start;
+					char* text=mioStrndup(source.c_str()+start,len);
+					if(strcmp(text,"if")==0){free(text);return tok_new((TokenKind)IK_AT_IF,std::string(),lineNum,startCol);}
+					if(strcmp(text,"elif")==0){free(text);return tok_new((TokenKind)IK_AT_ELIF,std::string(),lineNum,startCol);}
+					if(strcmp(text,"else")==0){free(text);return tok_new((TokenKind)IK_AT_ELSE,std::string(),lineNum,startCol);}
+					if(strcmp(text,"end")==0){free(text);return tok_new((TokenKind)IK_AT_END,std::string(),lineNum,startCol);}
+					if(strcmp(text,"macro")==0){free(text);return tok_new((TokenKind)IK_AT_MACRO,std::string(),lineNum,startCol);}
+						char buf[64];
+						snprintf(buf,sizeof(buf),"unknown directive '@%s'",text);
+						free(text);
+						return tok_new(TOK_ERROR,buf,lineNum,colNum);
+					}
+				default:{
+					char buf[64];
+					snprintf(buf,sizeof(buf),"unexpected character '%c'",c);
+					Token* t=tok_new(TOK_ERROR,buf,lineNum,colNum);
+					return t;
+				}
 			}
 		}
 	}
@@ -344,7 +586,7 @@ const KeywordEntry Lexer::keywords[]={
 	{"virtual",TOK_VIRTUAL},{"override",TOK_OVERRIDE},
 	{"static",TOK_STATIC},{"operator",TOK_OPERATOR},
 	{"true",TOK_TRUE},{"false",TOK_FALSE},
-	{"this",TOK_THIS},{"macro",TOK_MACRO},
+	{"this",TOK_THIS},
 	{"template",TOK_TEMPLATE},{"typename",TOK_TYPENAME},
 	{"sizeof",TOK_SIZEOF},
 	{"i8",TOK_I8},{"i16",TOK_I16},{"i32",TOK_I32},{"i64",TOK_I64},{"i128",TOK_I128},

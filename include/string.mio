@@ -1,5 +1,5 @@
 @if !STRING
-macro STRING;
+@macro STRING
 extern *char strcpy(dst: *char,src: *char);
 extern *char strncpy(dst: *char,src: *char,n: u64);
 extern u64 strlen(s: *char);

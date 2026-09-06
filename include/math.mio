@@ -1,5 +1,5 @@
 @if !MATH
-macro MATH;
+@macro MATH
 extern f64 sin(x: f64);
 extern f64 cos(x: f64);
 extern f64 tan(x: f64);

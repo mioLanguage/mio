@@ -1,5 +1,5 @@
 @if !STDIO
-macro STDIO;
+@macro STDIO
 extern i32 printf(fmt: *char,...);
 extern i32 sprintf(buf: *char,fmt: *char,...);
 extern i32 fprintf(stream: *char,fmt: *char,...);

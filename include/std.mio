@@ -1,5 +1,5 @@
 @if !STD
-macro STD;
+@macro STD
 import "stdlib";
 import "string";
 import "stdio";

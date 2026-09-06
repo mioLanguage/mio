@@ -12,10 +12,6 @@ static int g_error_count=0;
 #include<cstdlib>
 #include<cstring>
 extern FilenamePool g_filename_pool;
-struct Macro{
-	std::string name;
-	std::string value;
-};
 class Parser{
 public:
 	Lexer* lexer;
@@ -24,7 +20,6 @@ public:
 	std::string filename;
 	std::vector<std::string> include_paths;
 	std::vector<std::string> imported_files;
-	std::vector<Macro> macros;
 	std::unordered_set<std::string> class_names;
 	std::unordered_map<std::string,std::unordered_map<std::string,bool>> class_virtual_methods;
 	std::unordered_map<std::string,std::string> class_base_map;
@@ -38,20 +33,10 @@ public:
 	AstNode* parse(){
 		auto* program=new AstNode(AstNodeKind::PROGRAM,0,0,g_filename_pool.get(filename));
 		while(!check(TOK_EOF)){
-			if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 			auto* decl=parse_decl();
 			if(decl)program->program.nodes.push_back(decl);
 		}
 		return program;
-	}
-	void add_macro(const std::string& name,const std::string& value){
-		for(auto& m:macros){
-			if(m.name==name){
-				m.value=value;
-				return;
-			}
-		}
-		macros.push_back({name,value});
 	}
 private:
 	void error(const std::string& msg){
@@ -90,7 +75,7 @@ private:
 			case TOK_GOTO:case TOK_RETURN:case TOK_ENUM:case TOK_UNION:case TOK_CLASS:
 			case TOK_NAMESPACE:case TOK_PUBLIC:case TOK_PRIVATE:case TOK_PROTECTED:
 			case TOK_VIRTUAL:case TOK_OVERRIDE:case TOK_STATIC:case TOK_OPERATOR:
-			case TOK_TRUE:case TOK_FALSE:case TOK_THIS:case TOK_MACRO:
+			case TOK_TRUE:case TOK_FALSE:case TOK_THIS:
 			case TOK_I8:case TOK_I16:case TOK_I32:case TOK_I64:case TOK_I128:
 			case TOK_U8:case TOK_U16:case TOK_U32:case TOK_U64:case TOK_U128:
 			case TOK_USIZE:case TOK_ISIZE:case TOK_F32:case TOK_F64:case TOK_BOOL:case TOK_CHAR:
@@ -238,6 +223,7 @@ private:
 		std::string old_filename=filename;
 		std::string norm_resolved=normalize_path(resolved);
 		auto* new_lexer=new Lexer(source,norm_resolved);
+		new_lexer->copy_macros_from(old_lexer->get_macros());
 		lexer=new_lexer;
 		filename=norm_resolved;
 		cur=new_lexer->current;
@@ -245,10 +231,10 @@ private:
 		auto* fn_ptr=g_filename_pool.get(norm_resolved);
 		auto* block=new AstNode(AstNodeKind::BLOCK,line,col,fn_ptr);
 	while(!check(TOK_EOF)){
-		if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 		auto* decl=parse_decl();
 			if(decl)add_import_to_block(block,decl);
 		}
+		old_lexer->copy_macros_from(new_lexer->get_macros());
 		delete new_lexer;
 		lexer=old_lexer;
 		cur=old_cur;
@@ -863,8 +849,6 @@ private:
 			}
 			case TOK_RETURN:
 				return parse_return_stmt();
-			case TOK_AT_IF:
-				return parse_cond_comp_stmt(cur->line,cur->col);
 			case TOK_LBRACE:
 				return parse_block();
 			case TOK_SEMICOLON:
@@ -1213,7 +1197,6 @@ private:
 		auto* n=ast_new_namespace_def(name,line,col,fn());
 		expect(TOK_LBRACE);
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
-			if(check(TOK_AT_END)){error("stray '@end' outside of conditional compilation block");advance();continue;}
 			auto* decl=parse_decl();
 			if(decl)n->namespace_def.body.push_back(decl);
 		}
@@ -1278,85 +1261,6 @@ private:
 		}
 		return ast_new_template_def(type_params,def,line,col,fn());
 	}
-	bool is_macro_defined(const std::string& name){
-		for(const auto& m:macros)
-			if(m.name==name)return true;
-		return false;
-	}
-	void skip_cond_block(){
-		while(!check(TOK_EOF)&&!check(TOK_AT_ELIF)&&!check(TOK_AT_ELSE)&&!check(TOK_AT_END))
-			advance();
-	}
-	void skip_cond_to_end(){
-		int depth=0;
-		while(!check(TOK_EOF)){
-			if(check(TOK_AT_IF))depth++;
-			if(check(TOK_AT_ELIF)&&depth==0)return;
-			if(check(TOK_AT_ELSE)&&depth==0)return;
-			if(check(TOK_AT_END)){
-				if(depth==0)return;
-				depth--;
-			}
-			advance();
-		}
-	}
-	typedef AstNode*(Parser::*ParseItemFn)();
-	AstNode* parse_cond_comp_impl(int line,int col,ParseItemFn parse_item){
-		advance();
-		bool negate=false;
-		if(check(TOK_NOT)){
-			advance();
-			negate=true;
-		}
-		if(check(TOK_IDENT)){
-			bool defined=is_macro_defined(cur->lexeme);
-			advance();
-			bool result=negate?!defined:defined;
-			if(result){
-				auto* block=ast_new_block(line,col,fn());
-				while(!check(TOK_EOF)&&!check(TOK_AT_ELIF)&&!check(TOK_AT_ELSE)&&!check(TOK_AT_END)){
-					auto* item=(this->*parse_item)();
-					if(item)block->block.stmts.push_back(item);
-				}
-				skip_cond_to_end();
-				if(check(TOK_AT_ELIF))parse_cond_comp_impl(cur->line,cur->col,parse_item);
-				if(check(TOK_AT_ELSE)){
-					advance();
-					skip_cond_block();
-				}
-				if(check(TOK_AT_END))advance();
-				return block;
-			}else{
-				skip_cond_block();
-				if(check(TOK_AT_ELIF)){
-					return parse_cond_comp_impl(cur->line,cur->col,parse_item);
-				}
-				if(check(TOK_AT_ELSE)){
-					advance();
-					auto* block=ast_new_block(line,col,fn());
-					while(!check(TOK_EOF)&&!check(TOK_AT_ELIF)&&!check(TOK_AT_ELSE)&&!check(TOK_AT_END)){
-						auto* item=(this->*parse_item)();
-						if(item)block->block.stmts.push_back(item);
-					}
-					if(check(TOK_AT_END))advance();
-					return block;
-				}
-				if(check(TOK_AT_END))advance();
-				return nullptr;
-			}
-		}else{
-			error("expected identifier in @if condition");
-			skip_cond_to_end();
-			if(check(TOK_AT_END))advance();
-			return nullptr;
-		}
-	}
-	AstNode* parse_cond_comp(int line,int col){
-		return parse_cond_comp_impl(line,col,&Parser::parse_decl);
-	}
-	AstNode* parse_cond_comp_stmt(int line,int col){
-		return parse_cond_comp_impl(line,col,&Parser::parse_stmt);
-	}
 	AstNode* parse_decl(){
 		while(match(TOK_SEMICOLON));
 		switch(cur->kind){
@@ -1405,53 +1309,9 @@ private:
 				return parse_class_def();
 			case TOK_NAMESPACE:
 				return parse_namespace_def();
-			case TOK_MACRO:{
-				advance();
-				if(cur->kind!=TOK_IDENT){
-					error("expected macro name");
-					return nullptr;
-				}
-				std::string name=cur->lexeme;
-				int line=cur->line,col=cur->col;
-				advance();
-				std::string value;
-				if(!check(TOK_SEMICOLON)){
-					if(check(TOK_STRING_LIT)){
-						value=cur->lexeme;
-						advance();
-					}else if(check(TOK_INT_LIT)||check(TOK_FLOAT_LIT)){
-						value=cur->lexeme;
-						advance();
-					}else if(check(TOK_TRUE)){
-						value="1";
-						advance();
-					}else if(check(TOK_FALSE)){
-						value="0";
-						advance();
-					}else if(check(TOK_IDENT)){
-						value=cur->lexeme;
-						advance();
-					}else{
-						error("expected macro value or ';'");
-						return nullptr;
-					}
-				}
-				if(is_macro_defined(name)){
-					error("macro '"+name+"' is already defined");
-				}
-				add_macro(name,value.empty()?"1":value);
-				auto* node=ast_new_macro_def(name,value.empty()?"1":value,line,col,fn());
-				expect(TOK_SEMICOLON);
-				return node;
-			}
-			case TOK_AT_IF:
-				return parse_cond_comp(cur->line,cur->col);
 			case TOK_TEMPLATE:
 				return parse_template_def();
 			case TOK_EOF:
-			case TOK_AT_END:
-				error("stray '@end' outside of conditional compilation block");
-				advance();
 				return nullptr;
 			default:{
 				bool mv=match(TOK_VIRTUAL);
