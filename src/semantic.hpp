@@ -692,10 +692,13 @@ private:
 				if(stmt->if_stmt.else_body) analyzeBlock(stmt->if_stmt.else_body);
 				break;
 			case AstNodeKind::WHILE_STMT:
+				loopDepth++;
 				checkExpr(stmt->while_stmt.cond);
 				analyzeBlock(stmt->while_stmt.body);
+				loopDepth--;
 				break;
 			case AstNodeKind::FOR_STMT:{
+				loopDepth++;
 				auto savedLocals=locals;
 				auto savedMioTypes=localMioTypes;
 				if(stmt->for_stmt.init){
@@ -746,6 +749,7 @@ private:
 				analyzeBlock(stmt->for_stmt.body);
 				locals=savedLocals;
 				localMioTypes=savedMioTypes;
+				loopDepth--;
 				break;
 			}
 			case AstNodeKind::RETURN_STMT:
@@ -773,6 +777,16 @@ private:
 				}
 				break;
 			case AstNodeKind::LABEL_STMT:
+				break;
+			case AstNodeKind::BREAK_STMT:
+				if(loopDepth==0){
+					error(stmt,"break statement not within a loop");
+				}
+				break;
+			case AstNodeKind::CONTINUE_STMT:
+				if(loopDepth==0){
+					error(stmt,"continue statement not within a loop");
+				}
 				break;
 			default:
 				break;
@@ -1987,6 +2001,7 @@ private:
 	std::unordered_map<std::string,MioType*> locals;
 	std::unordered_map<std::string,MioType*> localMioTypes;
 	std::unordered_set<std::string> labels;
+	int loopDepth=0;
 };
 
 #endif
