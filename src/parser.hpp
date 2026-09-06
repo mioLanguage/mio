@@ -763,9 +763,17 @@ private:
 		expect(TOK_LPAREN);
 		auto* cond=parse_expr();
 		expect(TOK_RPAREN);
+		if(check(TOK_RBRACE)){
+			error("expected statement after 'if'");
+			return ast_new_if(cond,nullptr,nullptr,line,col,fn());
+		}
 		auto* then_body=parse_stmt();
 		auto* if_node=ast_new_if(cond,then_body,nullptr,line,col,fn());
 		if(match(TOK_ELSE)){
+			if(check(TOK_RBRACE)){
+				error("expected statement after 'else'");
+				return if_node;
+			}
 			if_node->if_stmt.else_body=parse_stmt();
 		}
 		return if_node;
@@ -776,6 +784,10 @@ private:
 		expect(TOK_LPAREN);
 		auto* cond=parse_expr();
 		expect(TOK_RPAREN);
+		if(check(TOK_RBRACE)){
+			error("expected statement after 'while'");
+			return ast_new_while(cond,nullptr,line,col,fn());
+		}
 		auto* body=parse_stmt();
 		return ast_new_while(cond,body,line,col,fn());
 	}
@@ -800,6 +812,10 @@ private:
 		if(!check(TOK_RPAREN))
 			update=parse_expr();
 		expect(TOK_RPAREN);
+		if(check(TOK_RBRACE)){
+			error("expected statement after 'for'");
+			return ast_new_for(init,cond,update,nullptr,line,col,fn());
+		}
 		auto* body=parse_stmt();
 		return ast_new_for(init,cond,update,body,line,col,fn());
 	}
