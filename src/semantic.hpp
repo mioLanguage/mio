@@ -284,11 +284,25 @@ public:
 				}
 				classTypes.insert(name);
 				if(!node->class_def.base_name.empty()){
-					classBaseMap[name]=node->class_def.base_name;
+					std::string baseName=resolveClassName(node->class_def.base_name);
+					classBaseMap[name]=baseName;
 				}
 				for(auto& f:node->class_def.fields){
 					classFields[name].insert(f.name);
 					classFieldTypes[name][f.name]=mio_type_clone(f.type);
+				}
+				if(!node->class_def.base_name.empty()){
+					std::string baseName=classBaseMap[name];
+					auto bit=classFields.find(baseName);
+					if(bit!=classFields.end()){
+						for(auto& fn:bit->second)
+							classFields[name].insert(fn);
+					}
+					auto bft=classFieldTypes.find(baseName);
+					if(bft!=classFieldTypes.end()){
+						for(auto& [fn,ft]:bft->second)
+							classFieldTypes[name][fn]=mio_type_clone(ft);
+					}
 				}
 				for(auto* m:node->class_def.methods){
 				std::string mname=m->func_def.name;
@@ -793,6 +807,25 @@ private:
 		}
 	}
 	
+	void checkCircularDep(const std::string& targetClass,const std::string& currentClass,std::unordered_set<std::string>& visited,AstNode* ctx){
+		if(targetClass==currentClass)return;
+		if(visited.count(currentClass))return;
+		visited.insert(currentClass);
+		auto it=classFieldTypes.find(currentClass);
+		if(it==classFieldTypes.end())return;
+		for(auto& [fname,ftype]:it->second){
+			if(!ftype)continue;
+			if(ftype->kind==MioTypeKind::POINTER||ftype->kind==MioTypeKind::REFERENCE||ftype->kind==MioTypeKind::RVALUE_REFERENCE)continue;
+			if(ftype->kind==MioTypeKind::CLASS&&!ftype->name.empty()){
+				std::string resolved=resolveClassName(ftype->name);
+				if(resolved==targetClass){
+					error(ctx,"circular type dependency: class '"+targetClass+"' contains '"+currentClass+"' which contains '"+targetClass+"'");
+					return;
+				}
+				checkCircularDep(targetClass,resolved,visited,ctx);
+			}
+		}
+	}
 	void analyzeClassDef(AstNode* node){
 		if(!node) return;
 		for(auto& f:node->class_def.fields){
@@ -812,6 +845,17 @@ private:
 		std::string name=node->class_def.name;
 		if(!currentNamespace.empty())
 			name=currentNamespace+"::"+name;
+		for(auto& f:node->class_def.fields){
+			if(f.type&&f.type->kind==MioTypeKind::CLASS&&!f.type->name.empty()){
+				std::string resolved=resolveClassName(f.type->name);
+				if(resolved==name){
+					error(node,"class '"+name+"' cannot contain itself by value");
+				}else{
+					std::unordered_set<std::string> visited;
+					checkCircularDep(name,resolved,visited,node);
+				}
+			}
+		}
 		if(!node->class_def.base_name.empty()){
 			std::string baseName=resolveClassName(node->class_def.base_name);
 			auto it=classPureVirtuals.find(baseName);
@@ -1045,6 +1089,20 @@ private:
 								classFields[instName].insert(f.name);
 								classFieldTypes[instName][f.name]=mio_type_clone(f.type);
 							}
+							if(!inst->class_def.base_name.empty()){
+								std::string baseName=resolveClassName(inst->class_def.base_name);
+								classBaseMap[instName]=baseName;
+								auto bit=classFields.find(baseName);
+								if(bit!=classFields.end()){
+									for(auto& fn:bit->second)
+										classFields[instName].insert(fn);
+								}
+								auto bft=classFieldTypes.find(baseName);
+								if(bft!=classFieldTypes.end()){
+									for(auto& [fn,ft]:bft->second)
+										classFieldTypes[instName][fn]=mio_type_clone(ft);
+								}
+							}
 							for(auto* m:inst->class_def.methods){
 								std::string mname=m->func_def.name;
 								classMethodSet[instName].insert(mname);
@@ -1203,11 +1261,31 @@ private:
 						}
 					}
 				}
+				std::string foundClass=className;
+				if(!found){
+					std::string baseClass=className;
+					while(!found){
+						auto bit=classBaseMap.find(baseClass);
+						if(bit==classBaseMap.end())break;
+						baseClass=bit->second;
+						foundClass=baseClass;
+						std::string baseMangled=baseClass+"::"+method;
+						found=funcDecls.count(baseMangled)>0;
+						if(!found){
+							for(auto& kv:funcDecls){
+								if(kv.size()>baseMangled.size()+1&&kv.substr(0,baseMangled.size()+1)==baseMangled+"_"){
+									found=true;
+									break;
+								}
+							}
+						}
+					}
+				}
 				if(!found){
 					error(node,"method '"+method+"' not found in class '"+className+"'");
 					node->type=mio_type_new(MioTypeKind::I32);
 				}else{
-					checkFuncCallArgs(className+"::"+method,node);
+					checkFuncCallArgs(foundClass+"::"+method,node);
 				}
 			}
 		}
@@ -1373,6 +1451,8 @@ private:
 						error(node,"cannot access member '"+node->member.member+"' on non-class type");
 						return;
 					}
+				}else if(classTypes.count(node->member.base->ident.name)>0){
+					className=resolveClassName(node->member.base->ident.name);
 				}
 			}
 		}
@@ -1389,6 +1469,15 @@ private:
 					foundField=uit->second.count(fieldName)>0;
 				}
 			}
+			if(foundField){
+				auto fit=classFieldTypes.find(className);
+				if(fit!=classFieldTypes.end()){
+					auto fi=fit->second.find(fieldName);
+					if(fi!=fit->second.end()){
+						node->type=mio_type_clone(fi->second);
+					}
+				}
+			}
 			if(!foundField){
 				std::string mangledName=className+"::"+fieldName;
 				bool isMethod=funcDecls.count(mangledName)>0;
@@ -1397,6 +1486,24 @@ private:
 						if(kv.size()>mangledName.size()+1&&kv.substr(0,mangledName.size()+1)==mangledName+"_"){
 							isMethod=true;
 							break;
+						}
+					}
+				}
+				if(!isMethod){
+					std::string baseClass=className;
+					while(!isMethod){
+						auto bit=classBaseMap.find(baseClass);
+						if(bit==classBaseMap.end())break;
+						baseClass=bit->second;
+						std::string baseMangled=baseClass+"::"+fieldName;
+						isMethod=funcDecls.count(baseMangled)>0;
+						if(!isMethod){
+							for(auto& kv:funcDecls){
+								if(kv.size()>baseMangled.size()+1&&kv.substr(0,baseMangled.size()+1)==baseMangled+"_"){
+									isMethod=true;
+									break;
+								}
+							}
 						}
 					}
 				}
@@ -1551,6 +1658,20 @@ private:
 					for(auto& f:inst->class_def.fields){
 						classFields[instName].insert(f.name);
 						classFieldTypes[instName][f.name]=mio_type_clone(f.type);
+					}
+					if(!inst->class_def.base_name.empty()){
+						std::string baseName=resolveClassName(inst->class_def.base_name);
+						classBaseMap[instName]=baseName;
+						auto bit=classFields.find(baseName);
+						if(bit!=classFields.end()){
+							for(auto& fn:bit->second)
+								classFields[instName].insert(fn);
+						}
+						auto bft=classFieldTypes.find(baseName);
+						if(bft!=classFieldTypes.end()){
+							for(auto& [fn,ft]:bft->second)
+								classFieldTypes[instName][fn]=mio_type_clone(ft);
+						}
 					}
 					for(auto* m:inst->class_def.methods){
 						std::string mname=m->func_def.name;
@@ -1747,6 +1868,8 @@ private:
 							}else if(baseType->kind==MioTypeKind::POINTER&&baseType->base_type&&(baseType->base_type->kind==MioTypeKind::CLASS||baseType->base_type->kind==MioTypeKind::UNION)){
 								className=resolveClassName(baseType->base_type->name);
 							}
+						}else if(classTypes.count(node->member.base->ident.name)>0){
+							className=resolveClassName(node->member.base->ident.name);
 						}
 					}
 				}

@@ -394,6 +394,21 @@ class Compiler{
 				return nullptr;
 		}
 	}
+	std::string resolveClassName(const std::string& name){
+		if(name.find("::")!=std::string::npos){
+			if(classTypes.count(name)>0||classFieldIdx.count(name)>0)return name;
+			return name;
+		}
+		if(!currentNamespace.empty()){
+			std::string full=currentNamespace+"::"+name;
+			if(classTypes.count(full)>0||classFieldIdx.count(full)>0)return full;
+		}
+		for(auto& impNs:importedNamespaces){
+			std::string full=impNs+"::"+name;
+			if(classTypes.count(full)>0||classFieldIdx.count(full)>0)return full;
+		}
+		return name;
+	}
 	std::string mangleName(const std::string& name){
 		if(name.find("::")!=std::string::npos)return name;
 		if(currentNamespace.empty())return name;
@@ -681,7 +696,7 @@ class Compiler{
 			retTy=convertType(def->func_def.return_type);
 		}
 		std::vector<llvm::Type*> paramTys;
-		if(isMethod){
+		if(isMethod&&!def->func_def.is_static){
 			auto stit=classTypes.find(def->func_def.class_name);
 			if(stit!=classTypes.end()){
 				paramTys.push_back(llvm::PointerType::get(ctx,0));
@@ -710,6 +725,12 @@ class Compiler{
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
 			}
+		}else if(isMethod&&def->func_def.is_static){
+			std::string fullClassName=def->func_def.class_name;
+			if(fullClassName.find("::")==std::string::npos&&!currentNamespace.empty()){
+				fullClassName=currentNamespace+"::"+fullClassName;
+			}
+			mangledName=fullClassName+"::"+name;
 		}else if(!isMethod&&!currentNamespace.empty()){
 			mangledName=currentNamespace+"::"+name;
 			namespaceMembers[name]=mangledName;
@@ -786,15 +807,16 @@ class Compiler{
 		if(def->func_def.is_extern)return;
 		if(def->func_def.is_pure_virtual)return;
 		size_t idx=0;
-		if(isMethod){
+		bool isStatic=def->func_def.is_static;
+		if(isMethod&&!isStatic){
 			fn->getArg(0)->setName("this");
 			idx=1;
 		}
 		for(auto& arg:fn->args()){
-			if(&arg==fn->getArg(0)){
+			if(isMethod&&!isStatic&&&arg==fn->getArg(0)){
 				continue;
 			}
-			size_t paramIdx=idx-(isMethod?1:0);
+			size_t paramIdx=idx-(isMethod&&!isStatic?1:0);
 			if(paramIdx<def->func_def.params.size())
 				arg.setName(def->func_def.params[paramIdx].name);
 			idx++;
@@ -807,7 +829,7 @@ class Compiler{
 		localMioTypes.clear();
 		thisAlloca=nullptr;
 		currentClassName.clear();
-		if(isMethod){
+		if(isMethod&&!isStatic){
 			currentClassName=def->func_def.class_name;
 			if(currentClassName.find("::")==std::string::npos&&!currentNamespace.empty()){
 				currentClassName=currentNamespace+"::"+currentClassName;
@@ -823,7 +845,7 @@ class Compiler{
 			}
 		}
 		for(size_t i=0;i<def->func_def.params.size();i++){
-			auto& arg=*(fn->arg_begin()+(isMethod?1:0)+i);
+			auto& arg=*(fn->arg_begin()+(isMethod&&!isStatic?1:0)+i);
 			auto* alloca=createEntryAlloca(fn,def->func_def.params[i].name,arg.getType());
 			b.CreateStore(&arg,alloca);
 			locals[def->func_def.params[i].name]=alloca;
@@ -1034,6 +1056,11 @@ class Compiler{
 					classFieldIdx[mangled][fname]=idx-baseVOff+derivedVOff;
 				}
 			}
+			auto bft=classFieldTypes.find(base_mangled);
+			if(bft!=classFieldTypes.end()){
+				for(auto& [fn,ft]:bft->second)
+					classFieldTypes[mangled][fn]=mio_type_clone(ft);
+			}
 		}
 	}
 	void genClassMethods(AstNode* def){
@@ -1128,6 +1155,12 @@ class Compiler{
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
 			}
+		}else if(isMethod&&def->func_def.is_static){
+			std::string fullClassName=def->func_def.class_name;
+			if(fullClassName.find("::")==std::string::npos&&!currentNamespace.empty()){
+				fullClassName=currentNamespace+"::"+fullClassName;
+			}
+			mangledName=fullClassName+"::"+name;
 		}else if(!isMethod&&!currentNamespace.empty()){
 			mangledName=currentNamespace+"::"+name;
 		}
@@ -1159,6 +1192,12 @@ class Compiler{
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
 			}
+		}else if(isMethod&&def->func_def.is_static){
+			std::string fullClassName=def->func_def.class_name;
+			if(fullClassName.find("::")==std::string::npos&&!currentNamespace.empty()){
+				fullClassName=currentNamespace+"::"+fullClassName;
+			}
+			mangledName=fullClassName+"::"+def->func_def.name;
 		}else if(!isMethod&&!currentNamespace.empty()){
 			mangledName=currentNamespace+"::"+def->func_def.name;
 		}else if(!isMethod&&currentNamespace.empty()&&!def->func_def.is_extern&&def->func_def.name!="main"){
@@ -2149,6 +2188,8 @@ class Compiler{
 			else if(base->kind==AstNodeKind::IDENT_EXPR){
 				if(base->ident.name=="this"&&!currentClassName.empty()){
 					className=currentClassName;
+				}else if(classTypes.count(base->ident.name)>0){
+					className=base->ident.name;
 				}
 			}
 			if(!className.empty()){
@@ -2169,6 +2210,20 @@ class Compiler{
 					std::string mangledName=className+"::"+method;
 					auto fit=funcDecls.find(mangledName);
 					if(fit!=funcDecls.end())calleeVal=fit->second;
+					if(!calleeVal){
+						std::string baseClass=className;
+						auto bit=classBaseMap.find(baseClass);
+						while(bit!=classBaseMap.end()){
+							baseClass=bit->second;
+							std::string baseMangled=baseClass+"::"+method;
+							auto bfit=funcDecls.find(baseMangled);
+							if(bfit!=funcDecls.end()){
+								calleeVal=bfit->second;
+								break;
+							}
+							bit=classBaseMap.find(baseClass);
+						}
+					}
 				}
 				if(!calleeVal&&!isVirtualCall){
 					error(node->line,node->col,"internal error: method '"+method+"' not found in class '"+className+"'");
@@ -2228,6 +2283,24 @@ class Compiler{
 				if(calleeVal){
 					auto* fn=llvm::dyn_cast<llvm::Function>(calleeVal);
 					if(fn&&!fn->arg_empty()&&fn->getArg(0)->getType()->isPointerTy()){
+						bool isStaticMethod=false;
+						std::string mangledMethodName=className+"::"+method;
+						auto fdm=funcDefMap.find(mangledMethodName);
+						if(fdm==funcDefMap.end()){
+							std::string baseClass=className;
+							auto bit=classBaseMap.find(baseClass);
+							while(bit!=classBaseMap.end()){
+								baseClass=bit->second;
+								std::string baseMangled=baseClass+"::"+method;
+								fdm=funcDefMap.find(baseMangled);
+								if(fdm!=funcDefMap.end())break;
+								bit=classBaseMap.find(baseClass);
+							}
+						}
+						if(fdm!=funcDefMap.end()){
+							isStaticMethod=fdm->second->func_def.is_static;
+						}
+						if(!isStaticMethod){
 						llvm::Value* thisPtr=genLValue(base);
 						if(!thisPtr)thisPtr=genExpr(base);
 						std::vector<llvm::Value*> args;
@@ -2269,6 +2342,19 @@ class Compiler{
 							}
 						}
 						return b.CreateCall(fn,args);
+						}else{
+							std::vector<llvm::Value*> args;
+							for(auto* a:node->call.args){
+								llvm::Value* av=genExpr(a);
+								if(av)args.push_back(av);
+							}
+							for(size_t i=0;i<args.size()&&i<fn->arg_size();i++){
+								llvm::Type* paramTy=fn->getArg(i)->getType();
+								if(args[i]->getType()!=paramTy)
+									args[i]=genCastValue(args[i],paramTy);
+							}
+							return b.CreateCall(fn,args);
+						}
 					}
 				}
 			}
@@ -2466,14 +2552,15 @@ class Compiler{
 				}
 			}
 		}
-		if(!className.empty()&&classFieldIdx.count(className)){
-			auto mit=classFieldIdx[className].find(node->member.member);
-			if(mit==classFieldIdx[className].end()){
+		std::string resolvedClassName=resolveClassName(className);
+		if(!resolvedClassName.empty()&&classFieldIdx.count(resolvedClassName)){
+			auto mit=classFieldIdx[resolvedClassName].find(node->member.member);
+			if(mit==classFieldIdx[resolvedClassName].end()){
 				error(node->line,node->col,"internal error: field '"+node->member.member+"' not found in class '"+className+"'");
 				return nullptr;
 			}
 			unsigned idx=mit->second;
-			auto sit=classTypes.find(className);
+			auto sit=classTypes.find(resolvedClassName);
 			llvm::StructType* st=sit!=classTypes.end()?sit->second:nullptr;
 			if(!st){
 				error(node->line,node->col,"internal error: class type '"+className+"' not found");
@@ -2493,8 +2580,8 @@ class Compiler{
 			llvm::Value* idx0=llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
 			llvm::Value* idx1=llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),idx);
 			llvm::Value* gep=b.CreateGEP(st,ptr,{idx0,idx1});
-			if(unionNames.count(className)){
-				auto ftit=classFieldTypes.find(className);
+			if(unionNames.count(resolvedClassName)){
+				auto ftit=classFieldTypes.find(resolvedClassName);
 				if(ftit!=classFieldTypes.end()){
 					auto fti=ftit->second.find(node->member.member);
 					if(fti!=ftit->second.end()){
@@ -2694,6 +2781,47 @@ public:
 	~Compiler(){
 		if(semantic) delete semantic;
 	}
+	void declareClassForward(AstNode* node){
+		if(!node)return;
+		switch(node->kind){
+			case AstNodeKind::CLASS_DEF:{
+				std::string mangled=mangleName(node->class_def.name);
+				if(!classTypes.count(mangled)){
+					classTypes[mangled]=llvm::StructType::create(ctx,mangled);
+					forwardDeclaredClasses.insert(mangled);
+				}
+				std::string savedNs=currentNamespace;
+				for(auto* nc:node->class_def.nested_classes){
+					declareClassForward(nc);
+				}
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::BLOCK:
+				for(auto* stmt:node->block.stmts){
+					declareClassForward(stmt);
+				}
+				break;
+			case AstNodeKind::NAMESPACE_DEF:{
+				std::string savedNs=currentNamespace;
+				if(!currentNamespace.empty())
+					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+				else
+					currentNamespace=node->namespace_def.name;
+				for(auto* decl:node->namespace_def.body){
+					declareClassForward(decl);
+				}
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::IMPORT:
+				for(auto* stmt:node->block.stmts){
+					declareClassForward(stmt);
+				}
+				break;
+			default:break;
+		}
+	}
 	void generate(AstNode* program){
 		if(!program){
 			error("null program");
@@ -2708,6 +2836,9 @@ public:
 				forwardDeclaredClasses.insert(mangled);
 			}
 		}
+		for(auto* node:program->program.nodes){
+			declareClassForward(node);
+		}
 		for(auto& [name,inst]:semantic->instantiatedClasses){
 			std::string savedNs=currentNamespace;
 			auto pos=name.rfind("::");
@@ -2721,6 +2852,7 @@ public:
 			currentNamespace=savedNs;
 		}
 		genProgram(program);
+		if(g_error_count)return;
 		for(auto& [name,inst]:semantic->instantiatedClasses){
 			std::string savedNs=currentNamespace;
 			auto pos=name.rfind("::");
@@ -2732,6 +2864,7 @@ public:
 			genClassMethods(inst);
 			currentNamespace=savedNs;
 		}
+		if(g_error_count)return;
 		if(llvm::verifyModule(*mod,&llvm::errs()))
 			error("Error verifying module");
 	}
@@ -2964,6 +3097,7 @@ public:
 		bool release=false,
 		int opt_level=0
 	){
+		g_error_count=0;
 		optLevel=opt_level;
 		filename=input_file;
 		size_t dot=input_file.find_last_of('.');
@@ -3001,12 +3135,9 @@ public:
 			delete program;
 			return false;
 		}
-		std::string base_name=output_file;
-		if(base_name.empty()){
-			base_name=input_file;
-			size_t dot=base_name.find_last_of('.');
-			if(dot!=std::string::npos)base_name=base_name.substr(0,dot);
-		}
+		std::string base_name=output_file.empty()?input_file:output_file;
+		size_t dot2=base_name.find_last_of('.');
+		if(dot2!=std::string::npos)base_name=base_name.substr(0,dot2);
 		bool useCache=false;
 		if(release){
 			std::string cache_obj_path=base_name+".o";
