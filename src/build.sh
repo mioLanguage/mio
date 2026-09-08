@@ -102,13 +102,15 @@ if [ "$(uname -s)" = "Darwin" ]; then
 		for dylib in "$BIN"/liblld*.dylib; do
 			otool -L "$dylib" | tail -n +2 | grep 'liblld.*dylib' | awk '{print $1}' | while read -r ref; do
 				libname=$(basename "$ref")
-				install_name_tool -change "$ref" "@loader_path/$libname" "$dylib"
+				destname=$(echo "$libname" | sed -E 's/\.[0-9]+.*\.dylib$/.dylib/')
+				install_name_tool -change "$ref" "@loader_path/$destname" "$dylib"
 			done
 		done
 		# Fix mioc references to LLD dylibs
 		otool -L "$BIN/mioc" | tail -n +2 | grep 'liblld' | awk '{print $1}' | while read -r ref; do
 			libname=$(basename "$ref")
-			install_name_tool -change "$ref" "@loader_path/$libname" "$BIN/mioc"
+			destname=$(echo "$libname" | sed -E 's/\.[0-9]+.*\.dylib$/.dylib/')
+			install_name_tool -change "$ref" "@loader_path/$destname" "$BIN/mioc"
 		done
 		echo "Bundled LLD dylibs into bin/"
 	fi
