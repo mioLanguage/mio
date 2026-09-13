@@ -7,13 +7,10 @@
 #include<cstdio>
 #include<string>
 #include<vector>
+#include<unordered_map>
 struct KeywordEntry{
 	const char* keyword;
 	TokenKind kind;
-};
-struct Macro{
-	std::string name;
-	std::string value;
 };
 struct CondState{
 	bool in_true_branch;
@@ -22,6 +19,7 @@ struct CondState{
 };
 class Lexer{
 	friend class Parser;
+	friend class Compiler;
 public:
 	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0){
 		current=preprocess_token();
@@ -39,25 +37,15 @@ public:
 	Token* peek(){
 		return peekToken;
 	}
-	void add_macro(const std::string& name,const std::string& value){
-		for(auto& m:macros){
-			if(m.name==name){
-				m.value=value;
-				return;
-			}
-		}
-		macros.push_back({name,value});
+	void add_macro(const std::string& name,int value){
+		macros[name]=value;
 	}
-	bool is_macro_defined(const std::string& name){
-		for(const auto& m:macros)
-			if(m.name==name)return true;
-		return false;
+	int get_macro_value(const std::string& name){
+		auto it=macros.find(name);
+		return it!=macros.end()?it->second:0;
 	}
-	void copy_macros_from(const std::vector<Macro>& src){
-		for(const auto& m:src)
-			add_macro(m.name,m.value);
-	}
-	const std::vector<Macro>& get_macros()const{return macros;}
+	void set_macros(const std::unordered_map<std::string,int>& src){macros=src;}
+	const std::unordered_map<std::string,int>& get_macros()const{return macros;}
 	bool is_template_instantiation(){
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
@@ -83,7 +71,7 @@ private:
 	int pos,line,col,bol;
 	Token* current;
 	Token* peekToken;
-	std::vector<Macro> macros;
+	std::unordered_map<std::string,int> macros;
 	std::vector<CondState> cond_stack;
 	static char* mioStrndup(const char* s,int n){
 		char* buf=(char*)malloc(n+1);
@@ -311,22 +299,12 @@ private:
 			Token* t=raw_token();
 			switch((int)t->kind){
 			case IK_AT_IF:{
-				int line=t->line;
-				int col=t->col;
+				int at_line=t->line;
+				int at_col=t->col;
 				tok_free(t);
-				bool negate=false;
-				t=raw_token();
-				if(t->kind==TOK_NOT){
-					negate=true;
-					tok_free(t);
-					t=raw_token();
-				}
-				bool defined=false;
-				if(t->kind==TOK_IDENT){
-					defined=is_macro_defined(t->lexeme);
-				}
-				tok_free(t);
-				bool result=negate?!defined:defined;
+				auto tokens=tokenize_pp_expr();
+				int idx=0;
+				int result=eval_pp_or(tokens,idx);
 				if(result){
 					cond_stack.push_back({true,false,false});
 				}else{
@@ -335,38 +313,24 @@ private:
 				continue;
 			}
 			case IK_AT_ELIF:{
+				int at_line=t->line;
+				int at_col=t->col;
 				tok_free(t);
 				if(cond_stack.empty()){
-					fprintf(stderr,"%s:%d:%d: error: stray '@elif' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
-					t=raw_token();
-					if(t->kind==TOK_NOT){tok_free(t);t=raw_token();}
-					tok_free(t);
+					fprintf(stderr,"%s:%d:%d: error: stray '@elif' outside of conditional compilation block\n",filename.c_str(),at_line,at_col);
 					continue;
 				}
 				auto& state=cond_stack.back();
 				if(state.has_else){
-					fprintf(stderr,"%s:%d:%d: error: '@elif' after '@else'\n",filename.c_str(),t->line,t->col);
-					t=raw_token();
-					if(t->kind==TOK_NOT){tok_free(t);t=raw_token();}
-					tok_free(t);
+					fprintf(stderr,"%s:%d:%d: error: '@elif' after '@else'\n",filename.c_str(),at_line,at_col);
 					continue;
 				}
 				if(state.in_true_branch){
 					state.skipping=true;
 				}else{
-					bool negate=false;
-					t=raw_token();
-					if(t->kind==TOK_NOT){
-						negate=true;
-						tok_free(t);
-						t=raw_token();
-					}
-					bool defined=false;
-					if(t->kind==TOK_IDENT){
-						defined=is_macro_defined(t->lexeme);
-					}
-					tok_free(t);
-					bool result=negate?!defined:defined;
+					auto tokens=tokenize_pp_expr();
+					int idx=0;
+					int result=eval_pp_or(tokens,idx);
 					if(result){
 						state.in_true_branch=true;
 						state.skipping=false;
@@ -375,14 +339,16 @@ private:
 				continue;
 			}
 			case IK_AT_ELSE:{
+				int at_line=t->line;
+				int at_col=t->col;
 				tok_free(t);
 				if(cond_stack.empty()){
-					fprintf(stderr,"%s:%d:%d: error: stray '@else' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
+					fprintf(stderr,"%s:%d:%d: error: stray '@else' outside of conditional compilation block\n",filename.c_str(),at_line,at_col);
 					continue;
 				}
 				auto& state=cond_stack.back();
 				if(state.has_else){
-					fprintf(stderr,"%s:%d:%d: error: duplicate '@else'\n",filename.c_str(),t->line,t->col);
+					fprintf(stderr,"%s:%d:%d: error: duplicate '@else'\n",filename.c_str(),at_line,at_col);
 					continue;
 				}
 				state.has_else=true;
@@ -395,9 +361,11 @@ private:
 				continue;
 			}
 			case IK_AT_END:{
+				int at_line=t->line;
+				int at_col=t->col;
 				tok_free(t);
 				if(cond_stack.empty()){
-					fprintf(stderr,"%s:%d:%d: error: stray '@end' outside of conditional compilation block\n",filename.c_str(),t->line,t->col);
+					fprintf(stderr,"%s:%d:%d: error: stray '@end' outside of conditional compilation block\n",filename.c_str(),at_line,at_col);
 					continue;
 				}
 				cond_stack.pop_back();
@@ -425,29 +393,28 @@ private:
 				int macro_line=line;
 				int macro_col=col;
 				while(cur()==' '||cur()=='\t'||cur()=='\r')advance();
-				std::string value="1";
+				int ival=1;
 				if(cur()!='\0'&&cur()!='\n'){
 					int val_start=pos;
-					if(isalpha(cur())||cur()=='_'){
+					if(isdigit(cur())){
+						while(isdigit(cur()))advance();
+					}else if(isalpha(cur())||cur()=='_'){
 						while(isalnum(cur())||cur()=='_')advance();
-					}else if(isdigit(cur())){
-						while(isdigit(cur())||cur()=='.')advance();
-					}else if(cur()=='"'){
-						advance();
-						while(cur()!='"'&&cur()!='\0'&&cur()!='\n')advance();
-						if(cur()=='"')advance();
+						ival=1;
+					}else{
+						while(cur()!='\n'&&cur()!='\0')advance();
 					}
 					int val_len=pos-val_start;
-					if(val_len>0){
+					if(val_len>0&&isdigit(source[val_start])){
 						char* val_buf=mioStrndup(source.c_str()+val_start,val_len);
-						value=std::string(val_buf);
+						ival=atoi(val_buf);
 						free(val_buf);
 					}
 				}
-				if(is_macro_defined(name)){
+				if(macros.find(name)!=macros.end()){
 					fprintf(stderr,"%s:%d:%d: error: macro '%s' is already defined\n",filename.c_str(),macro_line,macro_col,name.c_str());
 				}
-				add_macro(name,value);
+				add_macro(name,ival);
 				continue;
 			}
 			case TOK_EOF:
@@ -571,6 +538,103 @@ private:
 				}
 			}
 		}
+	}
+	enum PPKind{
+		PPE_END,PPE_INT,PPE_ID,PPE_PLUS,PPE_MINUS,PPE_STAR,PPE_SLASH,
+		PPE_EQ,PPE_NEQ,PPE_LT,PPE_GT,PPE_LTE,PPE_GTE,
+		PPE_AND,PPE_OR,PPE_NOT,PPE_LPAREN,PPE_RPAREN
+	};
+	struct PPTok{PPKind kind;int val;std::string name;};
+	std::vector<PPTok> tokenize_pp_expr(){
+		std::vector<PPTok> tokens;
+		while(true){
+			while(cur()==' '||cur()=='\t')advance();
+			char c=cur();
+			if(c=='\n'||c=='\r'||c=='\0'){
+				tokens.push_back({PPE_END,0,""});
+				return tokens;
+			}
+			if(isalpha(c)||c=='_'){
+				std::string name;
+				while(isalnum(c=cur())||c=='_')name+=advance();
+				tokens.push_back({PPE_ID,0,name});
+			}else if(isdigit(c)){
+				std::string num;
+				while(isdigit(cur()))num+=advance();
+				tokens.push_back({PPE_INT,atoi(num.c_str()),""});
+			}else switch(advance()){
+				case '+':tokens.push_back({PPE_PLUS,0,""});break;
+				case '-':tokens.push_back({PPE_MINUS,0,""});break;
+				case '*':tokens.push_back({PPE_STAR,0,""});break;
+				case '/':if(cur()=='/'){while(cur()!='\n'&&cur()!='\0')advance();break;}tokens.push_back({PPE_SLASH,0,""});break;
+				case '!':if(cur()=='='){advance();tokens.push_back({PPE_NEQ,0,""});}else tokens.push_back({PPE_NOT,0,""});break;
+				case '=':if(cur()=='=')advance();tokens.push_back({PPE_EQ,0,""});break;
+				case '<':if(cur()=='='){advance();tokens.push_back({PPE_LTE,0,""});}else tokens.push_back({PPE_LT,0,""});break;
+				case '>':if(cur()=='='){advance();tokens.push_back({PPE_GTE,0,""});}else tokens.push_back({PPE_GT,0,""});break;
+				case '&':if(cur()=='&'){advance();tokens.push_back({PPE_AND,0,""});}else tokens.push_back({PPE_END,0,""});break;
+				case '|':if(cur()=='|'){advance();tokens.push_back({PPE_OR,0,""});}else tokens.push_back({PPE_END,0,""});break;
+				case '(':tokens.push_back({PPE_LPAREN,0,""});break;
+				case ')':tokens.push_back({PPE_RPAREN,0,""});break;
+				default:tokens.push_back({PPE_END,0,""});break;
+			}
+		}
+	}
+	int eval_pp_or(const std::vector<PPTok>& ts,int& idx){
+		int left=eval_pp_and(ts,idx);
+		while(idx<(int)ts.size()&&ts[idx].kind==PPE_OR){idx++;int right=eval_pp_and(ts,idx);left=(left||right)?1:0;}
+		return left;
+	}
+	int eval_pp_and(const std::vector<PPTok>& ts,int& idx){
+		int left=eval_pp_cmp(ts,idx);
+		while(idx<(int)ts.size()&&ts[idx].kind==PPE_AND){idx++;int right=eval_pp_cmp(ts,idx);left=(left&&right)?1:0;}
+		return left;
+	}
+	int eval_pp_cmp(const std::vector<PPTok>& ts,int& idx){
+		int left=eval_pp_add(ts,idx);
+		while(idx<(int)ts.size()&&(ts[idx].kind==PPE_EQ||ts[idx].kind==PPE_NEQ||ts[idx].kind==PPE_LT||ts[idx].kind==PPE_GT||ts[idx].kind==PPE_LTE||ts[idx].kind==PPE_GTE)){
+			PPKind op=ts[idx++].kind;
+			int right=eval_pp_add(ts,idx);
+			if(op==PPE_EQ)left=(left==right)?1:0;
+			else if(op==PPE_NEQ)left=(left!=right)?1:0;
+			else if(op==PPE_LT)left=(left<right)?1:0;
+			else if(op==PPE_GT)left=(left>right)?1:0;
+			else if(op==PPE_LTE)left=(left<=right)?1:0;
+			else left=(left>=right)?1:0;
+		}
+		return left;
+	}
+	int eval_pp_add(const std::vector<PPTok>& ts,int& idx){
+		int left=eval_pp_mul(ts,idx);
+		while(idx<(int)ts.size()&&(ts[idx].kind==PPE_PLUS||ts[idx].kind==PPE_MINUS)){
+			PPKind op=ts[idx++].kind;
+			int right=eval_pp_mul(ts,idx);
+			left=(op==PPE_PLUS)?left+right:left-right;
+		}
+		return left;
+	}
+	int eval_pp_mul(const std::vector<PPTok>& ts,int& idx){
+		int left=eval_pp_unary(ts,idx);
+		while(idx<(int)ts.size()&&(ts[idx].kind==PPE_STAR||ts[idx].kind==PPE_SLASH)){
+			PPKind op=ts[idx++].kind;
+			int right=eval_pp_unary(ts,idx);
+			if(op==PPE_STAR)left=left*right;
+			else left=(right==0)?0:left/right;
+		}
+		return left;
+	}
+	int eval_pp_unary(const std::vector<PPTok>& ts,int& idx){
+		if(idx>=(int)ts.size())return 0;
+		if(ts[idx].kind==PPE_NOT){idx++;return eval_pp_unary(ts,idx)?0:1;}
+		if(ts[idx].kind==PPE_MINUS){idx++;return -eval_pp_unary(ts,idx);}
+		if(ts[idx].kind==PPE_PLUS){idx++;return eval_pp_unary(ts,idx);}
+		return eval_pp_primary(ts,idx);
+	}
+	int eval_pp_primary(const std::vector<PPTok>& ts,int& idx){
+		if(idx>=(int)ts.size())return 0;
+		if(ts[idx].kind==PPE_INT)return ts[idx++].val;
+		if(ts[idx].kind==PPE_ID){std::string name=ts[idx++].name;return get_macro_value(name);}
+		if(ts[idx].kind==PPE_LPAREN){idx++;int val=eval_pp_or(ts,idx);if(idx<(int)ts.size()&&ts[idx].kind==PPE_RPAREN)idx++;return val;}
+		return 0;
 	}
 };
 #undef cur

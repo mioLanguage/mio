@@ -5,6 +5,7 @@
 #include<cstring>
 #include<string>
 #include<vector>
+#include<unordered_map>
 #include<sys/stat.h>
 
 #ifdef _WIN32
@@ -61,7 +62,7 @@ int main(int argc,char* argv[]){
 		else if(argc==2&&(strcmp(argv[1],"-h")==0||strcmp(argv[1],"--help")==0))
 			help(argv[0]),exit(0);
 		std::string output_file;
-		std::vector<std::string> input_files,include_paths,defines,link_libs;
+		std::vector<std::string> input_files,include_paths,link_libs;
 #ifdef _WIN32
 		link_libs.push_back("windows/kernel32.lib");
 		link_libs.push_back("windows/legacy_stdio_definitions.lib");
@@ -74,10 +75,16 @@ int main(int argc,char* argv[]){
 #endif
 		bool emit_asm=false,compile_only=false,static_link=false,release=false;
 		int opt_level=0;
+		std::unordered_map<std::string,int> macros;
 		for(int i=1;i<argc;i++){
 			if(strcmp(argv[i],"-o")==0&&i+1<argc)output_file=argv[++i];
 			else if(strcmp(argv[i],"-I")==0&&i+1<argc)include_paths.push_back(argv[++i]);
-			else if(strcmp(argv[i],"-D")==0&&i+1<argc)defines.push_back(argv[++i]);
+			else if(strcmp(argv[i],"-D")==0&&i+1<argc){
+				std::string define=argv[++i];
+				size_t eq=define.find('=');
+				if(eq!=std::string::npos)macros[define.substr(0,eq)]=atoi(define.substr(eq+1).c_str());
+				else macros[define]=1;
+			}
 			else if(strcmp(argv[i],"-S")==0)emit_asm=true;
 			else if(strcmp(argv[i],"-c")==0)compile_only=true;
 			else if(strcmp(argv[i],"-static")==0)static_link=true;
@@ -160,7 +167,7 @@ int main(int argc,char* argv[]){
 				}else{
 					output=input_file.substr(0,input_file.size()-ext.size())+".exe";
 				}
-				bool ok=cg.compiling(input_file,output,include_paths,defines,resolved_libs,bundled_lib_path,emit_asm,compile_only,static_link,release,opt_level);
+				bool ok=cg.compiling(input_file,output,include_paths,macros,resolved_libs,bundled_lib_path,emit_asm,compile_only,static_link,release,opt_level);
 				if(!ok)exit(1);
 			}else if(isObjectFile(input_file)||isLLVMFile(input_file)||isAssemblyFile(input_file)||isLibFile(input_file)){
 				std::string exe_path=output_file.empty()?(input_file.substr(0,input_file.size()-ext.size())+".exe"):output_file;
@@ -179,7 +186,7 @@ int main(int argc,char* argv[]){
 				if(isMioFile(input_file)){
 					Compiler cg;
 					std::string obj_path=input_file.substr(0,input_file.size()-ext.size())+".o";
-					bool ok=cg.compiling(input_file,obj_path,include_paths,defines,resolved_libs,bundled_lib_path,false,true,static_link,release,opt_level);
+					bool ok=cg.compiling(input_file,obj_path,include_paths,macros,resolved_libs,bundled_lib_path,false,true,static_link,release,opt_level);
 					if(!ok)exit(1);
 					link_files.push_back(obj_path);
 				}else if(isObjectFile(input_file)||isLLVMFile(input_file)||isAssemblyFile(input_file)||isLibFile(input_file)){

@@ -3088,7 +3088,7 @@ public:
 		const std::string& input_file,
 		const std::string& output_file,
 		const std::vector<std::string>& include_paths,
-		const std::vector<std::string>& defines,
+		std::unordered_map<std::string,int> &macros,
 		const std::vector<std::string>& link_libs,
 		const std::string& bundled_lib_path,
 		bool emit_asm=false,
@@ -3123,7 +3123,7 @@ public:
 		file.close();
 		Lexer lexer(source,input_file);
 		Parser parser(&lexer,input_file,include_paths);
-		for(const auto& m:defines)lexer.add_macro(m,"1");
+		lexer.set_macros(macros);
 		AstNode* program=parser.parse();
 		if(!program) return false;
 		if(g_error_count){

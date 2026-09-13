@@ -223,7 +223,7 @@ private:
 		std::string old_filename=filename;
 		std::string norm_resolved=normalize_path(resolved);
 		auto* new_lexer=new Lexer(source,norm_resolved);
-		new_lexer->copy_macros_from(old_lexer->get_macros());
+		new_lexer->set_macros(old_lexer->get_macros());
 		lexer=new_lexer;
 		filename=norm_resolved;
 		cur=new_lexer->current;
@@ -234,7 +234,7 @@ private:
 		auto* decl=parse_decl();
 			if(decl)add_import_to_block(block,decl);
 		}
-		old_lexer->copy_macros_from(new_lexer->get_macros());
+		old_lexer->set_macros(new_lexer->get_macros());
 		delete new_lexer;
 		lexer=old_lexer;
 		cur=old_cur;
