@@ -264,11 +264,13 @@ public:
 					std::string name=node->template_def.def->class_def.name;
 					if(!currentNamespace.empty())
 						name=currentNamespace+"::"+name;
-					if(classTemplateMap.count(name)){
-						error(node,"redefinition of class template '"+name+"'");
-						return;
+					for(auto& existing:classTemplateMap[name]){
+						if(existing.first.size()==node->template_def.type_params.size()){
+							error(node,"redefinition of class template '"+name+"'");
+							return;
+						}
 					}
-					classTemplateMap[name]={node->template_def.type_params,node->template_def.def};
+					classTemplateMap[name].push_back({node->template_def.type_params,node->template_def.def});
 				}else{
 					error(node,"template only supports functions and classes");
 				}
@@ -317,13 +319,15 @@ public:
 				}
 				funcDecls.insert(fullName);
 				funcDefMap[fullName]=m;
-				if(m->func_def.is_operator&&m->func_def.params.size()>0){
-					std::string mangledFullName=fullName+"_";
+				if(m->func_def.is_operator){
+					std::string mangledFullName=fullName+"(";
 					for(size_t i=0;i<m->func_def.params.size();i++){
-						if(i>0)mangledFullName+="_";
+						if(i>0)mangledFullName+=",";
 						mangledFullName+=resolveClassName(mio_type_str(m->func_def.params[i].type));
 					}
+					mangledFullName+=")";
 					funcDecls.insert(mangledFullName);
+				funcDefMap[mangledFullName]=m;
 				}
 			}
 				for(auto* c:node->class_def.constructors){
@@ -346,6 +350,11 @@ public:
 				classConstructorSigs[name].push_back({ctorName,sig});
 				funcDecls.insert(ctorName);
 				funcDefMap[ctorName]=c;
+				if(!sig.empty()){
+					std::string mangledCtor=ctorName+"("+sig+")";
+					funcDecls.insert(mangledCtor);
+					funcDefMap[mangledCtor]=c;
+				}
 			}
 				break;
 			}
@@ -438,7 +447,7 @@ public:
 	std::unordered_set<std::string> enumNames;
 	std::unordered_set<std::string> unionNames;
 	std::unordered_map<std::string,std::string> enumVariantMap;
-	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>> classTemplateMap;
+	std::unordered_map<std::string,std::vector<std::pair<std::vector<TemplateParam>,AstNode*>>> classTemplateMap;
 	std::unordered_map<std::string,std::pair<std::vector<TemplateParam>,AstNode*>> templateMap;
 	std::unordered_set<std::string> instantiatedFuncNames;
 	std::vector<AstNode*> pendingFuncInstantiations;
@@ -491,15 +500,7 @@ private:
 			case AstNodeKind::CLASS_DEF: analyzeClassDef(node); break;
 			case AstNodeKind::ENUM_DEF: break;
 			case AstNodeKind::UNION_DEF: break;
-			case AstNodeKind::TEMPLATE_DEF:{
-				if(node->template_def.def->kind==AstNodeKind::CLASS_DEF){
-					std::string name=node->template_def.def->class_def.name;
-					if(!currentNamespace.empty())
-						name=currentNamespace+"::"+name;
-					classTemplateMap[name]={node->template_def.type_params,node->template_def.def};
-				}
-				break;
-			}
+			case AstNodeKind::TEMPLATE_DEF: break;
 			case AstNodeKind::NAMESPACE_DEF:{
 				std::string savedNs=currentNamespace;
 				if(!currentNamespace.empty())
@@ -937,22 +938,14 @@ private:
 				className=resolveClassName(lmt->base_type->name);
 		}
 		if(!className.empty()){
-			std::string opMethod=findOperatorMethod(className,node->binary.op,rmt);
+			std::string opMethod=findOperatorMethod(className,node->binary.op,rmt,node);
 			if(opMethod.empty()){
 				error(node,"class '"+className+"' does not support operator"+tok_name(node->binary.op));
 				node->type=mio_type_new(MioTypeKind::BOOL);
 			}
 			node->binary.resolved_op_method=opMethod;
 			if(!opMethod.empty()){
-				std::string baseName=opMethod;
-				size_t upos=opMethod.rfind('_');
-				if(upos!=std::string::npos&&upos>0&&opMethod[upos-1]!=':'){
-					baseName=opMethod.substr(0,upos);
-				}
-				auto defIt=funcDefMap.find(baseName);
-				if(defIt==funcDefMap.end()){
-					defIt=funcDefMap.find(opMethod);
-				}
+				auto defIt=funcDefMap.find(opMethod);
 				if(defIt!=funcDefMap.end()&&defIt->second->kind==AstNodeKind::FUNC_DEF&&defIt->second->func_def.return_type){
 					node->type=mio_type_clone(defIt->second->func_def.return_type);
 				}
@@ -1039,7 +1032,83 @@ private:
 			std::string ns=node->call.callee->ident.namespace_name;
 			if(!ns.empty()&&ns!="::")
 				calleeName=ns+"::"+calleeName;
-			if(locals.count(calleeName)) return;
+			if(locals.count(calleeName)){
+				MioType* varType=locals[calleeName];
+				MioType* unwrapped=varType;
+				while(unwrapped&&unwrapped->kind==MioTypeKind::REFERENCE)unwrapped=unwrapped->base_type;
+				std::string className;
+				if(unwrapped&&unwrapped->kind==MioTypeKind::CLASS&&!unwrapped->name.empty())
+					className=resolveClassName(unwrapped->name);
+				if(!className.empty()){
+					std::string opName="operator()";
+					std::string opBase=className+"::"+opName;
+					std::string opMangled=opBase+"(";
+					for(size_t i=0;i<node->call.args.size();i++){
+						if(i>0)opMangled+=",";
+						MioType* at=resolveExprMioType(node->call.args[i]);
+						std::string atStr=at?mio_type_str(at):"";
+						opMangled+=atStr;
+					}
+					opMangled+=")";
+					std::string foundOp;
+					if(funcDecls.count(opMangled))foundOp=opMangled;
+					std::string shortClassName=className;
+					{
+						auto pos=shortClassName.rfind("::");
+						if(pos!=std::string::npos)shortClassName=shortClassName.substr(pos+2);
+					}
+					if(foundOp.empty()){
+						std::string shortMangled=shortClassName+"::"+opName+"(";
+						for(size_t i=0;i<node->call.args.size();i++){
+							if(i>0)shortMangled+=",";
+							MioType* at=resolveExprMioType(node->call.args[i]);
+							std::string atStr=at?mio_type_str(at):"";
+							shortMangled+=atStr;
+						}
+						shortMangled+=")";
+						if(funcDecls.count(shortMangled))foundOp=shortMangled;
+					}
+					if(foundOp.empty()){
+						std::string prefix1=opBase+"(";
+						std::string prefix2=shortClassName+"::"+opName+"(";
+						std::vector<std::string> candidates;
+						for(const std::string& fnName:funcDecls){
+							if(fnName.size()>prefix1.size()&&fnName.substr(0,prefix1.size())==prefix1)
+								candidates.push_back(fnName);
+							else if(fnName.size()>prefix2.size()&&fnName.substr(0,prefix2.size())==prefix2)
+								candidates.push_back(fnName);
+						}
+						std::vector<std::string> implicitMatches;
+						for(auto& c:candidates){
+							std::vector<std::string> paramTypes=parseParamTypesFromMangled(c);
+							if(paramTypes.size()!=node->call.args.size())continue;
+							bool allConvert=true;
+							for(size_t i=0;i<paramTypes.size();i++){
+								MioType* at=resolveExprMioType(node->call.args[i]);
+								std::string atStr=at?mio_type_str(at):"";
+								if(!canImplicitConvertStr(atStr,paramTypes[i])){allConvert=false;break;}
+							}
+							if(allConvert)implicitMatches.push_back(c);
+						}
+						if(implicitMatches.size()==1)foundOp=implicitMatches[0];
+						else if(implicitMatches.size()>1){
+							std::string msg="ambiguous operator() call. candidates:";
+							for(auto& m:implicitMatches)msg+=" "+m;
+							error(node,msg);
+						}
+					}
+					if(!foundOp.empty()){
+						node->call.resolved_op_method=foundOp;
+						auto defIt=funcDefMap.find(foundOp);
+						if(defIt!=funcDefMap.end()&&defIt->second->kind==AstNodeKind::FUNC_DEF&&defIt->second->func_def.return_type)
+							node->type=mio_type_clone(defIt->second->func_def.return_type);
+						return;
+					}
+					error(node,"class '"+className+"' does not support operator() with given arguments");
+					return;
+				}
+				return;
+			}
 			std::string resolvedClass=resolveClassName(calleeName);
 			if(classTypes.count(resolvedClass)){
 				node->call.callee->ident.name=resolvedClass;
@@ -1047,22 +1116,73 @@ private:
 				auto it=classConstructorSigs.find(resolvedClass);
 				if(it!=classConstructorSigs.end()){
 					int argCount=(int)node->call.args.size();
-					int matchCount=0;
+					std::vector<std::string> candidateCtors;
 					for(auto& cs:it->second){
 						int cnt=0;
 						for(char ch:cs.second)if(ch==',')cnt++;
 						if(cs.second.empty())cnt=-1;
-						if(cnt+1==argCount)matchCount++;
+						if(cnt+1==argCount)candidateCtors.push_back(cs.first);
 					}
-					if(matchCount==0){
+					if(candidateCtors.empty()){
 						error(node,"no matching constructor for '"+resolvedClass+"' with "+std::to_string(argCount)+" argument(s)");
 						node->type=mio_type_new_named(MioTypeKind::CLASS,resolvedClass);
+						return;
 					}
-				}else if(node->call.args.size()>0){
-					error(node,"no matching constructor for '"+resolvedClass+"'");
+					if(candidateCtors.size()>1&&argCount>0){
+						std::vector<std::string> exactMatches;
+						std::vector<std::string> implicitMatches;
+						for(auto& ctorName:candidateCtors){
+							std::string mangled=ctorName+"(";
+							for(size_t i=0;i<node->call.args.size();i++){
+								if(i>0)mangled+=",";
+								MioType* at=resolveExprMioType(node->call.args[i]);
+								mangled+=at?mio_type_str(at):"";
+							}
+							mangled+=")";
+							if(funcDecls.count(mangled))exactMatches.push_back(ctorName);
+							else{
+								std::vector<std::string> paramTypes=parseParamTypesFromMangled(ctorName);
+								if(paramTypes.size()==(size_t)argCount){
+									bool allConvert=true;
+									for(size_t i=0;i<paramTypes.size();i++){
+										MioType* at=resolveExprMioType(node->call.args[i]);
+										std::string atStr=at?mio_type_str(at):"";
+										if(!canImplicitConvertStr(atStr,paramTypes[i])){allConvert=false;break;}
+									}
+									if(allConvert)implicitMatches.push_back(ctorName);
+								}
+							}
+						}
+						if(exactMatches.size()==1)candidateCtors=exactMatches;
+						else if(exactMatches.empty()&&implicitMatches.size()==1)candidateCtors=implicitMatches;
+						else if(exactMatches.empty()&&implicitMatches.size()>1){
+							std::string msg="ambiguous constructor for '"+resolvedClass+"'. candidates:";
+							for(auto& m:implicitMatches)msg+=" "+m;
+							error(node,msg);
+							node->type=mio_type_new_named(MioTypeKind::CLASS,resolvedClass);
+							return;
+						}
+					}
+					if(candidateCtors.size()>0){
+						std::string ctorName=candidateCtors[0];
+						node->call.resolved_constructor=ctorName;
+						if(argCount>0){
+							std::string mangled=ctorName+"(";
+							for(size_t i=0;i<node->call.args.size();i++){
+								if(i>0)mangled+=",";
+								MioType* at=resolveExprMioType(node->call.args[i]);
+								mangled+=at?mio_type_str(at):"";
+							}
+							mangled+=")";
+							node->call.resolved_op_method=mangled;
+						}
+					}
 					node->type=mio_type_new_named(MioTypeKind::CLASS,resolvedClass);
-				}
-				return;
+			}else if(node->call.args.size()>0){
+				error(node,"no matching constructor for '"+resolvedClass+"'");
+				node->type=mio_type_new_named(MioTypeKind::CLASS,resolvedClass);
+			}
+			return;
 			}
 			if(!node->call.template_args.empty()){
 				std::string resolvedClass=resolveClassName(calleeName);
@@ -1375,7 +1495,7 @@ private:
 			if(baseMio->kind==MioTypeKind::CLASS&&!baseMio->name.empty()){
 				std::string className=resolveClassName(baseMio->name);
 				MioType* idxMio=resolveExprMioType(node->index_expr.index);
-				std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio);
+				std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio,node);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator[]");
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -1398,7 +1518,7 @@ private:
 			}else if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type&&baseMio->base_type->kind==MioTypeKind::CLASS&&!baseMio->base_type->name.empty()){
 				std::string className=resolveClassName(baseMio->base_type->name);
 				MioType* idxMio=resolveExprMioType(node->index_expr.index);
-				std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio);
+				std::string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio,node);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator[]");
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -1544,7 +1664,7 @@ private:
 			}
 			if(!className.empty()){
 				MioType* rmt=resolveExprMioType(node->assign.right);
-				std::string opMethod=findOperatorMethod(className,node->assign.op,rmt);
+				std::string opMethod=findOperatorMethod(className,node->assign.op,rmt,node);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator"+tok_name(node->assign.op));
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -1640,8 +1760,7 @@ private:
 		if(mt->kind==MioTypeKind::CLASS&&!mt->param_types.empty()){
 			std::string name=mt->name;
 			std::string fullName=resolveClassName(name);
-			auto it=classTemplateMap.find(fullName);
-			if(it==classTemplateMap.end()){
+			if(!classTemplateMap.count(fullName)){
 				error(ctx,"unknown template '"+name+"'");
 				return;
 			}
@@ -1690,6 +1809,11 @@ private:
 						classConstructorSigs[instName].push_back({ctorName,sig});
 						funcDecls.insert(ctorName);
 						funcDefMap[ctorName]=c;
+						if(!sig.empty()){
+							std::string mangledCtor=ctorName+"("+sig+")";
+							funcDecls.insert(mangledCtor);
+							funcDefMap[mangledCtor]=c;
+						}
 					}
 					if(inst->class_def.destructor){
 						std::string dtorName=instName+"::"+inst->class_def.destructor->func_def.name;
@@ -1738,7 +1862,7 @@ private:
 		return name;
 	}
 	
-	std::string findOperatorMethod(const std::string& className,TokenKind op,MioType* rightType){
+	std::string findOperatorMethod(const std::string& className,TokenKind op,MioType* rightType,AstNode* errCtx=nullptr){
 		std::string opName;
 		switch(op){
 			case TOK_PLUS:opName="operator+";break;
@@ -1766,36 +1890,89 @@ private:
 			default:return "";
 		}
 		std::string rightTypeStr=rightType?mio_type_str(rightType):"";
-		std::vector<std::string> candidates;
-		candidates.push_back(className+"::"+opName+"_"+rightTypeStr);
-		candidates.push_back(className+"::"+opName);
-		size_t nsSep=className.find("::");
-		if(nsSep!=std::string::npos){
-			std::string shortName=className.substr(nsSep+2);
-			candidates.push_back(shortName+"::"+opName+"_"+rightTypeStr);
-			candidates.push_back(shortName+"::"+opName);
+		std::string exactName=className+"::"+opName+"("+rightTypeStr+")";
+		if(funcDecls.count(exactName))return exactName;
+		std::string shortClassName=className;
+		{
+			auto pos=shortClassName.rfind("::");
+			if(pos!=std::string::npos)shortClassName=shortClassName.substr(pos+2);
 		}
-		for(auto& c:candidates){
-			if(funcDecls.count(c)){
-				return c;
+		std::string exactShort=shortClassName+"::"+opName+"("+rightTypeStr+")";
+		if(funcDecls.count(exactShort))return exactShort;
+		std::string prefix1=className+"::"+opName+"(";
+		std::string prefix2=shortClassName+"::"+opName+"(";
+		std::vector<std::string> implicitMatches;
+		for(const std::string& fnName:funcDecls){
+			bool match=false;
+			if(fnName.size()>prefix1.size()&&fnName.substr(0,prefix1.size())==prefix1)
+				match=true;
+			else if(fnName.size()>prefix2.size()&&fnName.substr(0,prefix2.size())==prefix2)
+				match=true;
+			if(match){
+				std::string paramType=getFirstParamTypeFromMangled(fnName);
+				if(!paramType.empty()&&canImplicitConvertStr(rightTypeStr,paramType))
+					implicitMatches.push_back(fnName);
 			}
 		}
-		for(auto& kv:funcDecls){
-			std::string prefix=className+"::"+opName+"_";
-			if(kv.size()>prefix.size()&&kv.substr(0,prefix.size())==prefix){
-				return kv;
-			}
-			size_t nsSep2=className.find("::");
-			if(nsSep2!=std::string::npos){
-				std::string shortName2=className.substr(nsSep2+2);
-				std::string prefix2=shortName2+"::"+opName+"_";
-				if(kv.size()>prefix2.size()&&kv.substr(0,prefix2.size())==prefix2){
-					return kv;
-				}
-			}
+		if(implicitMatches.size()==1)return implicitMatches[0];
+		if(implicitMatches.size()>1){
+			std::string msg="ambiguous operator '"+opName+"' for type '"+rightTypeStr+"'. candidates:";
+			for(auto& m:implicitMatches)msg+=" "+m;
+			if(errCtx)error(errCtx,msg);
 		}
-		if(funcDecls.count(opName))return opName;
 		return "";
+	}
+	
+	bool canImplicitConvertStr(const std::string& from,const std::string& to){
+		if(from==to)return true;
+		auto intRank=[](const std::string& t){
+			if(t=="bool")return 1;
+			if(t=="char")return 2;
+			if(t=="i8"||t=="u8")return 3;
+			if(t=="i16"||t=="u16")return 4;
+			if(t=="i32"||t=="u32")return 5;
+			if(t=="i64"||t=="u64"||t=="isize"||t=="usize")return 6;
+			if(t=="i128"||t=="u128")return 7;
+			return 0;
+		};
+		int fr=intRank(from);
+		int tr=intRank(to);
+		if(fr>0&&tr>0&&tr>=fr)return true;
+		if(from=="f32"&&to=="f64")return true;
+		if(to=="void*"&&!from.empty()&&from.back()=='*')return true;
+		return false;
+	}
+	
+	std::string getFirstParamTypeFromMangled(const std::string& name){
+		size_t lp=name.find('(');
+		if(lp==std::string::npos)return "";
+		size_t rp=name.find(')',lp);
+		if(rp==std::string::npos)return "";
+		std::string params=name.substr(lp+1,rp-lp-1);
+		size_t comma=params.find(',');
+		if(comma!=std::string::npos)params=params.substr(0,comma);
+		return params;
+	}
+	
+	std::vector<std::string> parseParamTypesFromMangled(const std::string& name){
+		std::vector<std::string> result;
+		size_t lp=name.find('(');
+		if(lp==std::string::npos)return result;
+		size_t rp=name.find(')',lp);
+		if(rp==std::string::npos)return result;
+		std::string params=name.substr(lp+1,rp-lp-1);
+		if(params.empty())return result;
+		size_t start=0;
+		while(start<params.size()){
+			size_t comma=params.find(',',start);
+			if(comma==std::string::npos){
+				result.push_back(params.substr(start));
+				break;
+			}
+			result.push_back(params.substr(start,comma-start));
+			start=comma+1;
+		}
+		return result;
 	}
 	
 	MioType* resolveExprMioType(AstNode* node){
@@ -1972,12 +2149,28 @@ private:
 			error(ctx,"unknown template '"+name+"'");
 			return nullptr;
 		}
-		auto* templateDef=it->second.second;
-		auto& typeParams=it->second.first;
-		if(typeArgs.size()!=typeParams.size()){
-			error(ctx,"template '"+name+"' requires "+std::to_string(typeParams.size())+" arguments,got "+std::to_string(typeArgs.size()));
+		auto& candidates=it->second;
+		std::pair<std::vector<TemplateParam>,AstNode*>* selected=nullptr;
+		for(auto& c:candidates){
+			if(c.first.size()==typeArgs.size()){
+				if(selected){
+					error(ctx,"ambiguous template '"+name+"' - multiple overloads with "+std::to_string(typeArgs.size())+" parameter(s)");
+					return nullptr;
+				}
+				selected=&c;
+			}
+		}
+		if(!selected){
+			std::string counts;
+			for(auto& c:candidates){
+				if(!counts.empty())counts+=", ";
+				counts+=std::to_string(c.first.size());
+			}
+			error(ctx,"template '"+name+"' has "+counts+" parameter(s), but got "+std::to_string(typeArgs.size())+" argument(s)");
 			return nullptr;
 		}
+		auto* templateDef=selected->second;
+		auto& typeParams=selected->first;
 		std::unordered_map<std::string,MioType*> typeSubst;
 		for(size_t i=0;i<typeParams.size();i++){
 			typeSubst[typeParams[i].name]=typeArgs[i];

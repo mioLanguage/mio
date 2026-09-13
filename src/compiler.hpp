@@ -718,12 +718,13 @@ class Compiler{
 				fullClassName=currentNamespace+"::"+fullClassName;
 			}
 			mangledName=fullClassName+"::"+name;
-			if((isCtor||def->func_def.is_operator)&&def->func_def.params.size()>0){
-				mangledName+="_";
+			if((isCtor&&def->func_def.params.size()>0)||def->func_def.is_operator){
+				mangledName+="(";
 				for(size_t i=0;i<def->func_def.params.size();i++){
-					if(i>0)mangledName+="_";
+					if(i>0)mangledName+=",";
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
+				mangledName+=")";
 			}
 		}else if(isMethod&&def->func_def.is_static){
 			std::string fullClassName=def->func_def.class_name;
@@ -1148,12 +1149,20 @@ class Compiler{
 				fullClassName=currentNamespace+"::"+fullClassName;
 			}
 			mangledName=fullClassName+"::"+name;
-			if((isCtor||def->func_def.is_operator)&&def->func_def.params.size()>0){
+			if(isCtor&&def->func_def.params.size()>0){
 				mangledName+="_";
 				for(size_t i=0;i<def->func_def.params.size();i++){
 					if(i>0)mangledName+="_";
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
+			}
+			if(def->func_def.is_operator){
+				mangledName+="(";
+				for(size_t i=0;i<def->func_def.params.size();i++){
+					if(i>0)mangledName+=",";
+					mangledName+=mio_type_str(def->func_def.params[i].type);
+				}
+				mangledName+=")";
 			}
 		}else if(isMethod&&def->func_def.is_static){
 			std::string fullClassName=def->func_def.class_name;
@@ -1185,12 +1194,20 @@ class Compiler{
 				fullClassName=currentNamespace+"::"+fullClassName;
 			}
 			mangledName=fullClassName+"::"+def->func_def.name;
-			if((isCtor||def->func_def.is_operator)&&def->func_def.params.size()>0){
+			if(isCtor&&def->func_def.params.size()>0){
 				mangledName+="_";
 				for(size_t i=0;i<def->func_def.params.size();i++){
 					if(i>0)mangledName+="_";
 					mangledName+=mio_type_str(def->func_def.params[i].type);
 				}
+			}
+			if(def->func_def.is_operator){
+				mangledName+="(";
+				for(size_t i=0;i<def->func_def.params.size();i++){
+					if(i>0)mangledName+=",";
+					mangledName+=mio_type_str(def->func_def.params[i].type);
+				}
+				mangledName+=")";
 			}
 		}else if(isMethod&&def->func_def.is_static){
 			std::string fullClassName=def->func_def.class_name;
@@ -1881,7 +1898,11 @@ class Compiler{
 			}
 			args.push_back(thisPtr);
 			llvm::Value* r=genExpr(node->binary.right);
-			if(r)args.push_back(r);
+			if(r){
+				llvm::Type* paramTy=callee->getFunctionType()->getParamType(1);
+				if(r->getType()!=paramTy)r=genCastValue(r,paramTy);
+				args.push_back(r);
+			}
 			return b.CreateCall(callee,args);
 		}
 		llvm::Value* l=genExpr(node->binary.left);
@@ -2077,11 +2098,81 @@ class Compiler{
 				error(node->line,node->col,"internal error: unresolved template arguments in call to '"+calleeName+"'");
 				return nullptr;
 			}
+			if(!node->call.resolved_op_method.empty()&&!classTypes.count(calleeName)){
+				llvm::Function* opFunc=nullptr;
+				auto fdit=funcDecls.find(node->call.resolved_op_method);
+				if(fdit!=funcDecls.end())opFunc=llvm::dyn_cast<llvm::Function>(fdit->second);
+				if(!opFunc)opFunc=mod->getFunction(node->call.resolved_op_method);
+				if(!opFunc){
+					error(node->line,node->col,"internal error: operator() method '"+node->call.resolved_op_method+"' not found");
+					return nullptr;
+				}
+				llvm::Value* thisPtr=genLValue(node->call.callee);
+				if(!thisPtr)thisPtr=genExpr(node->call.callee);
+				if(!thisPtr){
+					error(node->line,node->col,"internal error: cannot get 'this' pointer for operator()");
+					return nullptr;
+				}
+				llvm::Type* expectedThisTy=opFunc->getArg(0)->getType();
+				if(thisPtr->getType()!=expectedThisTy){
+					if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+						if(ai->getAllocatedType()->isPointerTy())
+							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
+					}
+					if(thisPtr->getType()!=expectedThisTy)
+						thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
+				}
+				std::vector<llvm::Value*> args;
+				args.push_back(thisPtr);
+				for(auto* a:node->call.args){
+					llvm::Value* av=genExpr(a);
+					if(av)args.push_back(av);
+				}
+				for(size_t i=args.size()-node->call.args.size();i<args.size();i++){
+					size_t paramIdx=i;
+					if(paramIdx<opFunc->arg_size()){
+						llvm::Type* paramTy=opFunc->getArg(paramIdx)->getType();
+						if(args[i]->getType()!=paramTy)
+							args[i]=genCastValue(args[i],paramTy);
+					}
+				}
+				return b.CreateCall(opFunc,args);
+			}
 			auto fit=funcDecls.find(calleeName);
 			if(fit!=funcDecls.end())calleeVal=fit->second;
 			if(!calleeVal){
 				calleeVal=mod->getFunction(calleeName);
 				if(calleeVal)funcDecls[calleeName]=llvm::cast<llvm::Function>(calleeVal);
+			}
+			
+			if(!calleeVal&&classTypes.count(calleeName)){
+				if(!node->call.resolved_op_method.empty()){
+					auto ctorIt=funcDecls.find(node->call.resolved_op_method);
+					llvm::Function* resolvedCtor=nullptr;
+					if(ctorIt!=funcDecls.end())resolvedCtor=llvm::dyn_cast<llvm::Function>(ctorIt->second);
+					if(!resolvedCtor)resolvedCtor=mod->getFunction(node->call.resolved_op_method);
+					if(resolvedCtor){
+						funcDecls[node->call.resolved_op_method]=resolvedCtor;
+						auto* st=classTypes[calleeName];
+						auto* alloca=createEntryAlloca(curFn,calleeName+"_tmp",st);
+						std::vector<llvm::Value*> args;
+						args.push_back(alloca);
+						for(unsigned i=0;i<node->call.args.size();i++){
+							llvm::Value* av=genExpr(node->call.args[i]);
+							if(!av){
+								error(node->line,node->col,"failed to generate constructor argument");
+								return nullptr;
+							}
+							if(i+1<resolvedCtor->arg_size()){
+								llvm::Type* paramTy=resolvedCtor->getFunctionType()->getParamType(i+1);
+								if(av->getType()!=paramTy)av=genCastValue(av,paramTy);
+							}
+							args.push_back(av);
+						}
+						b.CreateCall(resolvedCtor,args);
+						return b.CreateLoad(st,alloca);
+					}
+				}
 			}
 			
 			if(!calleeVal&&classTypes.count(calleeName)){
@@ -2117,8 +2208,8 @@ class Compiler{
 							if(argTypes[i]&&argTypes[i]!=paramTy){
 								
 								if(argTypes[i]->isPointerTy()&&paramTy->isPointerTy()){
-									continue; 
-								}
+							if(argTypes[i]==paramTy)continue;
+						}
 								match=false;
 								break;
 							}
@@ -2482,7 +2573,11 @@ class Compiler{
 			}
 			args.push_back(thisPtr);
 			llvm::Value* idx=genExpr(node->index_expr.index);
-			if(idx)args.push_back(idx);
+			if(idx){
+				llvm::Type* paramTy=callee->getFunctionType()->getParamType(1);
+				if(idx->getType()!=paramTy)idx=genCastValue(idx,paramTy);
+				args.push_back(idx);
+			}
 			return b.CreateCall(callee,args);
 		}
 		MioType* baseMio=resolveExprMioType(node->index_expr.base);
@@ -2670,7 +2765,11 @@ class Compiler{
 				}
 				args.push_back(thisPtr);
 				llvm::Value* r=genExpr(node->assign.right);
-				if(r)args.push_back(r);
+				if(r){
+					llvm::Type* paramTy=callee->getFunctionType()->getParamType(1);
+					if(r->getType()!=paramTy)r=genCastValue(r,paramTy);
+					args.push_back(r);
+				}
 				return b.CreateCall(callee,args);
 			}
 		}

@@ -190,6 +190,8 @@ public:
 		AstNode*callee;
 		std::vector<AstNode*> args;
 		std::vector<TemplateArg> template_args;
+		std::string resolved_op_method;
+		std::string resolved_constructor;
 	} call;
 	struct{
 		AstNode*base;

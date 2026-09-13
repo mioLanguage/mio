@@ -903,6 +903,10 @@ private:
 			if(cur->kind==TOK_LBRACKET){
 				advance();
 				expect(TOK_RBRACKET);
+			}else if(cur->kind==TOK_LPAREN){
+				func_name="operator()";
+				advance();
+				expect(TOK_RPAREN);
 			}else{
 				advance();
 			}
@@ -1161,7 +1165,7 @@ private:
 						}
 						c->class_def.nested_classes.push_back(nested);
 					}
-				}else if(is_type_token(cur->kind)){
+				}else if(cur->kind==TOK_OPERATOR||is_type_token(cur->kind)){
 					if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
 						std::string fname=cur->lexeme;
 						advance();
@@ -1270,7 +1274,9 @@ private:
 			error_expected("'$' after template parameters");
 			return nullptr;
 		}
+		auto savedClassNames=class_names;
 		auto* def=parse_decl();
+		class_names=savedClassNames;
 		if(!def){
 			error("expected declaration after template");
 			return nullptr;
