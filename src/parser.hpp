@@ -344,6 +344,11 @@ private:
 			auto* base=parse_type_prefix();
 			return mio_type_add_ref(base,true);
 		}
+		if(match(TOK_CONST)){
+			auto* base=parse_type_prefix();
+			if(base)base->is_const=true;
+			return base;
+		}
 		return parse_base_type_with_suffix();
 	}
 	MioType* parse_base_type_with_suffix(){
@@ -1313,8 +1318,23 @@ private:
 			}
 			case TOK_VAR:
 				return parse_var_decl(false,false);
-			case TOK_CONST:
-				return parse_var_decl(true,false);
+			case TOK_CONST:{
+				advance();
+				if(cur->kind==TOK_IDENT&&(peek->kind==TOK_COLON||peek->kind==TOK_ASSIGN||peek->kind==TOK_COMMA||peek->kind==TOK_SEMICOLON)){
+					return parse_var_decl(true,false,false,true);
+				}
+				MioType* retType=parse_type();
+				if(retType){
+					retType->is_const=true;
+					if(cur->kind==TOK_IDENT){
+						auto* tmpFn=ast_new_func_def("",retType,nullptr,false,cur->line,cur->col,fn());
+						return parse_func_def(false,false,tmpFn);
+					}
+					mio_type_free(retType);
+				}
+				error("expected function name after 'const' return type");
+				return nullptr;
+			}
 			case TOK_STATIC:{
 				advance();
 				if(match(TOK_VAR))

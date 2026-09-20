@@ -50,9 +50,10 @@ public:
 	int col;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
-	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr) {}
-	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr) {}
-	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),base_type(base) {}
+	bool is_const;
+	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
+	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
+	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),base_type(base),is_const(false) {}
 	~MioType(){
 		if(base_type) delete base_type;
 		for(auto* p:param_types) delete p;
@@ -64,6 +65,7 @@ public:
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		is_const=other.is_const;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -80,6 +82,7 @@ public:
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		is_const=other.is_const;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -89,7 +92,7 @@ public:
 	MioType(MioType&& other) noexcept
 		: kind(other.kind),name(std::move(other.name)),
 		  array_size(other.array_size),ref_count(other.ref_count),
-		  line(other.line),col(other.col),
+		  line(other.line),col(other.col),is_const(other.is_const),
 		  base_type(other.base_type),
 		  param_types(std::move(other.param_types)){
 		other.base_type=nullptr;
@@ -104,6 +107,7 @@ public:
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		is_const=other.is_const;
 		base_type=other.base_type;
 		param_types=std::move(other.param_types);
 		other.base_type=nullptr;
@@ -194,50 +198,59 @@ inline std::string mio_type_str(const MioType* type){
 		fprintf(stderr,"error: mio_type_str called with null type\n");
 		return "";
 	}
+	std::string prefix=type->is_const?"const ":"";
+	std::string base;
 	switch(type->kind){
-		case MioTypeKind::VOID: return "void";
-		case MioTypeKind::I8: return "i8";
-		case MioTypeKind::I16: return "i16";
-		case MioTypeKind::I32: return "i32";
-		case MioTypeKind::I64: return "i64";
-		case MioTypeKind::I128: return "i128";
-		case MioTypeKind::U8: return "u8";
-		case MioTypeKind::U16: return "u16";
-		case MioTypeKind::U32: return "u32";
-		case MioTypeKind::U64: return "u64";
-		case MioTypeKind::U128: return "u128";
-		case MioTypeKind::USIZE: return "usize";
-		case MioTypeKind::ISIZE: return "isize";
-		case MioTypeKind::F32: return "f32";
-		case MioTypeKind::F64: return "f64";
-		case MioTypeKind::BOOL: return "bool";
-		case MioTypeKind::CHAR: return "char";
+		case MioTypeKind::VOID: base="void"; break;
+		case MioTypeKind::I8: base="i8"; break;
+		case MioTypeKind::I16: base="i16"; break;
+		case MioTypeKind::I32: base="i32"; break;
+		case MioTypeKind::I64: base="i64"; break;
+		case MioTypeKind::I128: base="i128"; break;
+		case MioTypeKind::U8: base="u8"; break;
+		case MioTypeKind::U16: base="u16"; break;
+		case MioTypeKind::U32: base="u32"; break;
+		case MioTypeKind::U64: base="u64"; break;
+		case MioTypeKind::U128: base="u128"; break;
+		case MioTypeKind::USIZE: base="usize"; break;
+		case MioTypeKind::ISIZE: base="isize"; break;
+		case MioTypeKind::F32: base="f32"; break;
+		case MioTypeKind::F64: base="f64"; break;
+		case MioTypeKind::BOOL: base="bool"; break;
+		case MioTypeKind::CHAR: base="char"; break;
 		case MioTypeKind::POINTER:
 			if(type->base_type){
-				return mio_type_str(type->base_type)+"*";
+				base=mio_type_str(type->base_type)+"*";
+			}else{
+				base="void*";
 			}
-			return "void*";
+			break;
 		case MioTypeKind::REFERENCE:
 			if(type->base_type){
-				std::string s=mio_type_str(type->base_type)+"&";
-				for(int i=1;i<type->ref_count;i++) s+="&";
-				return s;
+				base=mio_type_str(type->base_type)+"&";
+				for(int i=1;i<type->ref_count;i++) base+="&";
+			}else{
+				base="void&";
 			}
-			return "void&";
+			break;
 		case MioTypeKind::RVALUE_REFERENCE:
 			if(type->base_type){
-				std::string s=mio_type_str(type->base_type)+"&&";
-				for(int i=1;i<type->ref_count;i++) s+="&";
-				return s;
+				base=mio_type_str(type->base_type)+"&&";
+				for(int i=1;i<type->ref_count;i++) base+="&";
+			}else{
+				base="void&&";
 			}
-			return "void&&";
+			break;
 		case MioTypeKind::CLASS:
 		case MioTypeKind::ENUM:
 		case MioTypeKind::UNION:
-			return type->name.empty()?"":type->name;
+			base=type->name.empty()?"":type->name;
+			break;
 		default:
 			fprintf(stderr,"error: mio_type_str called with unknown type kind %d\n",(int)type->kind);
-			return "";
+			base="";
+			break;
 	}
+	return prefix+base;
 }
 #endif
