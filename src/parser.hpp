@@ -299,7 +299,11 @@ private:
 					mt->line=line;mt->col=col;
 					if(match(TOK_DOLLAR)){
 						do{
-							mt->param_types.push_back(parse_type());
+							if(is_type_token(cur->kind)){
+								mt->param_types.push_back(parse_type());
+							}else{
+								mt->value_args.push_back(parse_expr());
+							}
 						}while(match(TOK_COMMA));
 						if(!match(TOK_DOLLAR)){
 							error_expected("'$'");
@@ -311,7 +315,11 @@ private:
 				mt->line=line;mt->col=col;
 				if(match(TOK_DOLLAR)){
 					do{
-						mt->param_types.push_back(parse_type());
+						if(is_type_token(cur->kind)){
+							mt->param_types.push_back(parse_type());
+						}else{
+							mt->value_args.push_back(parse_expr());
+						}
 					}while(match(TOK_COMMA));
 					if(!match(TOK_DOLLAR)){
 						error_expected("'$'");

@@ -12,8 +12,9 @@ extern int g_error_count;
 class AstCloner{
 public:
 	std::unordered_map<std::string,MioType*>* typeSubst;
+	std::unordered_map<std::string,AstNode*>* exprSubst;
 	const std::string* fn;
-	AstCloner(): typeSubst(nullptr),fn(nullptr){}
+	AstCloner(): typeSubst(nullptr),exprSubst(nullptr),fn(nullptr){}
 	
 	MioType* cloneType(MioType* original){
 		if(!original) return nullptr;
@@ -114,6 +115,12 @@ public:
 				return cloned;
 			}
 			case AstNodeKind::IDENT_EXPR:{
+			if(exprSubst){
+				auto it=exprSubst->find(node->ident.name);
+				if(it!=exprSubst->end()){
+					return cloneNode(it->second);
+				}
+			}
 			auto* cloned=new AstNode(AstNodeKind::IDENT_EXPR,node->line,node->col,fn);
 			cloned->ident.name=node->ident.name;
 			return cloned;
@@ -192,6 +199,19 @@ public:
 		}
 	}
 };
+
+inline std::string ast_value_str(AstNode* e){
+	if(!e) return "";
+	switch(e->kind){
+		case AstNodeKind::INT_LIT: return std::to_string(e->int_lit.value);
+		case AstNodeKind::FLOAT_LIT: return std::to_string(e->float_lit.value);
+		case AstNodeKind::STRING_LIT: return e->string_lit.value;
+		case AstNodeKind::CHAR_LIT: return std::string(1,e->char_lit.value);
+		case AstNodeKind::BOOL_LIT: return e->bool_lit.value?"true":"false";
+		case AstNodeKind::IDENT_EXPR: return e->ident.name;
+		default: return "?";
+	}
+}
 
 class SemanticAnalyzer{
 public:
@@ -1187,21 +1207,59 @@ private:
 			if(!node->call.template_args.empty()){
 				std::string resolvedClass=resolveClassName(calleeName);
 				if(classTemplateMap.count(resolvedClass)){
+					for(auto& ta:node->call.template_args){
+						if(ta.is_type) continue;
+						AstNode* e=ta.expr_val;
+						if(!e) continue;
+						switch(e->kind){
+							case AstNodeKind::INT_LIT:
+							case AstNodeKind::FLOAT_LIT:
+							case AstNodeKind::STRING_LIT:
+							case AstNodeKind::CHAR_LIT:
+							case AstNodeKind::BOOL_LIT:
+								break;
+							case AstNodeKind::IDENT_EXPR:{
+								std::string fname=e->ident.name;
+								if(!funcDecls.count(fname)){
+									bool found=false;
+									for(auto& impNs:importedNamespaces){
+										if(funcDecls.count(impNs+"::"+fname)){
+											found=true;
+											break;
+										}
+									}
+									if(!found){
+										error(node,"'"+fname+"' is not a valid template value argument (must be a compile-time constant or a top-level/namespace function)");
+										node->type=mio_type_new(MioTypeKind::VOID);
+										return;
+									}
+								}
+								break;
+							}
+							default:
+								error(node,"invalid template value argument: not a compile-time constant");
+								node->type=mio_type_new(MioTypeKind::VOID);
+								return;
+						}
+					}
 					std::string instName=resolvedClass;
 					for(auto& ta:node->call.template_args){
 						if(ta.is_type)
 							instName+="$"+mio_type_str(ta.type_val)+"$";
 						else
-							instName+="$V$";
+							instName+="$"+ast_value_str(ta.expr_val)+"$";
 					}
 					if(instantiatedClassNames.find(instName)==instantiatedClassNames.end()){
 						instantiatedClassNames.insert(instName);
 						std::vector<MioType*> typeArgs;
+						std::vector<AstNode*> valueArgs;
 						for(auto& ta:node->call.template_args){
 							if(ta.is_type)
 								typeArgs.push_back(ta.type_val);
+							else
+								valueArgs.push_back(ta.expr_val);
 						}
-						AstNode* inst=instantiateClassTemplate(resolvedClass,typeArgs,instName,node);
+						AstNode* inst=instantiateClassTemplate(resolvedClass,typeArgs,valueArgs,instName,node);
 						if(inst){
 							instantiatedClasses[instName]=inst;
 							classTypes.insert(instName);
@@ -1332,7 +1390,7 @@ private:
 					if(ta.is_type)
 						mangledName+="$"+mio_type_str(ta.type_val)+"$";
 					else
-						mangledName+="$V$";
+						mangledName+="$"+ast_value_str(ta.expr_val)+"$";
 				}
 				if(instantiatedFuncNames.find(mangledName)==instantiatedFuncNames.end()){
 					instantiatedFuncNames.insert(mangledName);
@@ -1764,13 +1822,48 @@ private:
 				error(ctx,"unknown template '"+name+"'");
 				return;
 			}
+			for(auto* e:mt->value_args){
+				if(!e) continue;
+				switch(e->kind){
+					case AstNodeKind::INT_LIT:
+					case AstNodeKind::FLOAT_LIT:
+					case AstNodeKind::STRING_LIT:
+					case AstNodeKind::CHAR_LIT:
+					case AstNodeKind::BOOL_LIT:
+						break;
+					case AstNodeKind::IDENT_EXPR:{
+						std::string fname=e->ident.name;
+						if(funcDecls.count(fname)){
+							break;
+						}
+						bool found=false;
+						for(auto& impNs:importedNamespaces){
+							if(funcDecls.count(impNs+"::"+fname)){
+								found=true;
+								break;
+							}
+						}
+						if(!found){
+							error(ctx,"'"+fname+"' is not a valid template value argument (must be a compile-time constant or a top-level/namespace function)");
+							return;
+						}
+						break;
+					}
+					default:
+						error(ctx,"invalid template value argument: not a compile-time constant");
+						return;
+				}
+			}
 			std::string instName=fullName;
 			for(auto* t:mt->param_types){
 				instName+="$"+mio_type_str(t)+"$";
 			}
+			for(auto* e:mt->value_args){
+				instName+="$"+ast_value_str(e)+"$";
+			}
 			if(instantiatedClassNames.find(instName)==instantiatedClassNames.end()){
 				instantiatedClassNames.insert(instName);
-				AstNode* inst=instantiateClassTemplate(fullName,mt->param_types,instName,ctx);
+				AstNode* inst=instantiateClassTemplate(fullName,mt->param_types,mt->value_args,instName,ctx);
 				if(inst){
 					instantiatedClasses[instName]=inst;
 					classTypes.insert(instName);
@@ -2143,18 +2236,19 @@ private:
 		}
 	}
 	
-	AstNode* instantiateClassTemplate(const std::string& name,std::vector<MioType*>& typeArgs,const std::string& instName,AstNode* ctx){
+	AstNode* instantiateClassTemplate(const std::string& name,std::vector<MioType*>& typeArgs,std::vector<AstNode*>& valueArgs,const std::string& instName,AstNode* ctx){
 		auto it=classTemplateMap.find(name);
 		if(it==classTemplateMap.end()){
 			error(ctx,"unknown template '"+name+"'");
 			return nullptr;
 		}
+		size_t totalArgs=typeArgs.size()+valueArgs.size();
 		auto& candidates=it->second;
 		std::pair<std::vector<TemplateParam>,AstNode*>* selected=nullptr;
 		for(auto& c:candidates){
-			if(c.first.size()==typeArgs.size()){
+			if(c.first.size()==totalArgs){
 				if(selected){
-					error(ctx,"ambiguous template '"+name+"' - multiple overloads with "+std::to_string(typeArgs.size())+" parameter(s)");
+					error(ctx,"ambiguous template '"+name+"' - multiple overloads with "+std::to_string(totalArgs)+" parameter(s)");
 					return nullptr;
 				}
 				selected=&c;
@@ -2166,22 +2260,36 @@ private:
 				if(!counts.empty())counts+=", ";
 				counts+=std::to_string(c.first.size());
 			}
-			error(ctx,"template '"+name+"' has "+counts+" parameter(s), but got "+std::to_string(typeArgs.size())+" argument(s)");
+			error(ctx,"template '"+name+"' has "+counts+" parameter(s), but got "+std::to_string(totalArgs)+" argument(s)");
 			return nullptr;
 		}
 		auto* templateDef=selected->second;
 		auto& typeParams=selected->first;
 		std::unordered_map<std::string,MioType*> typeSubst;
+		std::unordered_map<std::string,AstNode*> exprSubst;
+		size_t ti=0,vi=0;
 		for(size_t i=0;i<typeParams.size();i++){
-			typeSubst[typeParams[i].name]=typeArgs[i];
+			if(typeParams[i].is_type){
+				if(ti>=typeArgs.size()){
+					error(ctx,"internal: type arg index out of bounds");
+					return nullptr;
+				}
+				typeSubst[typeParams[i].name]=typeArgs[ti++];
+			}else{
+				if(vi>=valueArgs.size()){
+					error(ctx,"internal: value arg index out of bounds");
+					return nullptr;
+				}
+				exprSubst[typeParams[i].name]=valueArgs[vi++];
+			}
 		}
-		auto* inst=instantiateTemplate(templateDef,typeSubst,instName);
+		auto* inst=instantiateTemplate(templateDef,typeSubst,exprSubst,instName);
 		if(!inst) return nullptr;
 		inst->class_def.name=instName;
 		return inst;
 	}
 	
-	AstNode* instantiateTemplate(AstNode* templateDef,std::unordered_map<std::string,MioType*>& typeSubst,const std::string& instClassName){
+	AstNode* instantiateTemplate(AstNode* templateDef,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,AstNode*>& exprSubst,const std::string& instClassName){
 		if(templateDef->kind!=AstNodeKind::CLASS_DEF) return nullptr;
 		auto* def=templateDef;
 		auto* inst=ast_new_class_def(def->class_def.name,"","",def->line,def->col,def->filename);
@@ -2194,20 +2302,20 @@ private:
 			inst->class_def.fields.push_back(nf);
 		}
 		for(auto* m:def->class_def.methods){
-			auto* nm=instantiateFuncTemplate(m,typeSubst,instClassName);
+			auto* nm=instantiateFuncTemplate(m,typeSubst,exprSubst,instClassName);
 			if(nm) inst->class_def.methods.push_back(nm);
 		}
 		for(auto* c:def->class_def.constructors){
-			auto* nc=instantiateFuncTemplate(c,typeSubst,instClassName);
+			auto* nc=instantiateFuncTemplate(c,typeSubst,exprSubst,instClassName);
 			if(nc) inst->class_def.constructors.push_back(nc);
 		}
 		if(def->class_def.destructor){
-			inst->class_def.destructor=instantiateFuncTemplate(def->class_def.destructor,typeSubst,instClassName);
+			inst->class_def.destructor=instantiateFuncTemplate(def->class_def.destructor,typeSubst,exprSubst,instClassName);
 		}
 		return inst;
 	}
 	
-	AstNode* instantiateFuncTemplate(AstNode* funcDef,std::unordered_map<std::string,MioType*>& typeSubst,const std::string& instClassName){
+	AstNode* instantiateFuncTemplate(AstNode* funcDef,std::unordered_map<std::string,MioType*>& typeSubst,std::unordered_map<std::string,AstNode*>& exprSubst,const std::string& instClassName){
 		if(funcDef->kind!=AstNodeKind::FUNC_DEF) return nullptr;
 		auto* def=funcDef;
 		MioType* retType=substituteType(def->func_def.return_type,typeSubst);
@@ -2232,6 +2340,7 @@ private:
 		if(def->func_def.body){
 			AstCloner cloner;
 			cloner.typeSubst=&typeSubst;
+			cloner.exprSubst=&exprSubst;
 			cloner.fn=def->filename;
 			inst->func_def.body=cloner.cloneNode(def->func_def.body);
 		}
@@ -2256,9 +2365,12 @@ private:
 			return nullptr;
 		}
 		std::unordered_map<std::string,MioType*> typeSubst;
+		std::unordered_map<std::string,AstNode*> exprSubst;
 		for(size_t i=0;i<typeParams.size();i++){
 			if(typeParams[i].is_type){
 				typeSubst[typeParams[i].name]=templateArgs[i].type_val;
+			}else{
+				exprSubst[typeParams[i].name]=templateArgs[i].expr_val;
 			}
 		}
 		auto* def=templateDef;
@@ -2278,6 +2390,7 @@ private:
 		if(def->func_def.body){
 			AstCloner cloner;
 			cloner.typeSubst=&typeSubst;
+			cloner.exprSubst=&exprSubst;
 			cloner.fn=def->filename;
 			inst->func_def.body=cloner.cloneNode(def->func_def.body);
 		}

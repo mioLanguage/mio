@@ -50,11 +50,21 @@ public:
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
 		Token* saved_peek=peekToken;
-		Token* t1=raw_token();
 		bool result=false;
-		if(t1->kind==TOK_DOLLAR){
-			Token* t2=raw_token();
-			result=(t2->kind==TOK_LPAREN);
+		if(saved_current->kind==TOK_DOLLAR){
+			int depth=1;
+			while(depth>0){
+				Token* t=next();
+				if(t->kind==TOK_DOLLAR){
+					depth--;
+					if(depth==0){
+						result=(peekToken->kind==TOK_LPAREN);
+						break;
+					}
+				}else if(t->kind==TOK_EOF){
+					break;
+				}
+			}
 		}
 		pos=saved_pos;line=saved_line;col=saved_col;bol=saved_bol;
 		current=saved_current;peekToken=saved_peek;

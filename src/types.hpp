@@ -40,6 +40,7 @@ enum class MioTypeKind{
 	REFERENCE,
 	RVALUE_REFERENCE
 };
+class AstNode;
 class MioType{
 public:
 	MioTypeKind kind;
@@ -50,6 +51,7 @@ public:
 	int col;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
+	std::vector<AstNode*> value_args;
 	bool is_const;
 	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
 	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
@@ -66,6 +68,7 @@ public:
 		line=other.line;
 		col=other.col;
 		is_const=other.is_const;
+		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -83,6 +86,7 @@ public:
 		line=other.line;
 		col=other.col;
 		is_const=other.is_const;
+		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -93,6 +97,7 @@ public:
 		: kind(other.kind),name(std::move(other.name)),
 		  array_size(other.array_size),ref_count(other.ref_count),
 		  line(other.line),col(other.col),is_const(other.is_const),
+		  value_args(std::move(other.value_args)),
 		  base_type(other.base_type),
 		  param_types(std::move(other.param_types)){
 		other.base_type=nullptr;
@@ -108,6 +113,7 @@ public:
 		line=other.line;
 		col=other.col;
 		is_const=other.is_const;
+		value_args=std::move(other.value_args);
 		base_type=other.base_type;
 		param_types=std::move(other.param_types);
 		other.base_type=nullptr;
