@@ -66,15 +66,15 @@ import stdio,"lib";   # 同时导入多个
 ```
 ## 宏与条件编译
 
-**关键字：** `macro`，`@[if,elif,else,end]`
+**关键字：** `@[if,elif,else,end,macro]`
 
 **使用方法：** 定义宏来替换代码和条件编译防止重复引入。可以用 -D 命令定义宏。
 ```bash
 mioc hello.mio -D DEBUG
 ```
 ```mio
-macro DEBUG;
-macro RELEASE;
+@macro DEBUG;
+@macro RELEASE;
 @if DEBUG
 	printf("DEBUG\n");
 @elif RELEASE
@@ -82,6 +82,34 @@ macro RELEASE;
 @else
 	printf("UNKNOWN\n");
 @end
+```
+
+mio 自带系统宏和构架宏，当前版本宏的定义如下：
+```cpp
+		macros["__MIO__"]=1;
+		macros["__MIO_VERSION__"]=307;
+#ifdef _WIN32
+		macros["_WIN32"]=1;
+		macros["_WIN64"]=(sizeof(void*)>=8)?1:0;
+#elif defined(__linux__)
+		macros["__linux__"]=1;
+		macros["__LP64__"]=(sizeof(void*)>=8)?1:0;
+#elif defined(__APPLE__)
+		macros["__APPLE__"]=1;
+		macros["__LP64__"]=(sizeof(void*)>=8)?1:0;
+#endif
+#if defined(__x86_64__)||defined(__x86_64)||defined(__amd64__)||defined(__amd64)||defined(_M_AMD64)||defined(_M_X64)
+	macros["__x86_64__"]=1;
+#elif defined(__i386__)||defined(__i386)||defined(__i686__)||defined(__i686)||defined(_M_IX86)||defined(_X86_)
+	macros["__x86__"]=1;
+#elif defined(__aarch64__)||defined(__arm64__)||defined(_M_ARM64)
+	macros["__aarch64__"]=1;
+	macros["__arm64__"]=1;
+#elif defined(__arm__)||defined(__arm)||defined(__thumb__)||defined(_M_ARM)
+	macros["__arm__"]=1;
+#endif
+	if(release) macros["__MIO_RELEASE__"]=1;
+	else macros["__MIO_DEBUG__"]=1;
 ```
 ## 变量
 
