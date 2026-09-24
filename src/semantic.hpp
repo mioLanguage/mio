@@ -123,6 +123,7 @@ public:
 			}
 			auto* cloned=new AstNode(AstNodeKind::IDENT_EXPR,node->line,node->col,fn);
 			cloned->ident.name=node->ident.name;
+			cloned->ident.namespace_name=node->ident.namespace_name;
 			return cloned;
 		}
 		case AstNodeKind::INT_LIT:{
@@ -581,12 +582,14 @@ private:
 		auto savedMioTypes=localMioTypes;
 		auto savedHasReturn=hasReturnStmt;
 		auto savedLabels=labels;
+		auto savedClassName=currentClassName;
 		hasReturnStmt=false;
 		labels.clear();
 		if(node->func_def.body){
 			collectLabels(node->func_def.body);
 		}
 		if(!node->func_def.class_name.empty()){
+			currentClassName=node->func_def.class_name;
 			MioType* thisType=mio_type_new_pointer(mio_type_new_named(MioTypeKind::CLASS,node->func_def.class_name));
 			locals["this"]=thisType;
 			localMioTypes["this"]=thisType;
@@ -623,6 +626,7 @@ private:
 		currentFuncReturnType=savedReturnType;
 		hasReturnStmt=savedHasReturn;
 		labels=savedLabels;
+		currentClassName=savedClassName;
 	}
 	
 	void analyzeBlock(AstNode* block){
@@ -849,6 +853,10 @@ private:
 	}
 	void analyzeClassDef(AstNode* node){
 		if(!node) return;
+		std::string savedClassName=currentClassName;
+		currentClassName=node->class_def.name;
+		if(!currentNamespace.empty())
+			currentClassName=currentNamespace+"::"+currentClassName;
 		for(auto& f:node->class_def.fields){
 			if(f.type){
 				checkType(f.type,node);
@@ -895,6 +903,7 @@ private:
 				}
 			}
 		}
+		currentClassName=savedClassName;
 	}
 	
 	void checkExpr(AstNode* node){
@@ -954,8 +963,6 @@ private:
 		if(lmt){
 			if(lmt->kind==MioTypeKind::CLASS&&!lmt->name.empty())
 				className=resolveClassName(lmt->name);
-			else if(lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::CLASS)
-				className=resolveClassName(lmt->base_type->name);
 		}
 		if(!className.empty()){
 			std::string opMethod=findOperatorMethod(className,node->binary.op,rmt,node);
@@ -1287,6 +1294,16 @@ private:
 								std::string fullMethodName=instName+"::"+mname;
 								funcDecls.insert(fullMethodName);
 								funcDefMap[fullMethodName]=m;
+								if(m->func_def.is_operator){
+									std::string mangledFullName=fullMethodName+"(";
+									for(size_t i=0;i<m->func_def.params.size();i++){
+										if(i>0)mangledFullName+=",";
+										mangledFullName+=resolveClassName(mio_type_str(m->func_def.params[i].type));
+									}
+									mangledFullName+=")";
+									funcDecls.insert(mangledFullName);
+									funcDefMap[mangledFullName]=m;
+								}
 							}
 							for(auto* c:inst->class_def.constructors){
 								std::string ctorName=instName+"::"+c->func_def.name;
@@ -1299,6 +1316,7 @@ private:
 								funcDecls.insert(dtorName);
 								funcDefMap[dtorName]=inst->class_def.destructor;
 							}
+							registerInstantiatedNestedClasses(inst,instName);
 							for(auto* m:inst->class_def.methods){
 								currentProgram->program.nodes.push_back(m);
 								analyzeFuncDef(m);
@@ -1705,6 +1723,10 @@ private:
 			error(node,"cannot assign to non-lvalue expression");
 			return;
 		}
+		if(node->assign.left->kind==AstNodeKind::IDENT_EXPR&&node->assign.left->ident.name=="this"){
+			error(node,"cannot modify 'this' pointer");
+			return;
+		}
 		MioType* lmt=resolveExprMioType(node->assign.left);
 		if(node->assign.op==TOK_ASSIGN&&lmt){
 			MioType* rmt=resolveExprMioType(node->assign.right);
@@ -1717,8 +1739,6 @@ private:
 			if(lmt){
 				if(lmt->kind==MioTypeKind::CLASS&&!lmt->name.empty())
 					className=resolveClassName(lmt->name);
-				else if(lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::CLASS)
-					className=resolveClassName(lmt->base_type->name);
 			}
 			if(!className.empty()){
 				MioType* rmt=resolveExprMioType(node->assign.right);
@@ -1891,6 +1911,16 @@ private:
 						std::string fullMethodName=instName+"::"+mname;
 						funcDecls.insert(fullMethodName);
 						funcDefMap[fullMethodName]=m;
+						if(m->func_def.is_operator){
+							std::string mangledFullName=fullMethodName+"(";
+							for(size_t i=0;i<m->func_def.params.size();i++){
+								if(i>0)mangledFullName+=",";
+								mangledFullName+=resolveClassName(mio_type_str(m->func_def.params[i].type));
+							}
+							mangledFullName+=")";
+							funcDecls.insert(mangledFullName);
+							funcDefMap[mangledFullName]=m;
+						}
 					}
 					for(auto* c:inst->class_def.constructors){
 						std::string ctorName=instName+"::"+c->func_def.name;
@@ -1913,6 +1943,7 @@ private:
 						funcDecls.insert(dtorName);
 						funcDefMap[dtorName]=inst->class_def.destructor;
 					}
+					registerInstantiatedNestedClasses(inst,instName);
 					for(auto* m:inst->class_def.methods){
 						currentProgram->program.nodes.push_back(m);
 						analyzeFuncDef(m);
@@ -1938,8 +1969,81 @@ private:
 		}
 	}
 	
+	void registerInstantiatedNestedClasses(AstNode* inst,const std::string& instName){
+		for(auto* nc:inst->class_def.nested_classes){
+			std::string ncName=nc->class_def.name;
+			classTypes.insert(ncName);
+			for(auto& f:nc->class_def.fields){
+				classFields[ncName].insert(f.name);
+				classFieldTypes[ncName][f.name]=mio_type_clone(f.type);
+			}
+			for(auto* m:nc->class_def.methods){
+				std::string mname=m->func_def.name;
+				classMethodSet[ncName].insert(mname);
+				std::string fullMethodName=ncName+"::"+mname;
+				funcDecls.insert(fullMethodName);
+				funcDefMap[fullMethodName]=m;
+				if(m->func_def.is_operator){
+					std::string mangledFullName=fullMethodName+"(";
+					for(size_t i=0;i<m->func_def.params.size();i++){
+						if(i>0)mangledFullName+=",";
+						mangledFullName+=resolveClassName(mio_type_str(m->func_def.params[i].type));
+					}
+					mangledFullName+=")";
+					funcDecls.insert(mangledFullName);
+					funcDefMap[mangledFullName]=m;
+				}
+			}
+			for(auto* c:nc->class_def.constructors){
+				std::string ctorName=ncName+"::"+c->func_def.name;
+				std::string sig;
+				for(size_t pi=0;pi<c->func_def.params.size();pi++){
+					if(pi>0)sig+=",";
+					sig+=mio_type_str(c->func_def.params[pi].type);
+				}
+				classConstructorSigs[ncName].push_back({ctorName,sig});
+				funcDecls.insert(ctorName);
+				funcDefMap[ctorName]=c;
+				if(!sig.empty()){
+					std::string mangledCtor=ctorName+"("+sig+")";
+					funcDecls.insert(mangledCtor);
+					funcDefMap[mangledCtor]=c;
+				}
+			}
+			if(nc->class_def.destructor){
+				std::string dtorName=ncName+"::"+nc->class_def.destructor->func_def.name;
+				funcDecls.insert(dtorName);
+				funcDefMap[dtorName]=nc->class_def.destructor;
+			}
+			for(auto* m:nc->class_def.methods){
+				currentProgram->program.nodes.push_back(m);
+				analyzeFuncDef(m);
+			}
+			for(auto* c:nc->class_def.constructors){
+				currentProgram->program.nodes.push_back(c);
+				analyzeFuncDef(c);
+			}
+			if(nc->class_def.destructor){
+				currentProgram->program.nodes.push_back(nc->class_def.destructor);
+				analyzeFuncDef(nc->class_def.destructor);
+			}
+			registerInstantiatedNestedClasses(nc,ncName);
+		}
+	}
+	
 	std::string resolveClassName(const std::string& name){
 		if(name.find("::")!=std::string::npos) return name;
+		if(!currentClassName.empty()){
+			std::string fullName=currentClassName+"::"+name;
+			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
+				return fullName;
+			}
+			auto pos=currentClassName.rfind("::");
+			std::string shortCurrent=(pos!=std::string::npos)?currentClassName.substr(pos+2):currentClassName;
+			if(name==shortCurrent&&(classTypes.count(currentClassName)||classTemplateMap.count(currentClassName))){
+				return currentClassName;
+			}
+		}
 		for(auto& ns:importedNamespaces){
 			std::string fullName=ns+"::"+name;
 			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
@@ -2312,6 +2416,35 @@ private:
 		if(def->class_def.destructor){
 			inst->class_def.destructor=instantiateFuncTemplate(def->class_def.destructor,typeSubst,exprSubst,instClassName);
 		}
+		for(auto* nc:def->class_def.nested_classes){
+			std::string ncName=nc->class_def.name;
+			auto pos=ncName.rfind("::");
+			std::string shortName=(pos!=std::string::npos)?ncName.substr(pos+2):ncName;
+			std::string newNcName=instClassName+"::"+shortName;
+			auto* nnc=ast_new_class_def(newNcName,"","",nc->line,nc->col,nc->filename);
+			nnc->class_def.base_name=nc->class_def.base_name;
+			nnc->class_def.base_access=nc->class_def.base_access;
+			for(auto& f:nc->class_def.fields){
+				Field nf;
+				nf.name=f.name;
+				nf.type=substituteType(f.type,typeSubst);
+				nf.access=f.access;
+				nf.init=f.init;
+				nnc->class_def.fields.push_back(nf);
+			}
+			for(auto* m:nc->class_def.methods){
+				auto* nm=instantiateFuncTemplate(m,typeSubst,exprSubst,newNcName);
+				if(nm) nnc->class_def.methods.push_back(nm);
+			}
+			for(auto* c:nc->class_def.constructors){
+				auto* nc2=instantiateFuncTemplate(c,typeSubst,exprSubst,newNcName);
+				if(nc2) nnc->class_def.constructors.push_back(nc2);
+			}
+			if(nc->class_def.destructor){
+				nnc->class_def.destructor=instantiateFuncTemplate(nc->class_def.destructor,typeSubst,exprSubst,newNcName);
+			}
+			inst->class_def.nested_classes.push_back(nnc);
+		}
 		return inst;
 	}
 	
@@ -2426,6 +2559,7 @@ private:
 	}
 	
 	std::string currentNamespace;
+	std::string currentClassName;
 	std::unordered_set<std::string> importedNamespaces;
 	std::unordered_map<std::string,MioType*> locals;
 	std::unordered_map<std::string,MioType*> localMioTypes;

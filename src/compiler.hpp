@@ -2948,6 +2948,10 @@ public:
 			}
 			declareClassMethods(inst);
 			setupClassFields(inst);
+			for(auto* nc:inst->class_def.nested_classes){
+				declareClassMethods(nc);
+				setupClassFields(nc);
+			}
 			currentNamespace=savedNs;
 		}
 		genProgram(program);
@@ -2961,6 +2965,9 @@ public:
 				currentNamespace="";
 			}
 			genClassMethods(inst);
+			for(auto* nc:inst->class_def.nested_classes){
+				genClassMethods(nc);
+			}
 			currentNamespace=savedNs;
 		}
 		if(g_error_count)return;

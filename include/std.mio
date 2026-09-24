@@ -468,7 +468,7 @@ namespace std {
 			return result;
 		}
 		string operator+(other: string) {
-			return this+other.data;
+			return *this+other.data;
 		}
 		void operator+=(s: *char) {
 			var new_len: u64=this.len+strlen(s);
@@ -503,13 +503,13 @@ namespace std {
 			return 0;
 		}
 		i32 operator==(other: string) {
-			return this == other.data;
+			return *this == other.data;
 		}
 		i32 operator!=(s: *char) {
-			return !(this == s);
+			return !(*this == s);
 		}
 		i32 operator!=(other: string) {
-			return !(this == other);
+			return !(*this == other);
 		}
 		i32 operator<(other: string) {
 			if(strcmp(this.data,other.data) < 0) {
@@ -578,13 +578,13 @@ namespace std {
 			}
 		}
 		void append_string(other: string) {
-			this += other;
+			*this += other;
 		}
 		i32 compare(s: *char) {
 			return strcmp(this.data,s);
 		}
 		i32 equals(s: *char) {
-			return this == s;
+			return *this == s;
 		}
 		i32 contains(sub: *char) {
 			if(strstr(this.data,sub) != 0) {

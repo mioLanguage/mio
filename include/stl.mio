@@ -21,7 +21,7 @@ namespace stl {
 			return 0;
 		}
 		i32 operator!=(other: pair) {
-			return !(this == other);
+			return !(*this == other);
 		}
 		i32 operator<(other: pair) {
 			if(this.first < other.first) {
