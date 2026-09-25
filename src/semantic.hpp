@@ -727,6 +727,12 @@ private:
 					if(stmt->var_decl.init->kind==AstNodeKind::ARRAY_LIT&&stmt->var_decl.var_type){
 						stmt->var_decl.init->type=mio_type_clone(stmt->var_decl.var_type);
 					}
+					if(stmt->var_decl.var_type){
+						MioType* initType=resolveExprMioType(stmt->var_decl.init);
+						if(initType&&!isTypeCompatible(stmt->var_decl.var_type,initType)){
+							error(stmt,"type mismatch: variable '"+stmt->var_decl.name+"' declared as '"+mio_type_str(stmt->var_decl.var_type)+"', initialized with '"+mio_type_str(initType)+"'");
+						}
+					}
 				}
 				MioType* inferredType=stmt->var_decl.var_type;
 				if(!inferredType&&stmt->var_decl.init){
@@ -755,6 +761,12 @@ private:
 					checkExpr(stmt->const_decl.init);
 					if(stmt->const_decl.init->kind==AstNodeKind::ARRAY_LIT&&stmt->const_decl.var_type){
 						stmt->const_decl.init->type=mio_type_clone(stmt->const_decl.var_type);
+					}
+					if(stmt->const_decl.var_type){
+						MioType* initType=resolveExprMioType(stmt->const_decl.init);
+						if(initType&&!isTypeCompatible(stmt->const_decl.var_type,initType)){
+							error(stmt,"type mismatch: constant '"+stmt->const_decl.name+"' declared as '"+mio_type_str(stmt->const_decl.var_type)+"', initialized with '"+mio_type_str(initType)+"'");
+						}
 					}
 				}
 				MioType* inferredType=stmt->const_decl.var_type;
@@ -1676,16 +1688,21 @@ private:
 				return resolveClassName(eBase->name)==resolveClassName(aBase->name);
 			return true;
 		}
-		bool eInt=(eBase->kind>=MioTypeKind::I8&&eBase->kind<=MioTypeKind::USIZE);
-		bool aInt=(aBase->kind>=MioTypeKind::I8&&aBase->kind<=MioTypeKind::USIZE);
-		if(eInt&&aInt) return true;
-		if(eBase->kind==MioTypeKind::CHAR&&aInt) return true;
-		if(aBase->kind==MioTypeKind::CHAR&&eInt) return true;
-		if(eBase->kind==MioTypeKind::BOOL&&aInt) return true;
-		if(aBase->kind==MioTypeKind::BOOL&&eInt) return true;
-		if(eBase->kind==MioTypeKind::CLASS&&aBase->kind==MioTypeKind::POINTER&&aBase->base_type&&aBase->base_type->kind==MioTypeKind::CLASS&&resolveClassName(eBase->name)==resolveClassName(aBase->base_type->name)) return true;
-		if(aBase->kind==MioTypeKind::CLASS&&eBase->kind==MioTypeKind::POINTER&&eBase->base_type&&eBase->base_type->kind==MioTypeKind::CLASS&&resolveClassName(aBase->name)==resolveClassName(eBase->base_type->name)) return true;
-		if(eBase->kind==MioTypeKind::POINTER&&aInt) return true;
+		if(eBase->kind==MioTypeKind::VOID||aBase->kind==MioTypeKind::VOID) return false;
+		if(eBase->kind==MioTypeKind::FUNC||aBase->kind==MioTypeKind::FUNC) return false;
+		bool eScalar=(eBase->kind>=MioTypeKind::I8&&eBase->kind<=MioTypeKind::USIZE)
+			||(eBase->kind==MioTypeKind::F32||eBase->kind==MioTypeKind::F64)
+			||eBase->kind==MioTypeKind::BOOL||eBase->kind==MioTypeKind::CHAR
+			||eBase->kind==MioTypeKind::ENUM;
+		bool aScalar=(aBase->kind>=MioTypeKind::I8&&aBase->kind<=MioTypeKind::USIZE)
+			||(aBase->kind==MioTypeKind::F32||aBase->kind==MioTypeKind::F64)
+			||aBase->kind==MioTypeKind::BOOL||aBase->kind==MioTypeKind::CHAR
+			||aBase->kind==MioTypeKind::ENUM;
+		if(eScalar&&aScalar) return true;
+		bool ePtr=eBase->kind==MioTypeKind::POINTER;
+		bool aPtr=aBase->kind==MioTypeKind::POINTER;
+		if(ePtr&&aPtr) return true;
+		if((eScalar&&aPtr)||(ePtr&&aScalar)) return true;
 		return false;
 	}
 	
@@ -1960,6 +1977,8 @@ private:
 				mt->kind=MioTypeKind::ENUM;
 			}else if(unionNames.count(resolved)){
 				mt->kind=MioTypeKind::UNION;
+			}else if(!classTypes.count(resolved)&&!classTemplateMap.count(resolved)){
+				error(ctx,"unknown type '"+resolved+"'");
 			}
 		}
 		if(mt->kind==MioTypeKind::CLASS&&!mt->param_types.empty()){

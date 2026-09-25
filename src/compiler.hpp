@@ -672,7 +672,25 @@ class Compiler{
 			if(val&&llvm::isa<llvm::Constant>(val)){
 				if(val->getType()!=ty){
 					if(auto* ci=llvm::dyn_cast<llvm::ConstantInt>(val)){
-						val=llvm::ConstantExpr::getTruncOrBitCast(ci,ty);
+						if(ty->isFloatingPointTy())
+							val=llvm::ConstantExpr::getCast(llvm::Instruction::SIToFP,ci,ty);
+						else
+							val=llvm::ConstantExpr::getTruncOrBitCast(ci,ty);
+					}else if(auto* cf=llvm::dyn_cast<llvm::ConstantFP>(val)){
+						if(ty->isIntegerTy())
+							val=llvm::ConstantExpr::getCast(llvm::Instruction::FPToSI,cf,ty);
+						else{
+							unsigned op=val->getType()->getScalarSizeInBits()>ty->getScalarSizeInBits()
+								?llvm::Instruction::FPTrunc:llvm::Instruction::FPExt;
+							val=llvm::ConstantExpr::getCast(op,cf,ty);
+						}
+					}else if(val->getType()->isPointerTy()){
+						if(ty->isPointerTy())
+							val=llvm::ConstantExpr::getCast(llvm::Instruction::BitCast,llvm::cast<llvm::Constant>(val),ty);
+						else if(ty->isIntegerTy())
+							val=llvm::ConstantExpr::getCast(llvm::Instruction::PtrToInt,llvm::cast<llvm::Constant>(val),ty);
+					}else if(ty->isPointerTy()&&val->getType()->isIntegerTy()){
+						val=llvm::ConstantExpr::getCast(llvm::Instruction::IntToPtr,llvm::cast<llvm::Constant>(val),ty);
 					}
 				}
 				init=llvm::cast<llvm::Constant>(val);
@@ -2917,11 +2935,11 @@ public:
 		semantic=new SemanticAnalyzer();
 	}
 	void error(AstNode* node,const std::string& msg){
-		fprintf(stderr,"%s:%d:%d: error: %s\n",node->filename?node->filename->c_str():filename.c_str(),node->line,node->col,msg.c_str());
+		fprintf(stderr,"%s:%d:%d: system error: %s\n",node->filename?node->filename->c_str():filename.c_str(),node->line,node->col,msg.c_str());
 		g_error_count++;
 	}
 	void error(int line,int col,const std::string& msg){
-		fprintf(stderr,"%s:%d:%d: error: %s\n",filename.c_str(),line,col,msg.c_str());
+		fprintf(stderr,"%s:%d:%d: system error: %s\n",filename.c_str(),line,col,msg.c_str());
 		g_error_count++;
 	}
 	void error(const std::string& msg){

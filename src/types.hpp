@@ -49,13 +49,14 @@ public:
 	int ref_count;
 	int line;
 	int col;
+	const std::string* filename;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
 	std::vector<AstNode*> value_args;
 	bool is_const;
-	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
-	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),base_type(nullptr),is_const(false) {}
-	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),base_type(base),is_const(false) {}
+	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false) {}
+	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false) {}
+	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),filename(base?base->filename:nullptr),base_type(base),is_const(false) {}
 	~MioType(){
 		if(base_type) delete base_type;
 		for(auto* p:param_types) delete p;
@@ -67,6 +68,7 @@ public:
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		filename=other.filename;
 		is_const=other.is_const;
 		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
@@ -85,6 +87,7 @@ public:
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		filename=other.filename;
 		is_const=other.is_const;
 		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
@@ -172,6 +175,7 @@ inline MioType* mio_type_clone(const MioType* type){
 inline MioType* mio_type_new_pointer(MioType* base){
 	MioType* mt=new MioType(MioTypeKind::POINTER);
 	mt->base_type=mio_type_clone(base);
+	mt->filename=base?base->filename:nullptr;
 	return mt;
 }
 inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue){
@@ -186,6 +190,7 @@ inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue){
 	}
 	MioType* mt=new MioType(is_rvalue?MioTypeKind::RVALUE_REFERENCE:MioTypeKind::REFERENCE);
 	mt->base_type=mio_type_clone(base);
+	mt->filename=base->filename;
 	mt->ref_count=1;
 	return mt;
 }

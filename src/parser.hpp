@@ -30,6 +30,10 @@ public:
 	}
 	~Parser(){}
 	const std::string* fn(){return g_filename_pool.get(filename);}
+	MioType* withFn(MioType* mt){
+		if(mt&&!mt->filename) mt->filename=fn();
+		return mt;
+	}
 	AstNode* parse(){
 		auto* program=new AstNode(AstNodeKind::PROGRAM,0,0,g_filename_pool.get(filename));
 		while(!check(TOK_EOF)){
@@ -267,23 +271,23 @@ private:
 	}
 	MioType* parse_base_type(){
 		switch(cur->kind){
-			case TOK_I8: advance(); return mio_type_new(MioTypeKind::I8);
-			case TOK_I16: advance(); return mio_type_new(MioTypeKind::I16);
-			case TOK_I32: advance(); return mio_type_new(MioTypeKind::I32);
-			case TOK_I64: advance(); return mio_type_new(MioTypeKind::I64);
-			case TOK_I128: advance(); return mio_type_new(MioTypeKind::I128);
-			case TOK_U8: advance(); return mio_type_new(MioTypeKind::U8);
-			case TOK_U16: advance(); return mio_type_new(MioTypeKind::U16);
-			case TOK_U32: advance(); return mio_type_new(MioTypeKind::U32);
-			case TOK_U64: advance(); return mio_type_new(MioTypeKind::U64);
-			case TOK_U128: advance(); return mio_type_new(MioTypeKind::U128);
-			case TOK_USIZE: advance(); return mio_type_new(MioTypeKind::USIZE);
-			case TOK_ISIZE: advance(); return mio_type_new(MioTypeKind::ISIZE);
-			case TOK_F32: advance(); return mio_type_new(MioTypeKind::F32);
-			case TOK_F64: advance(); return mio_type_new(MioTypeKind::F64);
-			case TOK_BOOL: advance(); return mio_type_new(MioTypeKind::BOOL);
-			case TOK_CHAR: advance(); return mio_type_new(MioTypeKind::CHAR);
-			case TOK_VOID: advance(); return mio_type_new(MioTypeKind::VOID);
+			case TOK_I8: advance(); return withFn(mio_type_new(MioTypeKind::I8));
+			case TOK_I16: advance(); return withFn(mio_type_new(MioTypeKind::I16));
+			case TOK_I32: advance(); return withFn(mio_type_new(MioTypeKind::I32));
+			case TOK_I64: advance(); return withFn(mio_type_new(MioTypeKind::I64));
+			case TOK_I128: advance(); return withFn(mio_type_new(MioTypeKind::I128));
+			case TOK_U8: advance(); return withFn(mio_type_new(MioTypeKind::U8));
+			case TOK_U16: advance(); return withFn(mio_type_new(MioTypeKind::U16));
+			case TOK_U32: advance(); return withFn(mio_type_new(MioTypeKind::U32));
+			case TOK_U64: advance(); return withFn(mio_type_new(MioTypeKind::U64));
+			case TOK_U128: advance(); return withFn(mio_type_new(MioTypeKind::U128));
+			case TOK_USIZE: advance(); return withFn(mio_type_new(MioTypeKind::USIZE));
+			case TOK_ISIZE: advance(); return withFn(mio_type_new(MioTypeKind::ISIZE));
+			case TOK_F32: advance(); return withFn(mio_type_new(MioTypeKind::F32));
+			case TOK_F64: advance(); return withFn(mio_type_new(MioTypeKind::F64));
+			case TOK_BOOL: advance(); return withFn(mio_type_new(MioTypeKind::BOOL));
+			case TOK_CHAR: advance(); return withFn(mio_type_new(MioTypeKind::CHAR));
+			case TOK_VOID: advance(); return withFn(mio_type_new(MioTypeKind::VOID));
 			case TOK_IDENT:{
 				std::string name=cur->lexeme;
 				int line=cur->line,col=cur->col;
@@ -291,7 +295,7 @@ private:
 				if(match(TOK_DOUBLE_COLON)){
 					if(cur->kind!=TOK_IDENT){
 						error_expected("type name after '::'");
-						return mio_type_new_named(MioTypeKind::CLASS,"");
+						return withFn(mio_type_new_named(MioTypeKind::CLASS,""));
 					}
 					std::string fullName=name+"::"+cur->lexeme;
 					advance();
@@ -309,10 +313,12 @@ private:
 							error_expected("'$'");
 						}
 					}
+					mt->filename=fn();
 					return mt;
 				}
 				auto* mt=mio_type_new_named(MioTypeKind::CLASS,name);
 				mt->line=line;mt->col=col;
+				mt->filename=fn();
 				if(match(TOK_DOLLAR)){
 					do{
 						if(is_type_token(cur->kind)){
@@ -329,7 +335,7 @@ private:
 			}
 			default:
 				error_expected("type");
-				return mio_type_new_named(MioTypeKind::CLASS,"");
+				return withFn(mio_type_new_named(MioTypeKind::CLASS,""));
 		}
 	}
 	MioType* parse_type(){
@@ -343,7 +349,7 @@ private:
 		if(match(TOK_BIT_AND)){
 			if(match(TOK_BIT_AND)){
 				error("too many '&' in reference type");
-				return mio_type_new_named(MioTypeKind::CLASS,"");
+				return withFn(mio_type_new_named(MioTypeKind::CLASS,""));
 			}
 			auto* base=parse_type_prefix();
 			return mio_type_add_ref(base,false);
