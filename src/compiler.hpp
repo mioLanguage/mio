@@ -715,6 +715,8 @@ class Compiler{
 			retTy=llvm::Type::getVoidTy(ctx);
 		}else{
 			retTy=convertType(def->func_def.return_type);
+			if(def->func_def.return_type&&def->func_def.return_type->kind==MioTypeKind::FUNC)
+				retTy=llvm::PointerType::get(ctx,0);
 		}
 		std::vector<llvm::Type*> paramTys;
 		if(isMethod&&!def->func_def.is_static){
@@ -832,6 +834,8 @@ class Compiler{
 			retTy=llvm::Type::getVoidTy(ctx);
 		}else{
 			retTy=convertType(def->func_def.return_type);
+			if(def->func_def.return_type&&def->func_def.return_type->kind==MioTypeKind::FUNC)
+				retTy=llvm::PointerType::get(ctx,0);
 		}
 		llvm::Function* fn=declareFunc(def);
 		if(!fn)return;
@@ -1162,6 +1166,8 @@ class Compiler{
 			retTy=llvm::Type::getVoidTy(ctx);
 		}else{
 			retTy=convertType(def->func_def.return_type);
+			if(def->func_def.return_type&&def->func_def.return_type->kind==MioTypeKind::FUNC)
+				retTy=llvm::PointerType::get(ctx,0);
 		}
 		std::vector<llvm::Type*> paramTys;
 		if(isMethod&&!def->func_def.is_static){
@@ -1434,6 +1440,9 @@ class Compiler{
 		bool isRef=mt&&(mt->kind==MioTypeKind::REFERENCE||mt->kind==MioTypeKind::RVALUE_REFERENCE);
 		llvm::Type* ty=convertType(mt,decl);
 		if(isRef){
+			ty=llvm::PointerType::get(ctx,0);
+		}
+		if(mt&&mt->kind==MioTypeKind::FUNC){
 			ty=llvm::PointerType::get(ctx,0);
 		}
 		auto* alloca=createEntryAlloca(curFn,name,ty);
@@ -2326,6 +2335,30 @@ class Compiler{
 				b.CreateCall(ctor,args);
 				return b.CreateLoad(st,alloca);
 			}
+			
+			if(!calleeVal){
+				auto lit=locals.find(calleeName);
+				if(lit!=locals.end()){
+					auto mite=localMioTypes.find(calleeName);
+					if(mite!=localMioTypes.end()&&mite->second->kind==MioTypeKind::FUNC){
+						calleeVal=b.CreateLoad(lit->second->getAllocatedType(),lit->second);
+					}
+				}
+				if(!calleeVal){
+					auto gvit=globalVars.find(calleeName);
+					if(gvit!=globalVars.end()){
+						llvm::Value* gv=gvit->second;
+						llvm::Type* gvTy=gv->getType();
+						if(gvTy->isPointerTy()){
+							calleeVal=b.CreateLoad(gvTy,gv);
+						}
+					}
+				}
+				if(!calleeVal){
+					error(node->line,node->col,"internal error: undefined function '"+calleeName+"'");
+					return nullptr;
+				}
+			}
 		}else if(node->call.callee->kind==AstNodeKind::MEMBER_EXPR){
 			auto* base=node->call.callee->member.base;
 			std::string method=node->call.callee->member.member;
@@ -2528,7 +2561,18 @@ class Compiler{
 		}
 		auto* fn=llvm::dyn_cast<llvm::Function>(calleeVal);
 		if(!fn){
-			auto* ft=llvm::dyn_cast<llvm::FunctionType>(calleeVal->getType());
+			llvm::FunctionType* ft=nullptr;
+			if(node->call.callee->type&&node->call.callee->type->kind==MioTypeKind::FUNC){
+				auto* calleeMio=node->call.callee->type;
+				llvm::Type* ret=convertType(calleeMio->base_type,node);
+				if(calleeMio->base_type&&calleeMio->base_type->kind==MioTypeKind::FUNC)
+					ret=llvm::PointerType::get(ctx,0);
+				std::vector<llvm::Type*> paramTys;
+				for(auto* p:calleeMio->param_types)paramTys.push_back(convertType(p,node));
+				ft=llvm::FunctionType::get(ret,paramTys,false);
+			}else{
+				ft=llvm::dyn_cast<llvm::FunctionType>(calleeVal->getType());
+			}
 			if(!ft){
 				error(node->line,node->col,"internal error: called value is not a function");
 				return nullptr;
@@ -2550,6 +2594,11 @@ class Compiler{
 					}
 				}
 				args.push_back(av);
+			}
+			for(size_t i=0;i<args.size()&&i<ft->getNumParams();i++){
+				llvm::Type* pTy=ft->getParamType(i);
+				if(args[i]->getType()!=pTy)
+					args[i]=genCastValue(args[i],pTy);
 			}
 			return b.CreateCall(ft,calleeVal,args);
 		}

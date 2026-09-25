@@ -1188,6 +1188,20 @@ private:
 		}
 	}
 	
+	void checkFuncPtrCall(AstNode* node,const std::string& calleeName,MioType* funcType){
+		if(funcType->param_types.size()!=node->call.args.size()){
+			error(node,"function pointer call argument count mismatch: expected "+std::to_string(funcType->param_types.size())+", got "+std::to_string(node->call.args.size()));
+			return;
+		}
+		for(size_t i=0;i<node->call.args.size();i++){
+			MioType* argType=resolveExprMioType(node->call.args[i]);
+			if(argType&&!isTypeCompatible(funcType->param_types[i],argType)){
+				error(node,"function pointer call argument "+std::to_string(i+1)+" type mismatch: expected '"+mio_type_str(funcType->param_types[i])+"', got '"+mio_type_str(argType)+"'");
+			}
+		}
+		node->type=mio_type_clone(funcType->base_type);
+	}
+	
 	void checkCallExpr(AstNode* node){
 		if(!node||!node->call.callee) return;
 		checkExpr(node->call.callee);
@@ -1273,6 +1287,14 @@ private:
 					error(node,"class '"+className+"' does not support operator() with given arguments");
 					return;
 				}
+				if(unwrapped&&unwrapped->kind==MioTypeKind::FUNC){
+					checkFuncPtrCall(node,calleeName,unwrapped);
+					return;
+				}
+				return;
+			}
+			if(node->call.callee->type&&node->call.callee->type->kind==MioTypeKind::FUNC){
+				checkFuncPtrCall(node,calleeName,node->call.callee->type);
 				return;
 			}
 			std::string resolvedClass=resolveClassName(calleeName);
@@ -1686,6 +1708,14 @@ private:
 		if(eBase->kind==aBase->kind){
 			if(eBase->kind==MioTypeKind::CLASS||eBase->kind==MioTypeKind::ENUM||eBase->kind==MioTypeKind::UNION)
 				return resolveClassName(eBase->name)==resolveClassName(aBase->name);
+			if(eBase->kind==MioTypeKind::FUNC){
+				if(!isTypeCompatible(eBase->base_type,aBase->base_type)) return false;
+				if(eBase->param_types.size()!=aBase->param_types.size()) return false;
+				for(size_t i=0;i<eBase->param_types.size();i++){
+					if(!isTypeCompatible(eBase->param_types[i],aBase->param_types[i])) return false;
+				}
+				return true;
+			}
 			return true;
 		}
 		if(eBase->kind==MioTypeKind::VOID||aBase->kind==MioTypeKind::VOID) return false;
@@ -1951,6 +1981,16 @@ private:
 				auto git=globalMioTypes.find(name);
 				if(git!=globalMioTypes.end()){
 					node->type=mio_type_clone(git->second);
+				}else{
+					auto fit=funcDefMap.find(name);
+					if(fit!=funcDefMap.end()&&fit->second->kind==AstNodeKind::FUNC_DEF){
+						auto* ret=mio_type_clone(fit->second->func_def.return_type);
+						std::vector<MioType*> params;
+						for(size_t i=0;i<fit->second->func_def.params.size();i++)
+							params.push_back(fit->second->func_def.params[i].type);
+						node->type=mio_type_new_func(ret,params);
+						mio_type_free(ret);
+					}
 				}
 			}
 		}
@@ -1969,6 +2009,12 @@ private:
 					return;
 				}
 			}
+		}
+		if(mt->kind==MioTypeKind::FUNC){
+			checkType(mt->base_type,ctx);
+			for(auto* p:mt->param_types)
+				checkType(p,ctx);
+			return;
 		}
 		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()&&mt->param_types.empty()){
 			std::string resolved=resolveClassName(mt->name);
@@ -2409,14 +2455,24 @@ private:
 				if(!node->ident.namespace_name.empty())
 					name=node->ident.namespace_name+"::"+name;
 				auto mit=localMioTypes.find(name);
-				if(mit!=localMioTypes.end()&&mit->second){
-					return mio_type_clone(mit->second);
-				}
-				auto git=globalMioTypes.find(name);
-				if(git!=globalMioTypes.end()&&git->second){
-					return mio_type_clone(git->second);
-				}
-				return nullptr;
+			if(mit!=localMioTypes.end()&&mit->second){
+				return mio_type_clone(mit->second);
+			}
+			auto git=globalMioTypes.find(name);
+			if(git!=globalMioTypes.end()&&git->second){
+				return mio_type_clone(git->second);
+			}
+			auto fit=funcDefMap.find(name);
+			if(fit!=funcDefMap.end()&&fit->second->kind==AstNodeKind::FUNC_DEF){
+				auto* ret=mio_type_clone(fit->second->func_def.return_type);
+				std::vector<MioType*> params;
+				for(size_t i=0;i<fit->second->func_def.params.size();i++)
+					params.push_back(fit->second->func_def.params[i].type);
+				auto* ft=mio_type_new_func(ret,params);
+				mio_type_free(ret);
+				return ft;
+			}
+			return nullptr;
 			}
 			default:
 				return nullptr;

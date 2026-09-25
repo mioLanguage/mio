@@ -339,6 +339,18 @@ private:
 		}
 	}
 	MioType* parse_type(){
+		if(check(TOK_LPAREN)){
+			match(TOK_LPAREN);
+			std::vector<MioType*> params;
+			if(!check(TOK_RPAREN)){
+				do{
+					params.push_back(parse_type());
+				}while(match(TOK_COMMA));
+			}
+			expect(TOK_RPAREN);
+			auto* retType=parse_type();
+			return withFn(mio_type_new_func(retType,params));
+		}
 		return parse_type_prefix();
 	}
 	MioType* parse_type_prefix(){
@@ -1084,7 +1096,7 @@ private:
 			case TOK_U8: case TOK_U16: case TOK_U32: case TOK_U64: case TOK_U128:
 			case TOK_USIZE: case TOK_ISIZE: case TOK_F32: case TOK_F64:
 			case TOK_BOOL: case TOK_CHAR: case TOK_VOID: case TOK_IDENT:
-			case TOK_STAR: case TOK_BIT_AND:
+			case TOK_STAR: case TOK_BIT_AND: case TOK_LPAREN:
 				return true;
 			default: return false;
 		}

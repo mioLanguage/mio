@@ -178,6 +178,13 @@ inline MioType* mio_type_new_pointer(MioType* base){
 	mt->filename=base?base->filename:nullptr;
 	return mt;
 }
+inline MioType* mio_type_new_func(MioType* ret,const std::vector<MioType*>& params){
+	MioType* mt=new MioType(MioTypeKind::FUNC);
+	mt->base_type=mio_type_clone(ret);
+	for(auto* p:params) mt->param_types.push_back(mio_type_clone(p));
+	if(ret) mt->filename=ret->filename;
+	return mt;
+}
 inline MioType* mio_type_new_reference(MioType* base,bool is_rvalue){
 	if(!base)return nullptr;
 	if(base->kind==MioTypeKind::REFERENCE){
@@ -253,14 +260,22 @@ inline std::string mio_type_str(const MioType* type){
 			}
 			break;
 		case MioTypeKind::CLASS:
-		case MioTypeKind::ENUM:
-		case MioTypeKind::UNION:
-			base=type->name.empty()?"":type->name;
-			break;
-		default:
-			fprintf(stderr,"error: mio_type_str called with unknown type kind %d\n",(int)type->kind);
-			base="";
-			break;
+	case MioTypeKind::ENUM:
+	case MioTypeKind::UNION:
+		base=type->name.empty()?"":type->name;
+		break;
+	case MioTypeKind::FUNC:
+		base="(";
+		for(size_t i=0;i<type->param_types.size();i++){
+			if(i>0) base+=",";
+			base+=mio_type_str(type->param_types[i]);
+		}
+		base+=")"+mio_type_str(type->base_type);
+		break;
+	default:
+		fprintf(stderr,"error: mio_type_str called with unknown type kind %d\n",(int)type->kind);
+		base="";
+		break;
 	}
 	return prefix+base;
 }
