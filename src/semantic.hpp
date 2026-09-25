@@ -192,6 +192,12 @@ public:
 				}
 				return cloned;
 			}
+			case AstNodeKind::LITERAL_OP_EXPR:{
+				auto* cloned=new AstNode(AstNodeKind::LITERAL_OP_EXPR,node->line,node->col,fn);
+				cloned->literal_op.operand=cloneNode(node->literal_op.operand);
+				cloned->literal_op.suffix=node->literal_op.suffix;
+				return cloned;
+			}
 			case AstNodeKind::BREAK_STMT:
 			case AstNodeKind::CONTINUE_STMT:
 				return new AstNode(node->kind,node->line,node->col,fn);
@@ -350,6 +356,23 @@ public:
 					funcDecls.insert(mangledFullName);
 				funcDefMap[mangledFullName]=m;
 				}
+				if(m->func_def.is_literal_operator){
+					if(m->func_def.params.size()!=1){
+						error(node,"literal operator must have exactly one parameter");
+						return;
+					}
+					MioType* pt=m->func_def.params[0].type;
+					bool valid=false;
+					if(pt->kind==MioTypeKind::U64||pt->kind==MioTypeKind::F64||
+						pt->kind==MioTypeKind::CHAR)valid=true;
+					if(pt->kind==MioTypeKind::POINTER&&pt->base_type&&
+						pt->base_type->kind==MioTypeKind::CHAR)valid=true;
+					if(!valid){
+						error(node,"literal operator parameter must be u64, f64, char, or const *char");
+						return;
+					}
+					literalOperatorMap[m->func_def.literal_suffix].push_back(fullName);
+				}
 			}
 				for(auto* c:node->class_def.constructors){
 				std::string ctorName=name+"::"+node->class_def.name;
@@ -383,12 +406,42 @@ public:
 				std::string name=node->func_def.name;
 				if(!currentNamespace.empty())
 					name=currentNamespace+"::"+name;
-				if(funcDecls.count(name)){
-					error(node,"redefinition of function '"+name+"'");
+				std::string mangledName=name;
+				if(node->func_def.is_literal_operator){
+					mangledName+="(";
+					for(size_t i=0;i<node->func_def.params.size();i++){
+						if(i>0)mangledName+=",";
+						mangledName+=resolveClassName(mio_type_str(node->func_def.params[i].type));
+					}
+					mangledName+=")";
+				}
+				if(funcDecls.count(mangledName)){
+					error(node,"redefinition of function '"+mangledName+"'");
 					return;
 				}
-				funcDecls.insert(name);
-				funcDefMap[name]=node;
+				funcDecls.insert(mangledName);
+				funcDefMap[mangledName]=node;
+				if(mangledName!=name){
+					funcDecls.insert(name);
+					funcDefMap[name]=node;
+				}
+				if(node->func_def.is_literal_operator){
+					if(node->func_def.params.size()!=1){
+						error(node,"literal operator must have exactly one parameter");
+						return;
+					}
+					MioType* pt=node->func_def.params[0].type;
+					bool valid=false;
+					if(pt->kind==MioTypeKind::U64||pt->kind==MioTypeKind::F64||
+						pt->kind==MioTypeKind::CHAR)valid=true;
+					if(pt->kind==MioTypeKind::POINTER&&pt->base_type&&
+						pt->base_type->kind==MioTypeKind::CHAR)valid=true;
+					if(!valid){
+						error(node,"literal operator parameter must be u64, f64, char, or const *char");
+						return;
+					}
+					literalOperatorMap[node->func_def.literal_suffix].push_back(mangledName);
+				}
 				break;
 			}
 			case AstNodeKind::VAR_DECL:{
@@ -462,6 +515,7 @@ public:
 	std::unordered_set<std::string> instantiatedClassNames;
 	std::unordered_set<std::string> classTypes;
 	std::unordered_set<std::string> funcDecls;
+	std::unordered_map<std::string,std::vector<std::string>>literalOperatorMap;
 	std::unordered_map<std::string,AstNode*> funcDefMap;
 	std::unordered_set<std::string> varDecls;
 	std::unordered_map<std::string,MioType*> globalMioTypes;
@@ -939,6 +993,10 @@ private:
 			case AstNodeKind::SIZEOF_EXPR:
 				node->type=mio_type_new(MioTypeKind::USIZE);
 				break;
+			case AstNodeKind::LITERAL_OP_EXPR:
+				checkExpr(node->literal_op.operand);
+				resolveLiteralOperator(node);
+				break;
 			case AstNodeKind::ARRAY_LIT:
 				for(auto* e:node->array_lit.elements)
 					checkExpr(e);
@@ -953,6 +1011,75 @@ private:
 		}
 	}
 	
+	void resolveLiteralOperator(AstNode* node){
+		std::string suffix=node->literal_op.suffix;
+		auto it=literalOperatorMap.find(suffix);
+		if(it==literalOperatorMap.end()){
+			error(node,"no literal operator found for suffix '"+suffix+"'");
+			return;
+		}
+		AstNode* operand=node->literal_op.operand;
+		MioTypeKind targetKind;
+		bool useStringMatch=false;
+		switch(operand->kind){
+			case AstNodeKind::INT_LIT:
+				targetKind=MioTypeKind::U64;
+				break;
+			case AstNodeKind::FLOAT_LIT:
+				targetKind=MioTypeKind::F64;
+				break;
+			case AstNodeKind::CHAR_LIT:
+				targetKind=MioTypeKind::CHAR;
+				break;
+			case AstNodeKind::STRING_LIT:
+				useStringMatch=true;
+				break;
+			default:
+				error(node,"literal operator suffix can only be applied to literals");
+				return;
+		}
+		AstNode* chosen=nullptr;
+		if(!useStringMatch){
+			for(std::string& name:it->second){
+				auto fit=funcDefMap.find(name);
+				if(fit==funcDefMap.end())continue;
+				AstNode* fn=fit->second;
+				if(fn->func_def.params.size()!=1)continue;
+				MioType* paramType=fn->func_def.params[0].type;
+				if(paramType->kind==targetKind){
+					chosen=fn;
+					break;
+				}
+			}
+		}
+		if(!chosen){
+			for(std::string& name:it->second){
+				auto fit=funcDefMap.find(name);
+				if(fit==funcDefMap.end())continue;
+				AstNode* fn=fit->second;
+				if(fn->func_def.params.size()!=1)continue;
+				MioType* paramType=fn->func_def.params[0].type;
+				if(paramType->kind==MioTypeKind::POINTER&&paramType->base_type&&paramType->base_type->kind==MioTypeKind::CHAR){
+					chosen=fn;
+					break;
+				}
+			}
+		}
+		if(!chosen){
+			error(node,"no matching literal operator for suffix '"+suffix+"'");
+			return;
+		}
+		node->literal_op.resolved_func=chosen;
+		std::string mangled=chosen->func_def.name;
+		mangled+="(";
+		for(size_t i=0;i<chosen->func_def.params.size();i++){
+			if(i>0)mangled+=",";
+			mangled+=resolveClassName(mio_type_str(chosen->func_def.params[i].type));
+		}
+		mangled+=")";
+		node->literal_op.resolved_mangled_name=mangled;
+		node->type=mio_type_clone(chosen->func_def.return_type);
+	}
 	void checkBinaryExpr(AstNode* node){
 		if(!node||!node->binary.left||!node->binary.right) return;
 		checkExpr(node->binary.left);

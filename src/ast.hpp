@@ -46,6 +46,7 @@ enum class AstNodeKind{
 	ASSIGN_EXPR,
 	TEMPLATE_DEF,
 	SIZEOF_EXPR,
+	LITERAL_OP_EXPR,
 };
 enum class Access{
 	PUBLIC,
@@ -122,8 +123,9 @@ public:
 		AstNode*body;
 		bool is_static,is_operator,is_extern,is_variadic;
 		bool is_virtual,is_override,is_pure_virtual;
+		bool is_literal_operator;
 		Access access;
-		std::string op_name,class_name;
+		std::string op_name,class_name,literal_suffix;
 		std::vector<InitField> init_list;
 	} func_def;
 	struct{
@@ -241,6 +243,12 @@ public:
 	struct{
 		MioType* target_type;
 	} sizeof_expr;
+	struct{
+		AstNode* operand;
+		std::string suffix;
+		AstNode* resolved_func;
+		std::string resolved_mangled_name;
+	} literal_op;
 	AstNode(AstNodeKind k,int l,int c,const std::string* fn=nullptr):kind(k),type(nullptr),filename(fn),line(l),col(c){}
 	~AstNode();
 };
@@ -358,6 +366,9 @@ inline AstNode::~AstNode(){
 		case AstNodeKind::SIZEOF_EXPR:
 			mio_type_free(sizeof_expr.target_type);
 			break;
+		case AstNodeKind::LITERAL_OP_EXPR:
+			delete literal_op.operand;
+			break;
 		default:
 			break;
 	}
@@ -404,6 +415,7 @@ inline AstNode* ast_new_func_def(const std::string& name,MioType* return_type,As
 	n->func_def.body=body;
 	n->func_def.is_static=is_static;
 	n->func_def.is_operator=false;
+	n->func_def.is_literal_operator=false;
 	n->func_def.is_extern=false;
 	n->func_def.is_variadic=false;
 	n->func_def.is_virtual=false;
@@ -578,6 +590,12 @@ inline AstNode*ast_new_template_def(const std::vector<TemplateParam>& type_param
 inline AstNode*ast_new_sizeof_expr(MioType* target_type,int line,int col,const std::string* fn){
 	auto*n=new AstNode(AstNodeKind::SIZEOF_EXPR,line,col,fn);
 	n->sizeof_expr.target_type=target_type;
+	return n;
+}
+inline AstNode*ast_new_literal_op_expr(AstNode* operand,const std::string& suffix,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::LITERAL_OP_EXPR,line,col,fn);
+	n->literal_op.operand=operand;
+	n->literal_op.suffix=suffix;
 	return n;
 }
 inline void ast_call_add_arg(AstNode*call,AstNode*arg){

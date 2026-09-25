@@ -580,6 +580,15 @@ private:
 				}
 				expr=ast_new_member(expr,cur->lexeme,true,expr->line,expr->col,fn());
 				advance();
+			}else if(cur->kind==TOK_IDENT){
+				if(expr->kind==AstNodeKind::INT_LIT||expr->kind==AstNodeKind::FLOAT_LIT||
+					expr->kind==AstNodeKind::STRING_LIT||expr->kind==AstNodeKind::CHAR_LIT){
+					std::string suffix=cur->lexeme;
+					advance();
+					expr=ast_new_literal_op_expr(expr,suffix,expr->line,expr->col,fn());
+				}else{
+					break;
+				}
 			}else{
 				break;
 			}
@@ -907,21 +916,36 @@ private:
 			return_type=parse_type();
 		}
 		bool is_operator=false;
+		bool is_literal_operator=false;
 		std::string func_name;
 		std::string op_name;
+		std::string literal_suffix;
 		if(match(TOK_OPERATOR)){
-			is_operator=true;
-			func_name="operator"+tok_name(cur->kind);
-			op_name=tok_name(cur->kind);
-			if(cur->kind==TOK_LBRACKET){
+			if(cur->kind==TOK_STRING_LIT&&cur->lexeme.empty()){
+				is_literal_operator=true;
 				advance();
-				expect(TOK_RBRACKET);
-			}else if(cur->kind==TOK_LPAREN){
-				func_name="operator()";
+				if(cur->kind!=TOK_IDENT){
+					error("expected identifier for literal operator suffix");
+					mio_type_free(return_type);
+					return nullptr;
+				}
+				literal_suffix=cur->lexeme;
+				func_name="operator\"\""+literal_suffix;
 				advance();
-				expect(TOK_RPAREN);
 			}else{
-				advance();
+				is_operator=true;
+				func_name="operator"+tok_name(cur->kind);
+				op_name=tok_name(cur->kind);
+				if(cur->kind==TOK_LBRACKET){
+					advance();
+					expect(TOK_RBRACKET);
+				}else if(cur->kind==TOK_LPAREN){
+					func_name="operator()";
+					advance();
+					expect(TOK_RPAREN);
+				}else{
+					advance();
+				}
 			}
 		}else if(cur->kind==TOK_IDENT){
 			func_name=cur->lexeme;
@@ -939,7 +963,9 @@ private:
 		}
 		auto* func=ast_new_func_def(func_name,return_type,nullptr,is_static,line,col,fn());
 		func->func_def.is_operator=is_operator;
+		func->func_def.is_literal_operator=is_literal_operator;
 		if(is_operator)func->func_def.op_name=op_name;
+		if(is_literal_operator)func->func_def.literal_suffix=literal_suffix;
 		expect(TOK_LPAREN);
 		if(!check(TOK_RPAREN)){
 			do{

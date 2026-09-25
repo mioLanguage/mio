@@ -158,11 +158,23 @@ private:
 		int startCol=col;
 		bool isFloat=false;
 		bool isHex=false;
+		bool isBin=false;
+		bool isOct=false;
 		if(cur()=='0'&&(source[pos+1]=='x'||source[pos+1]=='X')){
 			isHex=true;
 			advance();
 			advance();
 			while(isxdigit(cur()))advance();
+		}else if(cur()=='0'&&(source[pos+1]=='b'||source[pos+1]=='B')){
+			isBin=true;
+			advance();
+			advance();
+			while(cur()=='0'||cur()=='1')advance();
+		}else if(cur()=='0'&&(source[pos+1]=='o'||source[pos+1]=='O')){
+			isOct=true;
+			advance();
+			advance();
+			while(cur()>='0'&&cur()<='7')advance();
 		}else{
 			while(isdigit(cur()))advance();
 			if(cur()=='.'){
@@ -180,6 +192,8 @@ private:
 		}else{
 			t=tok_new(TOK_INT_LIT,text,line,startCol);
 			if(isHex)t->int_val=strtoll(text,nullptr,16);
+			else if(isBin)t->int_val=strtoll(text+2,nullptr,2);
+			else if(isOct)t->int_val=strtoll(text+2,nullptr,8);
 			else t->int_val=atoll(text);
 		}
 		free(text);

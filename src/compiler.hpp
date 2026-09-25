@@ -299,6 +299,9 @@ class Compiler{
 				}
 				return llvm::Type::getVoidTy(ctx);
 			}
+			case AstNodeKind::LITERAL_OP_EXPR:
+				if(node->type)return convertType(node->type);
+				return llvm::Type::getVoidTy(ctx);
 			default:
 				error(node->line,node->col,"internal error: cannot resolve type for expression kind "+std::to_string((int)node->kind));
 				return llvm::Type::getVoidTy(ctx);
@@ -718,7 +721,7 @@ class Compiler{
 				fullClassName=currentNamespace+"::"+fullClassName;
 			}
 			mangledName=fullClassName+"::"+name;
-			if((isCtor&&def->func_def.params.size()>0)||def->func_def.is_operator){
+			if((isCtor&&def->func_def.params.size()>0)||def->func_def.is_operator||def->func_def.is_literal_operator){
 				mangledName+="(";
 				for(size_t i=0;i<def->func_def.params.size();i++){
 					if(i>0)mangledName+=",";
@@ -735,8 +738,24 @@ class Compiler{
 		}else if(!isMethod&&!currentNamespace.empty()){
 			mangledName=currentNamespace+"::"+name;
 			namespaceMembers[name]=mangledName;
+			if(def->func_def.is_literal_operator){
+				mangledName+="(";
+				for(size_t i=0;i<def->func_def.params.size();i++){
+					if(i>0)mangledName+=",";
+					mangledName+=mio_type_str(def->func_def.params[i].type);
+				}
+				mangledName+=")";
+			}
 		}else if(!isMethod&&currentNamespace.empty()&&!def->func_def.is_extern&&name!="main"){
 			mangledName="global::"+name;
+			if(def->func_def.is_literal_operator){
+				mangledName+="(";
+				for(size_t i=0;i<def->func_def.params.size();i++){
+					if(i>0)mangledName+=",";
+					mangledName+=mio_type_str(def->func_def.params[i].type);
+				}
+				mangledName+=")";
+			}
 		}
 		llvm::Function* fn=nullptr;
 		auto fnIt=funcDecls.find(mangledName);
@@ -751,7 +770,7 @@ class Compiler{
 			funcDecls[mangledName]=fn;
 		}
 		funcDefMap[mangledName]=def;
-		if(name!=mangledName&&!isCtor&&!def->func_def.is_operator&&!isMethod){
+		if(name!=mangledName&&!isCtor&&!def->func_def.is_operator&&!def->func_def.is_literal_operator&&!isMethod){
 			if(funcDecls.count(name)&&funcDecls[name]!=fn){
 				error(def,"internal error: redefinition of function '"+name+"'");
 				return nullptr;
@@ -1782,6 +1801,38 @@ class Compiler{
 				llvm::Type* ty=convertType(node->sizeof_expr.target_type);
 				uint64_t sz=mod->getDataLayout().getTypeAllocSize(ty);
 				return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),sz);
+			}
+			case AstNodeKind::LITERAL_OP_EXPR:{
+				AstNode* fn=node->literal_op.resolved_func;
+				if(!fn)return nullptr;
+				std::string fname=node->literal_op.resolved_mangled_name;
+				if(fname.empty())fname=fn->func_def.name;
+				llvm::Function* callee=nullptr;
+				auto fdit=funcDecls.find(fname);
+				if(fdit!=funcDecls.end())callee=fdit->second;
+				if(!callee)callee=mod->getFunction(fname);
+				if(!callee){
+					std::string mangled="global::"+fname;
+					callee=mod->getFunction(mangled);
+					if(callee)funcDecls[mangled]=callee;
+				}
+				if(!callee){
+					error(node->line,node->col,"internal error: literal operator function '"+fname+"' not found in module");
+					return nullptr;
+				}
+				llvm::Value* arg=genExpr(node->literal_op.operand);
+				if(!arg)return nullptr;
+				llvm::Type* expectedType=nullptr;
+				if(callee->arg_size()>0)expectedType=callee->getArg(0)->getType();
+				if(expectedType&&arg->getType()!=expectedType){
+					if(expectedType->isPointerTy()&&arg->getType()->isPointerTy()){
+						arg=b.CreateBitCast(arg,expectedType);
+					}else{
+						error(node->line,node->col,"type mismatch in literal operator argument");
+						return nullptr;
+					}
+				}
+				return b.CreateCall(callee,{arg});
 			}
 			default:
 				error(node->line,node->col,"internal error: unsupported expression kind");
