@@ -400,6 +400,22 @@ public:
 					funcDefMap[mangledCtor]=c;
 				}
 			}
+				for(auto* nc:node->class_def.nested_classes){
+					if(nc->kind==AstNodeKind::TYPE_ALIAS){
+						typeAliases[name+"::"+nc->type_alias.name]=mio_type_clone(nc->type_alias.aliased_type);
+					}
+				}
+				break;
+			}
+			case AstNodeKind::TYPE_ALIAS:{
+				std::string name=node->type_alias.name;
+				if(!currentNamespace.empty())
+					name=currentNamespace+"::"+name;
+				if(typeAliases.count(name)){
+					error(node,"redefinition of type alias '"+name+"'");
+					return;
+				}
+				typeAliases[name]=mio_type_clone(node->type_alias.aliased_type);
 				break;
 			}
 			case AstNodeKind::FUNC_DEF:{
@@ -514,6 +530,7 @@ public:
 	std::unordered_map<std::string,AstNode*> instantiatedClasses;
 	std::unordered_set<std::string> instantiatedClassNames;
 	std::unordered_set<std::string> classTypes;
+	std::unordered_map<std::string,MioType*> typeAliases;
 	std::unordered_set<std::string> funcDecls;
 	std::unordered_map<std::string,std::vector<std::string>>literalOperatorMap;
 	std::unordered_map<std::string,AstNode*> funcDefMap;
@@ -573,6 +590,11 @@ private:
 			case AstNodeKind::CONST_DECL: analyzeVarDecl(node); break;
 			case AstNodeKind::FUNC_DEF: analyzeFuncDef(node); break;
 			case AstNodeKind::CLASS_DEF: analyzeClassDef(node); break;
+			case AstNodeKind::TYPE_ALIAS:{
+				MioType* aliased=node->type_alias.aliased_type;
+				checkType(aliased,node);
+				break;
+			}
 			case AstNodeKind::ENUM_DEF: break;
 			case AstNodeKind::UNION_DEF: break;
 			case AstNodeKind::TEMPLATE_DEF: break;
@@ -893,6 +915,13 @@ private:
 					error(stmt,"continue statement not within a loop");
 				}
 				break;
+			case AstNodeKind::TYPE_ALIAS:{
+				MioType* aliased=stmt->type_alias.aliased_type;
+				checkType(aliased,stmt);
+				std::string name=stmt->type_alias.name;
+				typeAliases[name]=mio_type_clone(aliased);
+				break;
+			}
 			default:
 				break;
 		}
@@ -926,6 +955,11 @@ private:
 		for(auto& f:node->class_def.fields){
 			if(f.type){
 				checkType(f.type,node);
+				auto it=classFieldTypes[currentClassName].find(f.name);
+				if(it!=classFieldTypes[currentClassName].end()){
+					mio_type_free(it->second);
+					it->second=mio_type_clone(f.type);
+				}
 			}
 		}
 		for(auto* m:node->class_def.methods){
@@ -967,6 +1001,11 @@ private:
 						error(node,"class '"+name+"' does not override pure virtual method '"+pv+"' from base class '"+baseName+"'");
 					}
 				}
+			}
+		}
+		for(auto* nc:node->class_def.nested_classes){
+			if(nc->kind==AstNodeKind::TYPE_ALIAS){
+				checkType(nc->type_alias.aliased_type,node);
 			}
 		}
 		currentClassName=savedClassName;
@@ -1845,6 +1884,7 @@ private:
 					auto fi=fit->second.find(fieldName);
 					if(fi!=fit->second.end()){
 						node->type=mio_type_clone(fi->second);
+						checkType(node->type,node);
 					}
 				}
 			}
@@ -2019,6 +2059,22 @@ private:
 		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()&&mt->param_types.empty()){
 			std::string resolved=resolveClassName(mt->name);
 			mt->name=resolved;
+			if(typeAliases.count(resolved)){
+				auto* cloned=mio_type_clone(typeAliases[resolved]);
+				if(mt->base_type) delete mt->base_type;
+				for(auto* p:mt->param_types) delete p;
+				mt->kind=cloned->kind;
+				mt->name=std::move(cloned->name);
+				mt->base_type=cloned->base_type; cloned->base_type=nullptr;
+				mt->param_types=std::move(cloned->param_types);
+				mt->filename=cloned->filename;
+				mt->array_size=cloned->array_size;
+				mt->is_const=cloned->is_const;
+				mt->ref_count=cloned->ref_count;
+				delete cloned;
+				checkType(mt,ctx);
+				return;
+			}
 			if(enumNames.count(resolved)){
 				mt->kind=MioTypeKind::ENUM;
 			}else if(unionNames.count(resolved)){
@@ -2163,6 +2219,10 @@ private:
 	
 	void registerInstantiatedNestedClasses(AstNode* inst,const std::string& instName){
 		for(auto* nc:inst->class_def.nested_classes){
+			if(nc->kind==AstNodeKind::TYPE_ALIAS){
+				typeAliases[nc->type_alias.name]=mio_type_clone(nc->type_alias.aliased_type);
+				continue;
+			}
 			std::string ncName=nc->class_def.name;
 			classTypes.insert(ncName);
 			for(auto& f:nc->class_def.fields){
@@ -2227,7 +2287,7 @@ private:
 		if(name.find("::")!=std::string::npos) return name;
 		if(!currentClassName.empty()){
 			std::string fullName=currentClassName+"::"+name;
-			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
+			if(classTemplateMap.count(fullName)||classTypes.count(fullName)||typeAliases.count(fullName)){
 				return fullName;
 			}
 			auto pos=currentClassName.rfind("::");
@@ -2241,10 +2301,16 @@ private:
 			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
 				return fullName;
 			}
+			if(typeAliases.count(fullName)){
+				return fullName;
+			}
 		}
 		if(!currentNamespace.empty()){
 			std::string fullName=currentNamespace+"::"+name;
 			if(classTemplateMap.count(fullName)||classTypes.count(fullName)){
+				return fullName;
+			}
+			if(typeAliases.count(fullName)){
 				return fullName;
 			}
 		}
@@ -2619,6 +2685,14 @@ private:
 			inst->class_def.destructor=instantiateFuncTemplate(def->class_def.destructor,typeSubst,exprSubst,instClassName);
 		}
 		for(auto* nc:def->class_def.nested_classes){
+			if(nc->kind==AstNodeKind::TYPE_ALIAS){
+				std::string ncName=nc->type_alias.name;
+				auto pos=ncName.rfind("::");
+				std::string shortName=(pos!=std::string::npos)?ncName.substr(pos+2):ncName;
+				std::string newNcName=instClassName+"::"+shortName;
+				typeAliases[newNcName]=mio_type_clone(nc->type_alias.aliased_type);
+				continue;
+			}
 			std::string ncName=nc->class_def.name;
 			auto pos=ncName.rfind("::");
 			std::string shortName=(pos!=std::string::npos)?ncName.substr(pos+2):ncName;

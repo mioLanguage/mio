@@ -47,6 +47,7 @@ enum class AstNodeKind{
 	TEMPLATE_DEF,
 	SIZEOF_EXPR,
 	LITERAL_OP_EXPR,
+	TYPE_ALIAS,
 };
 enum class Access{
 	PUBLIC,
@@ -249,6 +250,10 @@ public:
 		AstNode* resolved_func;
 		std::string resolved_mangled_name;
 	} literal_op;
+	struct{
+		std::string name;
+		MioType* aliased_type;
+	} type_alias;
 	AstNode(AstNodeKind k,int l,int c,const std::string* fn=nullptr):kind(k),type(nullptr),filename(fn),line(l),col(c){}
 	~AstNode();
 };
@@ -368,6 +373,9 @@ inline AstNode::~AstNode(){
 			break;
 		case AstNodeKind::LITERAL_OP_EXPR:
 			delete literal_op.operand;
+			break;
+		case AstNodeKind::TYPE_ALIAS:
+			mio_type_free(type_alias.aliased_type);
 			break;
 		default:
 			break;
@@ -596,6 +604,12 @@ inline AstNode*ast_new_literal_op_expr(AstNode* operand,const std::string& suffi
 	auto*n=new AstNode(AstNodeKind::LITERAL_OP_EXPR,line,col,fn);
 	n->literal_op.operand=operand;
 	n->literal_op.suffix=suffix;
+	return n;
+}
+inline AstNode*ast_new_type_alias(const std::string& name,MioType* aliased_type,int line,int col,const std::string* fn){
+	auto*n=new AstNode(AstNodeKind::TYPE_ALIAS,line,col,fn);
+	n->type_alias.name=name;
+	n->type_alias.aliased_type=aliased_type;
 	return n;
 }
 inline void ast_call_add_arg(AstNode*call,AstNode*arg){

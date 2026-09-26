@@ -787,6 +787,20 @@ private:
 		else
 			return ast_new_var_decl(name,type,init,is_static,is_extern,line,col,fn());
 	}
+	AstNode* parse_type_alias(bool skip_advance=false){
+		if(!skip_advance) advance();
+		int line=cur->line,col=cur->col;
+		std::string name=cur->lexeme;
+		if(!expect_ident())return nullptr;
+		expect(TOK_ASSIGN);
+		auto* aliased=parse_type();
+		if(!aliased){
+			error("expected type after '=' in typename alias");
+			return nullptr;
+		}
+		expect(TOK_SEMICOLON);
+		return ast_new_type_alias(name,aliased,line,col,fn());
+	}
 	AstNode* parse_var_decl(bool is_const,bool is_static,bool is_extern=false,bool skip_advance=false){
 		if(!skip_advance) advance();
 		auto* block=ast_new_block(cur->line,cur->col,fn());
@@ -874,6 +888,8 @@ private:
 				return parse_var_decl(false,false);
 			case TOK_CONST:
 				return parse_var_decl(true,false);
+			case TOK_TYPENAME:
+				return parse_type_alias();
 			case TOK_IF:
 				return parse_if_stmt();
 			case TOK_WHILE:
@@ -1222,6 +1238,11 @@ private:
 						}
 						c->class_def.nested_classes.push_back(nested);
 					}
+				}else if(match(TOK_TYPENAME)){
+					auto* ta=parse_type_alias(true);
+					if(ta){
+						c->class_def.nested_classes.push_back(ta);
+					}
 				}else if(cur->kind==TOK_OPERATOR||is_type_token(cur->kind)){
 					if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
 						std::string fname=cur->lexeme;
@@ -1405,6 +1426,8 @@ private:
 				return parse_namespace_def();
 			case TOK_TEMPLATE:
 				return parse_template_def();
+			case TOK_TYPENAME:
+				return parse_type_alias();
 			case TOK_EOF:
 				return nullptr;
 			default:{
