@@ -554,6 +554,13 @@ public:
 	MioType* currentFuncReturnType=nullptr;
 	bool hasReturnStmt=false;
 	
+	MioType* resolveTypeAlias(const std::string& name){
+		auto it=typeAliases.find(name);
+		return (it!=typeAliases.end())?it->second:nullptr;
+	}
+	bool isEnumName(const std::string& name)const{return enumNames.count(name)>0;}
+	bool isUnionName(const std::string& name)const{return unionNames.count(name)>0;}
+	
 private:
 	void error(AstNode* node,const std::string& msg){
 		const char* fn=node&&node->filename?node->filename->c_str():"";
@@ -569,6 +576,7 @@ private:
 	
 	void analyzeDecl(AstNode* node){
 		if(!node) return;
+		static int declCount=0;
 		switch(node->kind){
 			case AstNodeKind::IMPORT:{
 				for(auto* stmt:node->block.stmts){
@@ -1228,11 +1236,33 @@ private:
 	}
 	
 	void checkFuncPtrCall(AstNode* node,const std::string& calleeName,MioType* funcType){
-		if(funcType->param_types.size()!=node->call.args.size()){
-			error(node,"function pointer call argument count mismatch: expected "+std::to_string(funcType->param_types.size())+", got "+std::to_string(node->call.args.size()));
-			return;
+		size_t paramCount=funcType->param_types.size();
+		size_t argCount=node->call.args.size();
+		if(funcType->is_variadic){
+			if(argCount<paramCount){
+				error(node,"function pointer call requires at least "+std::to_string(paramCount)+" argument(s), got "+std::to_string(argCount));
+				return;
+			}
+		}else{
+			size_t requiredCount=paramCount;
+			auto defIt=funcDefMap.find(calleeName);
+			if(defIt!=funcDefMap.end()&&defIt->second->kind==AstNodeKind::FUNC_DEF){
+				auto& params=defIt->second->func_def.params;
+				for(size_t i=paramCount;i>0;i--){
+					if(!params[i-1].default_val)break;
+					requiredCount--;
+				}
+			}
+			if(argCount<requiredCount){
+				error(node,"function pointer call requires at least "+std::to_string(requiredCount)+" argument(s), got "+std::to_string(argCount));
+				return;
+			}
+			if(argCount>paramCount){
+				error(node,"function pointer call argument count mismatch: expected "+std::to_string(paramCount)+", got "+std::to_string(argCount));
+				return;
+			}
 		}
-		for(size_t i=0;i<node->call.args.size();i++){
+		for(size_t i=0;i<paramCount&&i<argCount;i++){
 			MioType* argType=resolveExprMioType(node->call.args[i]);
 			if(argType&&!isTypeCompatible(funcType->param_types[i],argType)){
 				error(node,"function pointer call argument "+std::to_string(i+1)+" type mismatch: expected '"+mio_type_str(funcType->param_types[i])+"', got '"+mio_type_str(argType)+"'");
@@ -1923,8 +1953,28 @@ private:
 				}
 			}
 		}
+		if(!node->type&&node->member.base->kind==AstNodeKind::IDENT_EXPR){
+			std::string baseName=node->member.base->ident.name;
+			if(!node->member.base->ident.namespace_name.empty()&&node->member.base->ident.namespace_name!="::")
+				baseName=node->member.base->ident.namespace_name+"::"+baseName;
+			bool isEnum=enumNames.count(baseName)>0;
+			if(!isEnum){
+				for(auto& impNs:importedNamespaces){
+					if(enumNames.count(impNs+"::"+baseName)){isEnum=true;break;}
+				}
+			}
+			if(isEnum){
+				auto evit=enumVariantMap.find(node->member.member);
+				if(evit!=enumVariantMap.end()){
+					node->type=mio_type_new(MioTypeKind::I32);
+					return;
+				}
+				error(node,"enum variant '"+node->member.member+"' not found in enum '"+baseName+"'");
+				return;
+			}
+		}
 	}
-	
+
 	void checkAssignExpr(AstNode* node){
 		if(!node||!node->assign.left||!node->assign.right) return;
 		checkExpr(node->assign.left);
@@ -1995,7 +2045,7 @@ private:
 		if(name=="this") return;
 		if(!ns.empty()&&ns!="::")
 			name=ns+"::"+name;
-		bool found=locals.count(name)>0||varDecls.count(name)>0||funcDecls.count(name)>0||enumNames.count(name)>0||unionNames.count(name)>0||classTypes.count(name)>0||enumVariantMap.count(name)>0||templateMap.count(name)>0||classTemplateMap.count(name)>0;
+		bool found=locals.count(name)>0||varDecls.count(name)>0||funcDecls.count(name)>0||enumNames.count(name)>0||unionNames.count(name)>0||classTypes.count(name)>0||templateMap.count(name)>0||classTemplateMap.count(name)>0;
 		if(!found){
 			for(auto& impNs:importedNamespaces){
 				std::string fullName=impNs+"::"+name;
@@ -2028,7 +2078,7 @@ private:
 						std::vector<MioType*> params;
 						for(size_t i=0;i<fit->second->func_def.params.size();i++)
 							params.push_back(fit->second->func_def.params[i].type);
-						node->type=mio_type_new_func(ret,params);
+						node->type=mio_type_new_func(ret,params,fit->second->func_def.is_variadic);
 						mio_type_free(ret);
 					}
 				}
@@ -2056,10 +2106,19 @@ private:
 				checkType(p,ctx);
 			return;
 		}
+		if(mt->kind==MioTypeKind::POINTER){
+			return;
+		}
 		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()&&mt->param_types.empty()){
 			std::string resolved=resolveClassName(mt->name);
 			mt->name=resolved;
 			if(typeAliases.count(resolved)){
+				static thread_local std::unordered_set<std::string> expanding;
+				if(expanding.count(resolved)){
+					error(ctx,"cyclic type alias '"+resolved+"'");
+					return;
+				}
+				expanding.insert(resolved);
 				auto* cloned=mio_type_clone(typeAliases[resolved]);
 				if(mt->base_type) delete mt->base_type;
 				for(auto* p:mt->param_types) delete p;
@@ -2073,13 +2132,14 @@ private:
 				mt->ref_count=cloned->ref_count;
 				delete cloned;
 				checkType(mt,ctx);
+				expanding.erase(resolved);
 				return;
 			}
 			if(enumNames.count(resolved)){
 				mt->kind=MioTypeKind::ENUM;
 			}else if(unionNames.count(resolved)){
 				mt->kind=MioTypeKind::UNION;
-			}else if(!classTypes.count(resolved)&&!classTemplateMap.count(resolved)){
+			}else if(!classTypes.count(resolved)&&!classTemplateMap.count(resolved)&&!typeAliases.count(resolved)){
 				error(ctx,"unknown type '"+resolved+"'");
 			}
 		}
@@ -2534,7 +2594,7 @@ private:
 				std::vector<MioType*> params;
 				for(size_t i=0;i<fit->second->func_def.params.size();i++)
 					params.push_back(fit->second->func_def.params[i].type);
-				auto* ft=mio_type_new_func(ret,params);
+				auto* ft=mio_type_new_func(ret,params,fit->second->func_def.is_variadic);
 				mio_type_free(ret);
 				return ft;
 			}

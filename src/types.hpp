@@ -54,9 +54,10 @@ public:
 	std::vector<MioType*> param_types;
 	std::vector<AstNode*> value_args;
 	bool is_const;
-	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false) {}
-	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false) {}
-	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),filename(base?base->filename:nullptr),base_type(base),is_const(false) {}
+	bool is_variadic;
+	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
+	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
+	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),filename(base?base->filename:nullptr),base_type(base),is_const(false),is_variadic(false) {}
 	~MioType(){
 		if(base_type) delete base_type;
 		for(auto* p:param_types) delete p;
@@ -70,6 +71,7 @@ public:
 		col=other.col;
 		filename=other.filename;
 		is_const=other.is_const;
+		is_variadic=other.is_variadic;
 		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
@@ -89,6 +91,7 @@ public:
 		col=other.col;
 		filename=other.filename;
 		is_const=other.is_const;
+		is_variadic=other.is_variadic;
 		value_args=other.value_args;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
@@ -178,10 +181,11 @@ inline MioType* mio_type_new_pointer(MioType* base){
 	mt->filename=base?base->filename:nullptr;
 	return mt;
 }
-inline MioType* mio_type_new_func(MioType* ret,const std::vector<MioType*>& params){
+inline MioType* mio_type_new_func(MioType* ret,const std::vector<MioType*>& params,bool is_variadic=false){
 	MioType* mt=new MioType(MioTypeKind::FUNC);
 	mt->base_type=mio_type_clone(ret);
 	for(auto* p:params) mt->param_types.push_back(mio_type_clone(p));
+	mt->is_variadic=is_variadic;
 	if(ret) mt->filename=ret->filename;
 	return mt;
 }

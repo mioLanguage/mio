@@ -112,7 +112,8 @@ class Compiler{
 			case MioTypeKind::F64:	return llvm::Type::getDoubleTy(ctx);
 			case MioTypeKind::BOOL:	return llvm::Type::getInt1Ty(ctx);
 			case MioTypeKind::CHAR:	return llvm::Type::getInt8Ty(ctx);
-			case MioTypeKind::POINTER: return llvm::PointerType::get(ctx,0);
+			case MioTypeKind::POINTER:
+				return llvm::PointerType::get(ctx,0);
 			case MioTypeKind::REFERENCE:
 			case MioTypeKind::RVALUE_REFERENCE:
 				return convertType(mt->base_type,errCtx);
@@ -130,22 +131,42 @@ class Compiler{
 							instName+="_"+mio_type_str(pt);
 						if(classTypes.count(instName))
 							return classTypes[instName];
-						if(errCtx){
-							error(errCtx->line,errCtx->col,"internal error: unknown template type '"+instName+"'");
-						}else{
-							error(mt->line,mt->col,"internal error: unknown template type '"+instName+"'");
-						}
-						return llvm::Type::getVoidTy(ctx);
+						llvm::StructType* fwdSt=llvm::StructType::create(ctx,instName);
+						classTypes[instName]=fwdSt;
+						forwardDeclaredClasses.insert(instName);
+						return fwdSt;
 					}
 					
 					llvm::StructType* st=findStructType(mt->name);
 					if(st)return st;
-					if(errCtx){
-						error(errCtx->line,errCtx->col,"internal error: unknown type '"+mt->name+"'");
-					}else{
-						error(mt->line,mt->col,"internal error: unknown type '"+mt->name+"'");
+					if(semantic){
+						std::string name_copy=mt->name;
+						MioType* aliased=semantic->resolveTypeAlias(name_copy);
+						if(aliased){
+							thread_local std::unordered_set<std::string> convStack;
+							if(convStack.count(name_copy)){
+								return llvm::PointerType::get(ctx,0);
+							}
+							convStack.insert(name_copy);
+							llvm::Type* result=convertType(aliased,errCtx);
+							convStack.erase(name_copy);
+							return result;
+						}
+						if(semantic->isEnumName(name_copy)){
+							return llvm::Type::getInt32Ty(ctx);
+						}
+						if(semantic->isUnionName(name_copy))
+							return llvm::StructType::create(ctx,name_copy);
 					}
-					return llvm::Type::getVoidTy(ctx);
+					{
+						std::string fwdName=mangleName(mt->name);
+						if(classTypes.count(fwdName))
+							return classTypes[fwdName];
+						llvm::StructType* fwdSt=llvm::StructType::create(ctx,fwdName);
+						classTypes[fwdName]=fwdSt;
+						forwardDeclaredClasses.insert(fwdName);
+						return fwdSt;
+					}
 				}
 				return llvm::StructType::create(ctx,"");
 			}
@@ -504,6 +525,49 @@ class Compiler{
 		}
 	}
 	
+	void declareTypesForward(AstNode* node){
+		if(!node)return;
+		switch(node->kind){
+			case AstNodeKind::CLASS_DEF:{
+				std::string mangled=mangleName(node->class_def.name);
+				if(classTypes.count(mangled))break;
+				auto* st=llvm::StructType::create(ctx,mangled);
+				classTypes[mangled]=st;
+				forwardDeclaredClasses.insert(mangled);
+				break;
+			}
+			case AstNodeKind::UNION_DEF:{
+				std::string mangled=mangleName(node->union_def.name);
+				if(classTypes.count(mangled))break;
+				auto* st=llvm::StructType::create(ctx,mangled);
+				classTypes[mangled]=st;
+				break;
+			}
+			case AstNodeKind::BLOCK:
+				for(auto* stmt:node->block.stmts){
+					declareTypesForward(stmt);
+				}
+				break;
+			case AstNodeKind::NAMESPACE_DEF:{
+				std::string savedNs=currentNamespace;
+				if(!currentNamespace.empty())
+					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+				else
+					currentNamespace=node->namespace_def.name;
+				for(auto* decl:node->namespace_def.body){
+					declareTypesForward(decl);
+				}
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::IMPORT:
+				for(auto* stmt:node->block.stmts){
+					declareTypesForward(stmt);
+				}
+				break;
+			default:break;
+		}
+	}
 	void declareFuncForward(AstNode* node){
 		if(!node)return;
 		switch(node->kind){
@@ -535,13 +599,109 @@ class Compiler{
 			default:break;
 		}
 	}
+	void declareAll(AstNode* node){
+		if(!node)return;
+		switch(node->kind){
+			case AstNodeKind::CLASS_DEF:{
+				setupClassFields(node);
+				std::string mangled=mangleName(node->class_def.name);
+				for(auto* m:node->class_def.methods){
+					if(m->kind==AstNodeKind::FUNC_DEF){
+						m->func_def.class_name=mangled;
+						declareMethod(m,mangled);
+					}
+				}
+				for(auto* ctor:node->class_def.constructors){
+					ctor->func_def.class_name=mangled;
+					declareMethod(ctor,mangled);
+				}
+				if(node->class_def.destructor){
+					node->class_def.destructor->func_def.class_name=mangled;
+					declareMethod(node->class_def.destructor,mangled);
+				}
+				std::string savedNs=currentNamespace;
+				for(auto* nc:node->class_def.nested_classes){
+					declareAll(nc);
+				}
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::UNION_DEF:
+				genUnionDef(node);
+				break;
+			case AstNodeKind::ENUM_DEF:
+				genEnumDef(node);
+				break;
+			case AstNodeKind::FUNC_DEF:
+				declareFunc(node);
+				break;
+			case AstNodeKind::BLOCK:
+				for(auto* stmt:node->block.stmts)
+					declareAll(stmt);
+				break;
+			case AstNodeKind::NAMESPACE_DEF:{
+				std::string savedNs=currentNamespace;
+				if(!currentNamespace.empty())
+					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+				else
+					currentNamespace=node->namespace_def.name;
+				for(auto* decl:node->namespace_def.body)
+					declareAll(decl);
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::IMPORT:
+				for(auto* stmt:node->block.stmts)
+					declareAll(stmt);
+				break;
+			default:break;
+		}
+	}
+	void genBodies(AstNode* node){
+		if(!node)return;
+		switch(node->kind){
+			case AstNodeKind::CLASS_DEF:{
+				genClassMethods(node);
+				std::string savedNs=currentNamespace;
+				for(auto* nc:node->class_def.nested_classes)
+					genBodies(nc);
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::FUNC_DEF:
+				genFuncBody(node);
+				break;
+			case AstNodeKind::VAR_DECL:
+			case AstNodeKind::CONST_DECL:
+				genGlobalVar(node);
+				break;
+			case AstNodeKind::BLOCK:
+				for(auto* stmt:node->block.stmts)
+					genBodies(stmt);
+				break;
+			case AstNodeKind::NAMESPACE_DEF:{
+				std::string savedNs=currentNamespace;
+				if(!currentNamespace.empty())
+					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
+				else
+					currentNamespace=node->namespace_def.name;
+				for(auto* decl:node->namespace_def.body)
+					genBodies(decl);
+				currentNamespace=savedNs;
+				break;
+			}
+			case AstNodeKind::IMPORT:
+				for(auto* stmt:node->block.stmts)
+					genBodies(stmt);
+				break;
+			default:break;
+		}
+	}
 	void genProgram(AstNode* prog){
-		for(auto* node:prog->program.nodes){
-			declareFuncForward(node);
-		}
-		for(auto* node:prog->program.nodes){
-			genDecl(node);
-		}
+		for(auto* node:prog->program.nodes)
+			declareAll(node);
+		for(auto* node:prog->program.nodes)
+			genBodies(node);
 	}
 	MioType* resolveExprMioType(AstNode* node){
 		if(!node)return nullptr;
@@ -612,6 +772,25 @@ class Compiler{
 							if(fti!=ftit->second.end()){
 								return mio_type_clone(fti->second);
 							}
+						}
+					}
+				}
+				if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+					std::string baseName=node->member.base->ident.name;
+					if(!node->member.base->ident.namespace_name.empty()&&node->member.base->ident.namespace_name!="::")
+						baseName=node->member.base->ident.namespace_name+"::"+baseName;
+					if(enumNames.count(baseName)){
+						auto evit=enumVariantMap.find(node->member.member);
+						if(evit!=enumVariantMap.end())
+							return mio_type_new(MioTypeKind::I32);
+					}
+					for(auto& impNs:importedNamespaces){
+						std::string fullName=impNs+"::"+baseName;
+						if(enumNames.count(fullName)){
+							auto evit=enumVariantMap.find(node->member.member);
+							if(evit!=enumVariantMap.end())
+								return mio_type_new(MioTypeKind::I32);
+							break;
 						}
 					}
 				}
@@ -728,10 +907,15 @@ class Compiler{
 			}
 		}
 		for(auto& p:def->func_def.params){
+			llvm::Type* pt;
 			if(p.type&&p.type->kind==MioTypeKind::ARRAY&&p.type->array_size>0)
-				paramTys.push_back(llvm::PointerType::get(ctx,0));
-			else
-				paramTys.push_back(convertType(p.type));
+				pt=llvm::PointerType::get(ctx,0);
+			else{
+				pt=convertType(p.type);
+				if(p.type&&p.type->kind==MioTypeKind::FUNC)
+					pt=llvm::PointerType::get(ctx,0);
+			}
+			paramTys.push_back(pt);
 		}
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		std::string mangledName=name;
@@ -975,13 +1159,19 @@ class Compiler{
 		if(!currentNamespace.empty())
 			namespaceMembers[name]=mangled;
 		if(classTypes.count(mangled)){
-			error(def->line,def->col,"internal error: redefinition of union '"+mangled+"'");
-			return;
+			auto* existing=classTypes[mangled];
+			if(existing->isOpaque()){
+				classTypes.erase(mangled);
+			}else{
+				error(def->line,def->col,"internal error: redefinition of union '"+mangled+"'");
+				return;
+			}
 		}
 		llvm::Type* maxTy=llvm::Type::getInt8Ty(ctx);
 		size_t maxSize=0;
 		for(auto& f:def->union_def.fields){
 			llvm::Type* t=convertType(f.type);
+			if(t->isFunctionTy())t=llvm::PointerType::get(ctx,0);
 			size_t sz=mod->getDataLayout().getTypeAllocSize(t);
 			if(sz>maxSize){maxSize=sz;maxTy=t;}
 		}
@@ -1074,7 +1264,10 @@ class Compiler{
 				}
 			}
 		}
-		for(auto& f:def->class_def.fields)fieldTys.push_back(convertType(f.type));
+		for(auto& f:def->class_def.fields){
+			llvm::Type* ft=convertType(f.type);
+			fieldTys.push_back(ft);
+		}
 		llvm::StructType* st;
 		if(isForwardDecl){
 			st=classTypes[mangled];
@@ -1179,10 +1372,15 @@ class Compiler{
 			}
 		}
 		for(auto& p:def->func_def.params){
+			llvm::Type* pt;
 			if(p.type&&p.type->kind==MioTypeKind::ARRAY&&p.type->array_size>0)
-				paramTys.push_back(llvm::PointerType::get(ctx,0));
-			else
-				paramTys.push_back(convertType(p.type));
+				pt=llvm::PointerType::get(ctx,0);
+			else{
+				pt=convertType(p.type);
+				if(p.type&&p.type->kind==MioTypeKind::FUNC)
+					pt=llvm::PointerType::get(ctx,0);
+			}
+			paramTys.push_back(pt);
 		}
 		auto* ft=llvm::FunctionType::get(retTy,paramTys,def->func_def.is_variadic);
 		std::string mangledName=name;
@@ -1451,12 +1649,27 @@ class Compiler{
 		if(initExpr){
 			llvm::Value* val=nullptr;
 			if(isRef){
-				val=genLValue(initExpr);
-				if(!val){
-					error(decl->line,decl->col,"failed to generate reference initializer for '"+name+"'");
-					return;
+				if(mt->kind==MioTypeKind::RVALUE_REFERENCE){
+					val=genExpr(initExpr);
+					if(!val){
+						error(decl->line,decl->col,"failed to generate initializer for '"+name+"'");
+						return;
+					}
+					if(val->getType()->isVoidTy()){
+						error(decl->line,decl->col,"cannot bind rvalue reference to void expression");
+						return;
+					}
+					llvm::Value* tmpAlloca=createEntryAlloca(curFn,name+".tmp",val->getType());
+					b.CreateStore(val,tmpAlloca);
+					val=tmpAlloca;
+				}else{
+					val=genLValue(initExpr);
+					if(!val){
+						error(decl->line,decl->col,"failed to generate reference initializer for '"+name+"'");
+						return;
+					}
+					if(val->getType()!=ty)val=b.CreateBitCast(val,ty);
 				}
-				if(val->getType()!=ty)val=b.CreateBitCast(val,ty);
 			}else{
 				val=genExpr(initExpr);
 				if(!val){
@@ -1938,9 +2151,6 @@ class Compiler{
 		llvm::Function* fn=nullptr;
 		foundName=findInImportedNs(name,funcDecls,fn);
 		if(!foundName.empty())return fn;
-		auto evit=enumVariantValues.find(name);
-		if(evit!=enumVariantValues.end())
-			return llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),evit->second);
 		error(node->line,node->col,"internal error: undefined variable '"+name+"'");
 		return nullptr;
 	}
@@ -2740,6 +2950,22 @@ class Compiler{
 		if(!node||!node->member.base){
 			error(node?node->line:0,node?node->col:0,"null base in member expression");
 			return nullptr;
+		}
+		if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
+			std::string baseName=node->member.base->ident.name;
+			if(!node->member.base->ident.namespace_name.empty()&&node->member.base->ident.namespace_name!="::")
+				baseName=node->member.base->ident.namespace_name+"::"+baseName;
+			bool isEnum=enumNames.count(baseName)>0;
+			if(!isEnum){
+				for(auto& impNs:importedNamespaces){
+					if(enumNames.count(impNs+"::"+baseName)){isEnum=true;break;}
+				}
+			}
+			if(isEnum){
+				auto evit=enumVariantValues.find(node->member.member);
+				if(evit!=enumVariantValues.end())
+					return llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx),evit->second);
+			}
 		}
 		llvm::Value* base=genLValue(node->member.base);
 		if(!base)base=genExpr(node->member.base);

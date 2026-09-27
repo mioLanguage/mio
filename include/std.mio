@@ -541,7 +541,7 @@ namespace std {
 			}
 			return 0;
 		}
-		string operator=(other: string) {
+		&string operator=(other: string) {
 			if(this.data != 0 && this.len > 0) {
 				free(this.data);
 			}
@@ -550,7 +550,7 @@ namespace std {
 			if(this.data != 0) {
 				memcpy(this.data,other.data,this.len+1);
 			}
-			return this;
+			return *this;
 		}
 		*char c_str() {
 			return this.data;
