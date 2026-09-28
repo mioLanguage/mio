@@ -129,36 +129,26 @@ int main(int argc,char* argv[]){
 		}
 		std::vector<std::string> resolved_libs;
 		for(const auto& lib:link_libs){
+			bool found=false;
+			auto tryPath=[&](const std::string& base,const std::string& suffix=""){
+				if(found)return;
+				std::string path=base+suffix;
+				if(file_exists(path)){resolved_libs.push_back(path);found=true;}
+			};
 #ifdef _WIN32
-			std::string lib_path=compiler_dir+"/lib/"+lib+".lib";
-			if(file_exists(lib_path)){
-				resolved_libs.push_back(lib_path);
-			}else{
-				lib_path=compiler_dir+"/../lib/"+lib+".lib";
-				if(file_exists(lib_path)){
-					resolved_libs.push_back(lib_path);
-				}else{
-					lib_path=compiler_dir+"/lib/windows/"+lib+".lib";
-					if(file_exists(lib_path)){
-						resolved_libs.push_back(lib_path);
-					}else{
-						lib_path=compiler_dir+"/../lib/windows/"+lib+".lib";
-						if(file_exists(lib_path)){
-							resolved_libs.push_back(lib_path);
-						}
-					}
-				}
-			}
+			bool hasExt=(lib.size()>4&&(lib.substr(lib.size()-4)==".lib"||lib.substr(lib.size()-4)==".Lib"));
+			std::string ext=hasExt?"":".lib";
+			tryPath(compiler_dir+"/lib/"+lib,ext);
+			tryPath(compiler_dir+"/../lib/"+lib,ext);
+			tryPath(compiler_dir+"/lib/windows/"+lib,ext);
+			tryPath(compiler_dir+"/../lib/windows/"+lib,ext);
+			if(!found)resolved_libs.push_back(lib);
 #else
-			std::string lib_path=compiler_dir+"/lib/lib"+lib+".a";
-			if(file_exists(lib_path)){
-				resolved_libs.push_back(lib_path);
-			}else{
-				lib_path=compiler_dir+"/../lib/lib"+lib+".a";
-				if(file_exists(lib_path)){
-					resolved_libs.push_back(lib_path);
-				}
-			}
+			bool hasExt=(lib.size()>2&&lib.substr(lib.size()-2)==".a");
+			std::string ext=hasExt?"":".a";
+			tryPath(compiler_dir+"/lib/lib"+lib,ext);
+			tryPath(compiler_dir+"/../lib/lib"+lib,ext);
+			if(!found)resolved_libs.push_back(lib);
 #endif
 		}
 		std::string bundled_lib_path=compiler_dir+"/lib/windows";
