@@ -211,7 +211,7 @@ public:
 		std::string namespace_name;
 	} ident;
 	struct{
-		int64_t value;
+		uint64_t value;
 	} int_lit;
 	struct{
 		double value;
@@ -548,7 +548,7 @@ inline AstNode*ast_new_ident(const std::string& name,int line,int col,const std:
 	n->ident.name=name;
 	return n;
 }
-inline AstNode*ast_new_int_lit(int64_t value,int line,int col,const std::string* fn){
+inline AstNode*ast_new_int_lit(uint64_t value,int line,int col,const std::string* fn){
 	auto*n=new AstNode(AstNodeKind::INT_LIT,line,col,fn);
 	n->int_lit.value=value;
 	return n;

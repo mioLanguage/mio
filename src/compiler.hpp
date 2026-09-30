@@ -423,6 +423,10 @@ class Compiler{
 			if(classTypes.count(name)>0||classFieldIdx.count(name)>0)return name;
 			return name;
 		}
+		if(!currentClassName.empty()){
+			std::string full=currentClassName+"::"+name;
+			if(classTypes.count(full)>0||classFieldIdx.count(full)>0)return full;
+		}
 		if(!currentNamespace.empty()){
 			std::string full=currentNamespace+"::"+name;
 			if(classTypes.count(full)>0||classFieldIdx.count(full)>0)return full;
@@ -432,6 +436,14 @@ class Compiler{
 			if(classTypes.count(full)>0||classFieldIdx.count(full)>0)return full;
 		}
 		return name;
+	}
+	void resolveMioTypeNames(MioType* mt){
+		if(!mt)return;
+		if((mt->kind==MioTypeKind::CLASS||mt->kind==MioTypeKind::UNION)&&!mt->name.empty()){
+			mt->name=resolveClassName(mt->name);
+		}
+		if(mt->base_type)resolveMioTypeNames(mt->base_type);
+		for(auto* p:mt->param_types)resolveMioTypeNames(p);
 	}
 	std::string mangleName(const std::string& name){
 		if(name.find("::")!=std::string::npos)return name;
@@ -1884,14 +1896,12 @@ class Compiler{
 					if(!thisPtr)thisPtr=genExpr(node->index_expr.base);
 					if(thisPtr){
 						auto* calleeThisTy=callee->getFunctionType()->getParamType(0);
-						if(thisPtr->getType()!=calleeThisTy){
-							if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isPointerTy()){
-								thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
-							}else if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isStructTy()){
-								thisPtr=b.CreateLoad(calleeThisTy,thisPtr);
-							}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+						if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+							if(ai->getAllocatedType()->isPointerTy())
 								thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
-							}
+						}
+						if(thisPtr->getType()!=calleeThisTy){
+							thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
 						}
 					}
 					args.push_back(thisPtr);
@@ -1945,14 +1955,16 @@ class Compiler{
 						}
 					}
 				}
-				if(className.empty()||!classFieldIdx.count(className))return nullptr;
-				auto mit=classFieldIdx[className].find(node->member.member);
-				if(mit==classFieldIdx[className].end()){
+				if(className.empty())return nullptr;
+				std::string resolvedClassName=resolveClassName(className);
+				if(!classFieldIdx.count(resolvedClassName))return nullptr;
+				auto mit=classFieldIdx[resolvedClassName].find(node->member.member);
+				if(mit==classFieldIdx[resolvedClassName].end()){
 					error(node->line,node->col,"internal error: field '"+node->member.member+"' not found in class '"+className+"'");
 					return nullptr;
 				}
 				unsigned idx=mit->second;
-				auto sit=classTypes.find(className);
+				auto sit=classTypes.find(resolvedClassName);
 				llvm::StructType* st=sit!=classTypes.end()?sit->second:nullptr;
 				if(!st)return nullptr;
 				llvm::Value* ptr=base;
@@ -2038,6 +2050,7 @@ class Compiler{
 			case AstNodeKind::ASSIGN_EXPR:
 				return genAssignExpr(node);
 			case AstNodeKind::SIZEOF_EXPR:{
+				resolveMioTypeNames(node->sizeof_expr.target_type);
 				llvm::Type* ty=convertType(node->sizeof_expr.target_type);
 				uint64_t sz=mod->getDataLayout().getTypeAllocSize(ty);
 				return llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),sz);
@@ -2206,6 +2219,15 @@ class Compiler{
 		llvm::Type* lt=l->getType();
 		llvm::Type* rt=r->getType();
 		bool isFloat=lt->isFloatingPointTy()||rt->isFloatingPointTy();
+		bool isUnsigned=false;
+		{
+			MioType* lmio=resolveExprMioType(node->binary.left);
+			if(lmio){
+				auto mk=lmio->kind;
+				if(mk==MioTypeKind::U8||mk==MioTypeKind::U16||mk==MioTypeKind::U32||mk==MioTypeKind::U64||mk==MioTypeKind::USIZE)
+					isUnsigned=true;
+			}
+		}
 		if(isFloat){
 			if(!lt->isFloatingPointTy())l=genCastValue(l,rt);
 			if(!rt->isFloatingPointTy())r=genCastValue(r,lt);
@@ -2250,9 +2272,9 @@ class Compiler{
 			case TOK_STAR:
 				return isFloat?b.CreateFMul(l,r):b.CreateMul(l,r);
 			case TOK_SLASH:
-				return isFloat?b.CreateFDiv(l,r):b.CreateSDiv(l,r);
+				return isFloat?b.CreateFDiv(l,r):(isUnsigned?b.CreateUDiv(l,r):b.CreateSDiv(l,r));
 			case TOK_PERCENT:
-				return isFloat?b.CreateFRem(l,r):b.CreateSRem(l,r);
+				return isFloat?b.CreateFRem(l,r):(isUnsigned?b.CreateURem(l,r):b.CreateSRem(l,r));
 			case TOK_EQ:
 				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpEQ(l,r);}
 				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpEQ(l,r);}
@@ -2264,30 +2286,42 @@ class Compiler{
 			case TOK_LT:
 				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSLT(l,r);}
 				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSLT(l,r);}
-				return isFloat?b.CreateFCmpOLT(l,r):b.CreateICmpSLT(l,r);
+				if(isFloat)return b.CreateFCmpOLT(l,r);
+				return isUnsigned?b.CreateICmpULT(l,r):b.CreateICmpSLT(l,r);
 			case TOK_GT:
 				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSGT(l,r);}
 				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSGT(l,r);}
-				return isFloat?b.CreateFCmpOGT(l,r):b.CreateICmpSGT(l,r);
+				if(isFloat)return b.CreateFCmpOGT(l,r);
+				return isUnsigned?b.CreateICmpUGT(l,r):b.CreateICmpSGT(l,r);
 			case TOK_LTE:
 				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSLE(l,r);}
 				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSLE(l,r);}
-				return isFloat?b.CreateFCmpOLE(l,r):b.CreateICmpSLE(l,r);
+				if(isFloat)return b.CreateFCmpOLE(l,r);
+				return isUnsigned?b.CreateICmpULE(l,r):b.CreateICmpSLE(l,r);
 			case TOK_GTE:
 				if(lt->isPointerTy()&&rt->isIntegerTy()){l=b.CreatePtrToInt(l,rt);return b.CreateICmpSGE(l,r);}
 				if(lt->isIntegerTy()&&rt->isPointerTy()){r=b.CreatePtrToInt(r,lt);return b.CreateICmpSGE(l,r);}
-				return isFloat?b.CreateFCmpOGE(l,r):b.CreateICmpSGE(l,r);
+				if(isFloat)return b.CreateFCmpOGE(l,r);
+				return isUnsigned?b.CreateICmpUGE(l,r):b.CreateICmpSGE(l,r);
 			case TOK_AND:
-				if(!l->getType()->isIntegerTy(1))
-					l=b.CreateICmpNE(l,llvm::ConstantInt::get(l->getType(),0));
-				if(!r->getType()->isIntegerTy(1))
-					r=b.CreateICmpNE(r,llvm::ConstantInt::get(r->getType(),0));
+				if(!l->getType()->isIntegerTy(1)){
+					if(l->getType()->isPointerTy())l=b.CreateIsNotNull(l);
+					else l=b.CreateICmpNE(l,llvm::ConstantInt::get(l->getType(),0));
+				}
+				if(!r->getType()->isIntegerTy(1)){
+					if(r->getType()->isPointerTy())r=b.CreateIsNotNull(r);
+					else r=b.CreateICmpNE(r,llvm::ConstantInt::get(r->getType(),0));
+				}
 				return b.CreateLogicalAnd(l,r);
 			case TOK_OR:
-				if(!l->getType()->isIntegerTy(1))
-					l=b.CreateICmpNE(l,llvm::ConstantInt::get(l->getType(),0));
-				if(!r->getType()->isIntegerTy(1))
-					r=b.CreateICmpNE(r,llvm::ConstantInt::get(r->getType(),0));
+				if(!l->getType()->isIntegerTy(1)){
+					if(l->getType()->isPointerTy())l=b.CreateIsNotNull(l);
+					else l=b.CreateICmpNE(l,llvm::ConstantInt::get(l->getType(),0));
+				}
+				if(!r->getType()->isIntegerTy(1)){
+					if(r->getType()->isPointerTy())r=b.CreateIsNotNull(r);
+					else r=b.CreateICmpNE(r,llvm::ConstantInt::get(r->getType(),0));
+				}
 				return b.CreateLogicalOr(l,r);
 			case TOK_BIT_AND:
 				return b.CreateAnd(l,r);
@@ -2402,14 +2436,12 @@ class Compiler{
 					return nullptr;
 				}
 				llvm::Type* expectedThisTy=opFunc->getArg(0)->getType();
-				if(thisPtr->getType()!=expectedThisTy){
-					if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
-						if(ai->getAllocatedType()->isPointerTy())
-							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
-					}
-					if(thisPtr->getType()!=expectedThisTy)
-						thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
+				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+					if(ai->getAllocatedType()->isPointerTy())
+						thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
 				}
+				if(thisPtr->getType()!=expectedThisTy)
+					thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
 				std::vector<llvm::Value*> args;
 				args.push_back(thisPtr);
 				for(auto* a:node->call.args){
@@ -2709,14 +2741,14 @@ class Compiler{
 						std::vector<llvm::Value*> args;
 						if(thisPtr){
 							llvm::Type* expectedThisTy=fn->getArg(0)->getType();
-							if(thisPtr->getType()==expectedThisTy){
-								args.push_back(thisPtr);
-							}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+							if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
 								if(ai->getAllocatedType()->isPointerTy()){
 									thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
 								}
 								if(thisPtr->getType()!=expectedThisTy)
 									thisPtr=b.CreateBitCast(thisPtr,expectedThisTy);
+								args.push_back(thisPtr);
+							}else if(thisPtr->getType()==expectedThisTy){
 								args.push_back(thisPtr);
 							}else{
 								if(thisPtr->getType()!=expectedThisTy)
@@ -2889,14 +2921,12 @@ class Compiler{
 			if(!thisPtr)thisPtr=genExpr(node->index_expr.base);
 			if(thisPtr){
 				auto* calleeThisTy=callee->getFunctionType()->getParamType(0);
-				if(thisPtr->getType()!=calleeThisTy){
-					if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isPointerTy()){
-						thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
-					}else if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isStructTy()){
-						thisPtr=b.CreateLoad(calleeThisTy,thisPtr);
-					}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+					if(ai->getAllocatedType()->isPointerTy())
 						thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
-					}
+				}
+				if(thisPtr->getType()!=calleeThisTy){
+					thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
 				}
 			}
 			args.push_back(thisPtr);
@@ -3097,14 +3127,12 @@ class Compiler{
 				if(!thisPtr)thisPtr=genExpr(node->assign.left);
 				if(thisPtr){
 					auto* calleeThisTy=callee->getFunctionType()->getParamType(0);
-					if(thisPtr->getType()!=calleeThisTy){
-						if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isPointerTy()){
-							thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
-						}else if(thisPtr->getType()->isPointerTy()&&calleeThisTy->isStructTy()){
-							thisPtr=b.CreateLoad(calleeThisTy,thisPtr);
-						}else if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+					if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(thisPtr)){
+						if(ai->getAllocatedType()->isPointerTy())
 							thisPtr=b.CreateLoad(ai->getAllocatedType(),thisPtr);
-						}
+					}
+					if(thisPtr->getType()!=calleeThisTy){
+						thisPtr=b.CreateBitCast(thisPtr,calleeThisTy);
 					}
 				}
 				args.push_back(thisPtr);

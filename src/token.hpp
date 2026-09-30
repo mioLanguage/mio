@@ -116,7 +116,7 @@ typedef struct{
 	int line;
 	int col;
 	union{
-		int64_t int_val;
+		uint64_t int_val;
 		double float_val;
 		char char_val;
 		bool bool_val;

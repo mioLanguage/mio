@@ -191,10 +191,10 @@ private:
 			t->float_val=atof(text);
 		}else{
 			t=tok_new(TOK_INT_LIT,text,line,startCol);
-			if(isHex)t->int_val=strtoll(text,nullptr,16);
-			else if(isBin)t->int_val=strtoll(text+2,nullptr,2);
-			else if(isOct)t->int_val=strtoll(text+2,nullptr,8);
-			else t->int_val=atoll(text);
+			if(isHex)t->int_val=strtoull(text,nullptr,16);
+			else if(isBin)t->int_val=strtoull(text+2,nullptr,2);
+			else if(isOct)t->int_val=strtoull(text+2,nullptr,8);
+			else t->int_val=strtoull(text,nullptr,10);
 		}
 		free(text);
 		return t;

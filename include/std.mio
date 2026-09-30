@@ -457,7 +457,7 @@ namespace std {
 			}
 		}
 		string operator+(s: *char) {
-			var result: string;
+			var result=string();
 			var s_len: u64=strlen(s);
 			result.len=this.len+s_len;
 			result.data=malloc(result.len+1);
@@ -596,7 +596,7 @@ namespace std {
 			return this[idx];
 		}
 		string substr(start: u64,len: u64) {
-			var result: string;
+			var result=string();
 			if(start >= this.len) {
 				return result;
 			}

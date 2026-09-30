@@ -641,6 +641,41 @@ private:
 			}
 			return;
 		}
+		if(!initExpr&&varType){
+			if(varType->kind==MioTypeKind::CLASS||varType->kind==MioTypeKind::UNION){
+				if(!varType->name.empty()){
+					std::string resolvedClass=resolveClassName(varType->name);
+					if(classTypes.count(resolvedClass)){
+						auto cit=classConstructorSigs.find(resolvedClass);
+						bool hasDefaultCtor=false;
+						std::string ctorName;
+						if(cit!=classConstructorSigs.end()){
+							for(auto& cs:cit->second){
+								if(cs.second.empty()){
+									hasDefaultCtor=true;
+									ctorName=cs.first;
+									break;
+								}
+							}
+						}
+						if(hasDefaultCtor){
+							auto* callee=ast_new_ident(resolvedClass,node->line,node->col,node->filename);
+							auto* init=ast_new_call(callee,node->line,node->col,node->filename);
+							init->call.resolved_constructor=ctorName;
+							initExpr=init;
+							if(isConst)node->const_decl.init=init;
+							else node->var_decl.init=init;
+						}else{
+							error(node,"no default constructor available for '"+resolvedClass+"'");
+							return;
+						}
+					}else if(classTemplateMap.count(resolvedClass)){
+						error(node,"variable '"+varName+"' of class/union type '"+mio_type_str(varType)+"' must be explicitly constructed (e.g., var x = Type())");
+						return;
+					}
+				}
+			}
+		}
 		if(initExpr){
 			checkExpr(initExpr);
 			if(initExpr->kind==AstNodeKind::ARRAY_LIT&&varType){
@@ -751,6 +786,40 @@ private:
 			case AstNodeKind::VAR_DECL:{
 				if(stmt->var_decl.var_type){
 					checkType(stmt->var_decl.var_type,stmt);
+				}
+				if(!stmt->var_decl.init&&stmt->var_decl.var_type){
+					MioType* varType=stmt->var_decl.var_type;
+					if(varType->kind==MioTypeKind::CLASS||varType->kind==MioTypeKind::UNION){
+						if(!varType->name.empty()){
+							std::string resolvedClass=resolveClassName(varType->name);
+							if(classTypes.count(resolvedClass)){
+								auto cit=classConstructorSigs.find(resolvedClass);
+								bool hasDefaultCtor=false;
+								std::string ctorName;
+								if(cit!=classConstructorSigs.end()){
+									for(auto& cs:cit->second){
+										if(cs.second.empty()){
+											hasDefaultCtor=true;
+											ctorName=cs.first;
+											break;
+										}
+									}
+								}
+								if(hasDefaultCtor){
+									auto* callee=ast_new_ident(resolvedClass,stmt->line,stmt->col,stmt->filename);
+									auto* init=ast_new_call(callee,stmt->line,stmt->col,stmt->filename);
+									init->call.resolved_constructor=ctorName;
+									stmt->var_decl.init=init;
+								}else{
+									error(stmt,"no default constructor available for '"+resolvedClass+"'");
+									break;
+								}
+							}else if(classTemplateMap.count(resolvedClass)){
+								error(stmt,"variable '"+stmt->var_decl.name+"' of class/union type '"+mio_type_str(stmt->var_decl.var_type)+"' must be explicitly constructed (e.g., var x = Type())");
+								break;
+							}
+						}
+					}
 				}
 				if(stmt->var_decl.init){
 					checkExpr(stmt->var_decl.init);
@@ -2046,11 +2115,17 @@ private:
 		if(!ns.empty()&&ns!="::")
 			name=ns+"::"+name;
 		bool found=locals.count(name)>0||varDecls.count(name)>0||funcDecls.count(name)>0||enumNames.count(name)>0||unionNames.count(name)>0||classTypes.count(name)>0||templateMap.count(name)>0||classTemplateMap.count(name)>0;
+		if(!found&&!currentNamespace.empty()){
+			std::string fullName=currentNamespace+"::"+name;
+			found=locals.count(fullName)>0||varDecls.count(fullName)>0||funcDecls.count(fullName)>0||classTypes.count(fullName)>0||templateMap.count(fullName)>0||classTemplateMap.count(fullName)>0;
+			if(found)name=fullName;
+		}
 		if(!found){
 			for(auto& impNs:importedNamespaces){
 				std::string fullName=impNs+"::"+name;
 				if(varDecls.count(fullName)||funcDecls.count(fullName)||classTypes.count(fullName)||templateMap.count(fullName)||classTemplateMap.count(fullName)){
 					found=true;
+					name=fullName;
 					break;
 				}
 			}
