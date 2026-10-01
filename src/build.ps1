@@ -75,7 +75,7 @@ if ($useMsvcLink) {
 			"$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\link.exe"
 		)
 		foreach ($pattern in $linkCandidates) {
-			$found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+			$found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
 			if ($found) { $linkExe = $found.FullName; break }
 		}
 	}
@@ -100,7 +100,7 @@ if ($useMsvcLink) {
 	# Find MSVC lib
 	$msvcLibPath = ""
 	if ($vsPath) {
-		$found = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\lib\arm64" -ErrorAction SilentlyContinue | Select-Object -First 1
+		$found = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\lib\arm64" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
 		if ($found) { $msvcLibPath = $found.FullName }
 	}
 	if (-not $msvcLibPath) { Write-Host "error: MSVC lib not found"; exit 1 }
