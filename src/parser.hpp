@@ -226,19 +226,18 @@ private:
 		auto* old_peek=peek;
 		std::string old_filename=filename;
 		std::string norm_resolved=normalize_path(resolved);
-		auto* new_lexer=new Lexer(source,norm_resolved);
-		new_lexer->set_macros(old_lexer->get_macros());
+		auto* new_lexer=new Lexer(source,norm_resolved,old_lexer->get_macros());
 		lexer=new_lexer;
 		filename=norm_resolved;
 		cur=new_lexer->current;
 		peek=new_lexer->peek();
 		auto* fn_ptr=g_filename_pool.get(norm_resolved);
 		auto* block=new AstNode(AstNodeKind::BLOCK,line,col,fn_ptr);
-	while(!check(TOK_EOF)){
-		auto* decl=parse_decl();
+		while(!check(TOK_EOF)){
+			auto* decl=parse_decl();
 			if(decl)add_import_to_block(block,decl);
 		}
-		old_lexer->set_macros(new_lexer->get_macros());
+		for(auto& kv:new_lexer->get_macros())old_lexer->add_macro(kv.first,kv.second);
 		delete new_lexer;
 		lexer=old_lexer;
 		cur=old_cur;

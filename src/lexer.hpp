@@ -21,7 +21,7 @@ class Lexer{
 	friend class Parser;
 	friend class Compiler;
 public:
-	Lexer(const std::string& source,const std::string& filename):source(source),filename(filename),pos(0),line(1),col(1),bol(0){
+	Lexer(const std::string& source,const std::string& filename,const std::unordered_map<std::string,int>& m={}):source(source),filename(filename),pos(0),line(1),col(1),bol(0),macros(m){
 		current=preprocess_token();
 		peekToken=preprocess_token();
 	}
@@ -44,7 +44,6 @@ public:
 		auto it=macros.find(name);
 		return it!=macros.end()?it->second:0;
 	}
-	void set_macros(const std::unordered_map<std::string,int>& src){macros=src;}
 	const std::unordered_map<std::string,int>& get_macros()const{return macros;}
 	bool is_template_instantiation(){
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;

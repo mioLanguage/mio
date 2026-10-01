@@ -86,6 +86,7 @@ class Compiler{
 	std::vector<std::pair<std::string,llvm::AllocaInst*>>cleanupStack;
 	std::unordered_map<std::string,AstNode*>funcDefMap;
 	std::unordered_set<std::string>forwardDeclaredClasses;
+	std::vector<std::pair<int,llvm::Function*>>globalCtors;
 	int optLevel;
 	std::string modName;
 	std::string filename;
@@ -414,7 +415,6 @@ class Compiler{
 				return nullptr;
 			}
 			default:
-				error(expr->line,expr->col,"internal error: unsupported expression in constant context");
 				return nullptr;
 		}
 	}
@@ -858,6 +858,7 @@ class Compiler{
 			globalVars[mangled]=gv;
 			return;
 		}
+		bool needRuntimeInit=false;
 		if(initExpr){
 			llvm::Value* val=genConstExpr(initExpr);
 			if(val&&llvm::isa<llvm::Constant>(val)){
@@ -885,11 +886,53 @@ class Compiler{
 					}
 				}
 				init=llvm::cast<llvm::Constant>(val);
+			}else{
+				needRuntimeInit=true;
 			}
 		}
 		if(!init)init=llvm::Constant::getNullValue(ty);
-		auto* gv=new llvm::GlobalVariable(*mod,ty,isConst,llvm::GlobalValue::InternalLinkage,init,mangled);
+		bool gvIsConst=isConst&&!needRuntimeInit;
+		auto* gv=new llvm::GlobalVariable(*mod,ty,gvIsConst,llvm::GlobalValue::InternalLinkage,init,mangled);
 		globalVars[mangled]=gv;
+		if(needRuntimeInit){
+			genRuntimeGlobalInit(decl,gv,mangled,mt,ty,initExpr);
+		}
+	}
+	void genRuntimeGlobalInit(AstNode* decl,llvm::GlobalVariable* gv,const std::string& mangled,MioType* mt,llvm::Type* ty,AstNode* initExpr){
+		std::string ctorName="__global_init_"+mangled+"_"+std::to_string(globalCtors.size());
+		auto* ctorTy=llvm::FunctionType::get(llvm::Type::getVoidTy(ctx),false);
+		auto* ctorFn=llvm::Function::Create(ctorTy,llvm::GlobalValue::InternalLinkage,ctorName,mod.get());
+		globalCtors.push_back({65535,ctorFn});
+		auto* savedFn=curFn;
+		auto* savedBB=curBB;
+		auto* entryBlock=llvm::BasicBlock::Create(ctx,"entry",ctorFn);
+		curFn=ctorFn;
+		curBB=entryBlock;
+		b.SetInsertPoint(entryBlock);
+		llvm::Value* val=genExpr(initExpr);
+		if(val){
+			if(val->getType()!=ty){
+				val=genCastValue(val,ty);
+			}
+			b.CreateStore(val,gv);
+		}
+		b.CreateRetVoid();
+		curFn=savedFn;
+		curBB=savedBB;
+		if(curBB)b.SetInsertPoint(curBB);
+	}
+	void emitGlobalCtors(){
+		if(globalCtors.empty())return;
+		auto* mainFn=mod->getFunction("main");
+		if(!mainFn||mainFn->empty())return;
+		std::sort(globalCtors.begin(),globalCtors.end(),[](auto& a,auto& b){return a.first<b.first;});
+		auto& entryBlock=mainFn->getEntryBlock();
+		llvm::IRBuilder<> builder(ctx);
+		auto* firstInst=&*entryBlock.getFirstInsertionPt();
+		builder.SetInsertPoint(firstInst);
+		for(auto& [priority,fn]:globalCtors){
+			builder.CreateCall(fn);
+		}
 	}
 	llvm::Function* declareFunc(AstNode* def){
 		if(!def)return nullptr;
@@ -3343,6 +3386,7 @@ public:
 			currentNamespace=savedNs;
 		}
 		if(g_error_count)return;
+		emitGlobalCtors();
 		if(llvm::verifyModule(*mod,&llvm::errs()))
 			error("Error verifying module");
 	}
@@ -3482,17 +3526,22 @@ public:
 				}
 				addArg("/out:"+exePath);
 				addArg("/subsystem:console");
-				if(!bundledLibPath.empty()){
-					addArg("/libpath:"+bundledLibPath);
-				}
 				if(staticLink){
 					addArg("/entry:mainCRTStartup");
+					addArg("/nodefaultlib:msvcrt");
+					addArg("/nodefaultlib:libucrt");
+					if(!bundledLibPath.empty()){
+						addArg("/libpath:"+bundledLibPath);
+					}
 					addArg("/defaultlib:libcmt");
-					addArg("/defaultlib:libucrt");
+					addArg("/defaultlib:ucrt");
 					addArg("/defaultlib:libvcruntime");
 					addArg("/defaultlib:legacy_stdio_definitions");
 				}else{
 					addArg("/entry:main");
+					if(!bundledLibPath.empty()){
+						addArg("/libpath:"+bundledLibPath);
+					}
 					addArg("/defaultlib:msvcrt");
 					addArg("/defaultlib:ucrt");
 					addArg("/defaultlib:libvcruntime");
@@ -3599,9 +3648,8 @@ public:
 			return false;
 		}
 		file.close();
-		Lexer lexer(source,input_file);
+		Lexer lexer(source,input_file,macros);
 		Parser parser(&lexer,input_file,include_paths);
-		lexer.set_macros(macros);
 		AstNode* program=parser.parse();
 		if(!program) return false;
 		if(g_error_count){

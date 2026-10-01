@@ -1,22 +1,30 @@
 @if !CLIB
 @macro CLIB
 
-# ============================================================
-# 标准流 (extern 变量)
-# ============================================================
+@if _WIN32
+
+extern *char __acrt_iob_func(index: u32);
+
+const SEEK_SET: i32=0;
+const SEEK_CUR: i32=1;
+const SEEK_END: i32=2;
+const EOF: i32=-1;
+const NULL: *void=0;
+const stdin:*char=__acrt_iob_func(SEEK_SET);
+const stdout:*char=__acrt_iob_func(SEEK_CUR);
+const stderr:*char=__acrt_iob_func(SEEK_END);
+@else
 
 extern var stdin: *char;
 extern var stdout: *char;
 extern var stderr: *char;
-
-# ============================================================
-# 常量
-# ============================================================
 
 extern const SEEK_SET: i32;
 extern const SEEK_CUR: i32;
 extern const SEEK_END: i32;
 extern const EOF: i32;
 extern const NULL: *void;
+
+@end
 
 @end
