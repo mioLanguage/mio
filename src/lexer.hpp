@@ -328,8 +328,9 @@ private:
 				auto tokens=tokenize_pp_expr();
 				int idx=0;
 				int result=eval_pp_or(tokens,idx);
+				bool parent_skipping=!cond_stack.empty()&&cond_stack.back().skipping;
 				if(result){
-					cond_stack.push_back({true,false,false});
+					cond_stack.push_back({true,parent_skipping,false});
 				}else{
 					cond_stack.push_back({false,true,false});
 				}

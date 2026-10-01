@@ -471,6 +471,7 @@ public:
 				varDecls.insert(name);
 				if(node->var_decl.var_type){
 					globalMioTypes[name]=mio_type_clone(node->var_decl.var_type);
+				}else if(node->var_decl.init){
 				}else{
 					error(node,"variable '"+name+"' has no type");
 					globalMioTypes[name]=mio_type_new(MioTypeKind::I32);
@@ -488,6 +489,7 @@ public:
 				varDecls.insert(name);
 				if(node->const_decl.var_type){
 					globalMioTypes[name]=mio_type_clone(node->const_decl.var_type);
+				}else if(node->const_decl.init){
 				}else{
 					error(node,"constant '"+name+"' has no type");
 					globalMioTypes[name]=mio_type_new(MioTypeKind::I32);
@@ -686,6 +688,22 @@ private:
 				if(initType&&!isTypeCompatible(varType,initType)){
 					error(node,"type mismatch: variable '"+varName+"' declared as '"+mio_type_str(varType)+"', initialized with '"+mio_type_str(initType)+"'");
 				}
+			}else{
+				MioType* inferredType=nullptr;
+				MioType* t=resolveExprMioType(initExpr);
+				if(t!=initExpr->type){
+					inferredType=t;
+				}else{
+					inferredType=mio_type_clone(t);
+				}
+				if(!inferredType){
+					error(node,"cannot infer type for global variable '"+varName+"'");
+					inferredType=mio_type_new(MioTypeKind::I32);
+				}
+				varType=inferredType;
+				if(isConst)node->const_decl.var_type=inferredType;
+				else node->var_decl.var_type=inferredType;
+				globalMioTypes[varName]=inferredType;
 			}
 		}
 	}
@@ -1832,6 +1850,9 @@ private:
 				error(node,"argument "+std::to_string(i+1)+" type mismatch: expected '"+mio_type_str(paramType)+"', got '"+mio_type_str(argType)+"'");
 			}
 		}
+		if(funcDef->func_def.return_type&&!node->type){
+			node->type=mio_type_clone(funcDef->func_def.return_type);
+		}
 	}
 	
 	bool isTypeCompatible(MioType* expected,MioType* actual){
@@ -2029,13 +2050,13 @@ private:
 			bool isEnum=enumNames.count(baseName)>0;
 			if(!isEnum){
 				for(auto& impNs:importedNamespaces){
-					if(enumNames.count(impNs+"::"+baseName)){isEnum=true;break;}
+					if(enumNames.count(impNs+"::"+baseName)){isEnum=true;baseName=impNs+"::"+baseName;break;}
 				}
 			}
 			if(isEnum){
 				auto evit=enumVariantMap.find(node->member.member);
 				if(evit!=enumVariantMap.end()){
-					node->type=mio_type_new(MioTypeKind::I32);
+					node->type=mio_type_new_named(MioTypeKind::ENUM,baseName);
 					return;
 				}
 				error(node,"enum variant '"+node->member.member+"' not found in enum '"+baseName+"'");
@@ -2174,6 +2195,8 @@ private:
 					return;
 				}
 			}
+			checkType(mt->base_type,ctx);
+			return;
 		}
 		if(mt->kind==MioTypeKind::FUNC){
 			checkType(mt->base_type,ctx);
@@ -2182,9 +2205,10 @@ private:
 			return;
 		}
 		if(mt->kind==MioTypeKind::POINTER){
+			checkType(mt->base_type,ctx);
 			return;
 		}
-		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()&&mt->param_types.empty()){
+		if(mt->kind==MioTypeKind::CLASS&&!mt->name.empty()){
 			std::string resolved=resolveClassName(mt->name);
 			mt->name=resolved;
 			if(typeAliases.count(resolved)){
@@ -2210,12 +2234,14 @@ private:
 				expanding.erase(resolved);
 				return;
 			}
-			if(enumNames.count(resolved)){
-				mt->kind=MioTypeKind::ENUM;
-			}else if(unionNames.count(resolved)){
-				mt->kind=MioTypeKind::UNION;
-			}else if(!classTypes.count(resolved)&&!classTemplateMap.count(resolved)&&!typeAliases.count(resolved)){
-				error(ctx,"unknown type '"+resolved+"'");
+			if(mt->param_types.empty()){
+				if(enumNames.count(resolved)){
+					mt->kind=MioTypeKind::ENUM;
+				}else if(unionNames.count(resolved)){
+					mt->kind=MioTypeKind::UNION;
+				}else if(!classTypes.count(resolved)&&!classTemplateMap.count(resolved)&&!typeAliases.count(resolved)){
+					error(ctx,"unknown type '"+resolved+"'");
+				}
 			}
 		}
 		if(mt->kind==MioTypeKind::CLASS&&!mt->param_types.empty()){
@@ -2630,9 +2656,9 @@ private:
 						if(it!=locals.end())baseType=it->second;
 						else if(mit!=localMioTypes.end())baseType=mit->second;
 						if(baseType){
-							if(baseType->kind==MioTypeKind::CLASS||baseType->kind==MioTypeKind::UNION){
+							if(baseType->kind==MioTypeKind::CLASS||baseType->kind==MioTypeKind::UNION||baseType->kind==MioTypeKind::ENUM){
 								className=resolveClassName(baseType->name);
-							}else if(baseType->kind==MioTypeKind::POINTER&&baseType->base_type&&(baseType->base_type->kind==MioTypeKind::CLASS||baseType->base_type->kind==MioTypeKind::UNION)){
+							}else if(baseType->kind==MioTypeKind::POINTER&&baseType->base_type&&(baseType->base_type->kind==MioTypeKind::CLASS||baseType->base_type->kind==MioTypeKind::UNION||baseType->base_type->kind==MioTypeKind::ENUM)){
 								className=resolveClassName(baseType->base_type->name);
 							}
 						}else if(classTypes.count(node->member.base->ident.name)>0){
@@ -2648,7 +2674,13 @@ private:
 							return mio_type_clone(fi->second);
 						}
 					}
+					if(enumNames.count(className)){
+						return mio_type_new_named(MioTypeKind::ENUM,className);
+					}
 				}
+				return nullptr;
+			}
+			case AstNodeKind::CALL_EXPR:{
 				return nullptr;
 			}
 			case AstNodeKind::IDENT_EXPR:{
