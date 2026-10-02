@@ -112,7 +112,7 @@ typedef enum{
 }TokenKind;
 typedef struct{
 	TokenKind kind;
-	std::string lexeme;
+	string lexeme;
 	int line;
 	int col;
 	union{
@@ -122,10 +122,10 @@ typedef struct{
 		bool bool_val;
 	};
 }Token;
-const std::string tok_name(TokenKind kind);
-Token*tok_new(TokenKind kind,const std::string&lexeme=std::string(),int line=0,int col=0);
+const string tok_name(TokenKind kind);
+Token*tok_new(TokenKind kind,const string&lexeme=string(),int line=0,int col=0);
 void tok_free(Token*tok);
-const std::string tok_name(TokenKind kind){
+const string tok_name(TokenKind kind){
 	switch(kind){
 		case TOK_EOF: return "EOF";
 		case TOK_ERROR: return "ERROR";
@@ -227,7 +227,7 @@ const std::string tok_name(TokenKind kind){
 		default: return "UNKNOWN";
 	}
 }
-Token*tok_new(TokenKind kind,const std::string&lexeme,int line,int col){
+Token*tok_new(TokenKind kind,const string&lexeme,int line,int col){
 	Token*t=new Token();
 	if(!t){
 		fprintf(stderr,"fatal: out of memory\n");

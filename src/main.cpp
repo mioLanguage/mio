@@ -7,7 +7,7 @@
 #include<vector>
 #include<unordered_map>
 #include<sys/stat.h>
-
+using std::string;
 #ifdef _WIN32
 #define mio_stat _stat64
 #define mio_stat_t struct _stat64
@@ -33,19 +33,19 @@ static void help(const char* prog){
 	fprintf(stderr,"  -l <lib>    link with library (e.g. -lstdmio -lm). default: -lstdmio -lm\n");
 	fprintf(stderr,"  -static     link statically (no DLL dependencies)\n");
 }
-static bool file_exists(const std::string& path){
+static bool file_exists(const string& path){
 	mio_stat_t st;
 	return mio_stat(path.c_str(),&st)==0;
 }
-static std::string getFileExtension(const std::string& path){
+static string getFileExtension(const string& path){
 	size_t dot=path.find_last_of('.');
-	return (dot!=std::string::npos)?path.substr(dot):"";
+	return (dot!=string::npos)?path.substr(dot):"";
 }
-static bool isMioFile(const std::string& path){return getFileExtension(path)==".mio";}
-static bool isLLVMFile(const std::string& path){return getFileExtension(path)==".ll";}
-static bool isAssemblyFile(const std::string& path){return getFileExtension(path)==".s";}
-static bool isObjectFile(const std::string& path){return getFileExtension(path)==".o";}
-static bool isLibFile(const std::string& path){
+static bool isMioFile(const string& path){return getFileExtension(path)==".mio";}
+static bool isLLVMFile(const string& path){return getFileExtension(path)==".ll";}
+static bool isAssemblyFile(const string& path){return getFileExtension(path)==".s";}
+static bool isObjectFile(const string& path){return getFileExtension(path)==".o";}
+static bool isLibFile(const string& path){
 #ifdef _WIN32
 	return getFileExtension(path)==".lib";
 #else
@@ -61,8 +61,8 @@ int main(int argc,char* argv[]){
 			exit(0);
 		else if(argc==2&&(strcmp(argv[1],"-h")==0||strcmp(argv[1],"--help")==0))
 			help(argv[0]),exit(0);
-		std::string output_file;
-		std::vector<std::string> input_files,include_paths,link_libs;
+		string output_file;
+		std::vector<string> input_files,include_paths,link_libs;
 #ifdef _WIN32
 		link_libs.push_back("windows/kernel32.lib");
 		link_libs.push_back("windows/legacy_stdio_definitions.lib");
@@ -75,14 +75,14 @@ int main(int argc,char* argv[]){
 #endif
 		bool emit_asm=false,compile_only=false,static_link=false,release=false;
 		int opt_level=0;
-		std::unordered_map<std::string,int> macros;
+		std::unordered_map<string,int> macros;
 		for(int i=1;i<argc;i++){
 			if(strcmp(argv[i],"-o")==0&&i+1<argc)output_file=argv[++i];
 			else if(strcmp(argv[i],"-I")==0&&i+1<argc)include_paths.push_back(argv[++i]);
 			else if(strcmp(argv[i],"-D")==0&&i+1<argc){
-				std::string define=argv[++i];
+				string define=argv[++i];
 				size_t eq=define.find('=');
-				if(eq!=std::string::npos)macros[define.substr(0,eq)]=atoi(define.substr(eq+1).c_str());
+				if(eq!=string::npos)macros[define.substr(0,eq)]=atoi(define.substr(eq+1).c_str());
 				else macros[define]=1;
 			}
 			else if(strcmp(argv[i],"-S")==0)emit_asm=true;
@@ -120,24 +120,24 @@ int main(int argc,char* argv[]){
 		if(release) macros["__MIO_RELEASE__"]=1;
 		else macros["__MIO_DEBUG__"]=1;
 		link_libs.push_back("compiler_rt.builtins");
-		std::string compiler_dir;
+		string compiler_dir;
 		{
 			const char* ls=nullptr;
 			for(const char* p=argv[0];*p;p++)
 				if(*p=='/'||*p=='\\')ls=p;
-			if(ls)compiler_dir=std::string(argv[0],ls-argv[0]);
+			if(ls)compiler_dir=string(argv[0],ls-argv[0]);
 		}
-		std::vector<std::string> resolved_libs;
+		std::vector<string> resolved_libs;
 		for(const auto& lib:link_libs){
 			bool found=false;
-			auto tryPath=[&](const std::string& base,const std::string& suffix=""){
+			auto tryPath=[&](const string& base,const string& suffix=""){
 				if(found)return;
-				std::string path=base+suffix;
+				string path=base+suffix;
 				if(file_exists(path)){resolved_libs.push_back(path);found=true;}
 			};
 #ifdef _WIN32
 			bool hasExt=(lib.size()>4&&(lib.substr(lib.size()-4)==".lib"||lib.substr(lib.size()-4)==".Lib"));
-			std::string ext=hasExt?"":".lib";
+			string ext=hasExt?"":".lib";
 			tryPath(compiler_dir+"/lib/"+lib,ext);
 			tryPath(compiler_dir+"/../lib/"+lib,ext);
 			tryPath(compiler_dir+"/lib/windows/"+lib,ext);
@@ -145,18 +145,18 @@ int main(int argc,char* argv[]){
 			if(!found)resolved_libs.push_back(lib);
 #else
 			bool hasExt=(lib.size()>2&&lib.substr(lib.size()-2)==".a");
-			std::string ext=hasExt?"":".a";
+			string ext=hasExt?"":".a";
 			tryPath(compiler_dir+"/lib/lib"+lib,ext);
 			tryPath(compiler_dir+"/../lib/lib"+lib,ext);
 			if(!found)resolved_libs.push_back(lib);
 #endif
 		}
-		std::string bundled_lib_path=compiler_dir+"/lib/windows";
+		string bundled_lib_path=compiler_dir+"/lib/windows";
 		if(!file_exists(bundled_lib_path+"/.")){
 			bundled_lib_path=compiler_dir+"/../lib/windows";
 		}
 		if(!compiler_dir.empty()){
-			std::string inc=compiler_dir+"/include";
+			string inc=compiler_dir+"/include";
 			if(file_exists(inc+"/std.mio")){
 				include_paths.push_back(inc);
 			}else{
@@ -168,10 +168,10 @@ int main(int argc,char* argv[]){
 		}
 		if(input_files.size()==1){
 			const auto& input_file=input_files[0];
-			std::string ext=getFileExtension(input_file);
+			string ext=getFileExtension(input_file);
 			if(isMioFile(input_file)){
 				Compiler cg;
-				std::string output;
+				string output;
 				if(!output_file.empty()){
 					output=output_file;
 				}else if(emit_asm){
@@ -184,9 +184,9 @@ int main(int argc,char* argv[]){
 				bool ok=cg.compiling(input_file,output,include_paths,macros,resolved_libs,bundled_lib_path,emit_asm,compile_only,static_link,release,opt_level);
 				if(!ok)exit(1);
 			}else if(isObjectFile(input_file)||isLLVMFile(input_file)||isAssemblyFile(input_file)||isLibFile(input_file)){
-				std::string exe_path=output_file.empty()?(input_file.substr(0,input_file.size()-ext.size())+".exe"):output_file;
+				string exe_path=output_file.empty()?(input_file.substr(0,input_file.size()-ext.size())+".exe"):output_file;
 				Compiler cg;
-				std::vector<std::string> files={input_file};
+				std::vector<string> files={input_file};
 				bool ok=cg.linkExecutableFiles(files,exe_path,static_link,resolved_libs,bundled_lib_path);
 				if(!ok)exit(1);
 			}else{
@@ -194,12 +194,12 @@ int main(int argc,char* argv[]){
 				exit(1);
 			}
 		}else{
-			std::vector<std::string> link_files;
+			std::vector<string> link_files;
 			for(const auto& input_file:input_files){
-				std::string ext=getFileExtension(input_file);
+				string ext=getFileExtension(input_file);
 				if(isMioFile(input_file)){
 					Compiler cg;
-					std::string obj_path=input_file.substr(0,input_file.size()-ext.size())+".o";
+					string obj_path=input_file.substr(0,input_file.size()-ext.size())+".o";
 					bool ok=cg.compiling(input_file,obj_path,include_paths,macros,resolved_libs,bundled_lib_path,false,true,static_link,release,opt_level);
 					if(!ok)exit(1);
 					link_files.push_back(obj_path);
@@ -210,7 +210,7 @@ int main(int argc,char* argv[]){
 					exit(1);
 				}
 			}
-			std::string exe_path=output_file.empty()?"a"+std::string(".exe"):output_file;
+			string exe_path=output_file.empty()?"a"+string(".exe"):output_file;
 			Compiler cg;
 			bool ok=cg.linkExecutableFiles(link_files,exe_path,static_link,resolved_libs,bundled_lib_path);
 			if(!ok)exit(1);

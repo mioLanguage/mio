@@ -7,8 +7,8 @@
 #include<cstdio>
 #include<set>
 struct FilenamePool{
-	std::set<std::string> pool;
-	const std::string* get(const std::string& s){
+	std::set<string> pool;
+	const string* get(const string& s){
 		auto result=pool.insert(s);
 		return &(*result.first);
 	}
@@ -44,19 +44,19 @@ class AstNode;
 class MioType{
 public:
 	MioTypeKind kind;
-	std::string name;
+	string name;
 	int array_size;
 	int ref_count;
 	int line;
 	int col;
-	const std::string* filename;
+	const string* filename;
 	MioType* base_type;
 	std::vector<MioType*> param_types;
 	std::vector<AstNode*> value_args;
 	bool is_const;
 	bool is_variadic;
 	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
-	MioType(MioTypeKind k,const std::string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
+	MioType(MioTypeKind k,const string& n): kind(k),name(n),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
 	MioType(MioType* base,int size): kind(MioTypeKind::ARRAY),array_size(size),ref_count(0),line(base?base->line:0),col(base?base->col:0),filename(base?base->filename:nullptr),base_type(base),is_const(false),is_variadic(false) {}
 	~MioType(){
 		if(base_type) delete base_type;
@@ -155,7 +155,7 @@ public:
 inline MioType* mio_type_new(MioTypeKind kind){
 	return new MioType(kind);
 }
-inline MioType* mio_type_new_named(MioTypeKind kind,const std::string& name){
+inline MioType* mio_type_new_named(MioTypeKind kind,const string& name){
 	return new MioType(kind,name);
 }
 inline MioType* mio_type_new_array(MioType* base,int size){
@@ -215,13 +215,13 @@ inline const char* mio_type_c_name(const MioType* type){
 	}
 	return type->c_name();
 }
-inline std::string mio_type_str(const MioType* type){
+inline string mio_type_str(const MioType* type){
 	if(!type){
 		fprintf(stderr,"error: mio_type_str called with null type\n");
 		return "";
 	}
-	std::string prefix=type->is_const?"const ":"";
-	std::string base;
+	string prefix=type->is_const?"const ":"";
+	string base;
 	switch(type->kind){
 		case MioTypeKind::VOID: base="void"; break;
 		case MioTypeKind::I8: base="i8"; break;

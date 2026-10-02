@@ -792,11 +792,14 @@ namespace std {
 	template$T:typename,E:typename$
 	class result {
 	public:
-		result_ok(val: T) {
+		result() {
+			this.is_ok=0;
+		}
+		void result_ok(val: T) {
 			this.value=val;
 			this.is_ok=1;
 		}
-		result_err(err: E) {
+		void result_err(err: E) {
 			this.error=err;
 			this.is_ok=0;
 		}
@@ -859,9 +862,9 @@ namespace std {
 			this.clear();
 		}
 		void push_front(val: T) {
-			var node: *ListNode=*LinkedList::ListNode(malloc(sizeof(ListNode)));
+			var node: *ListNode=(malloc(sizeof(ListNode)));
 			if(node != 0) {
-				node.value=val;
+				memcpy(&node.value,&val,sizeof(T));
 				node.next=this.head;
 				node.prev=0;
 				if(this.head != 0) {
@@ -875,9 +878,9 @@ namespace std {
 			}
 		}
 		void push_back(val: T) {
-			var node: *ListNode=*LinkedList::ListNode(malloc(sizeof(ListNode)));
+			var node: *ListNode=(malloc(sizeof(ListNode)));
 			if(node != 0) {
-				node.value=val;
+				memcpy(&node.value,&val,sizeof(T));
 				node.next=0;
 				node.prev=this.tail;
 				if(this.tail != 0) {
@@ -919,14 +922,16 @@ namespace std {
 		T front() {
 			var result: T;
 			if(this.head != 0) {
-				result=this.head.value;
+				var node: *ListNode=this.head;
+				memcpy(&result,&node.value,sizeof(T));
 			}
 			return result;
 		}
 		T back() {
 			var result: T;
 			if(this.tail != 0) {
-				result=this.tail.value;
+				var node: *ListNode=this.tail;
+				memcpy(&result,&node.value,sizeof(T));
 			}
 			return result;
 		}
@@ -1317,11 +1322,11 @@ namespace std {
 			this.ref_count=0;
 		}
 		SharedPtr(val: T) {
-			this.ptr=*T(malloc(sizeof(T)));
-			this.ref_count=*u64(malloc(sizeof(u64)));
+			this.ptr=(malloc(sizeof(T)));
+			this.ref_count=(malloc(sizeof(u64)));
 			if(this.ptr != 0 && this.ref_count != 0) {
-				memcpy(this.ptr,&val,sizeof(T));
-				memcpy(this.ref_count,&1,sizeof(u64));
+				memcpy(this.ptr,&val,sizeof(T));var one: u64=1;
+				memcpy(this.ref_count,&one,sizeof(u64));
 			}
 		}
 		SharedPtr(other: SharedPtr) {
@@ -1620,6 +1625,7 @@ namespace std {
 	template$T:typename$
 	class less {
 	public:
+		less(){}
 		i32 operator()(a: T,b: T) {
 			if(a < b) {
 				return 1;
@@ -1630,6 +1636,7 @@ namespace std {
 	template$T:typename$
 	class greater {
 	public:
+		greater(){}
 		i32 operator()(a: T,b: T) {
 			if(a > b) {
 				return 1;

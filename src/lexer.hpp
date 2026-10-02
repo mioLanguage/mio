@@ -21,7 +21,7 @@ class Lexer{
 	friend class Parser;
 	friend class Compiler;
 public:
-	Lexer(const std::string& source,const std::string& filename,const std::unordered_map<std::string,int>& m={}):source(source),filename(filename),pos(0),line(1),col(1),bol(0),macros(m){
+	Lexer(const string& source,const string& filename,const std::unordered_map<string,int>& m={}):source(source),filename(filename),pos(0),line(1),col(1),bol(0),macros(m){
 		current=preprocess_token();
 		peekToken=preprocess_token();
 	}
@@ -37,14 +37,14 @@ public:
 	Token* peek(){
 		return peekToken;
 	}
-	void add_macro(const std::string& name,int value){
+	void add_macro(const string& name,int value){
 		macros[name]=value;
 	}
-	int get_macro_value(const std::string& name){
+	int get_macro_value(const string& name){
 		auto it=macros.find(name);
 		return it!=macros.end()?it->second:0;
 	}
-	const std::unordered_map<std::string,int>& get_macros()const{return macros;}
+	const std::unordered_map<string,int>& get_macros()const{return macros;}
 	bool is_template_instantiation(){
 		int saved_pos=pos,saved_line=line,saved_col=col,saved_bol=bol;
 		Token* saved_current=current;
@@ -75,12 +75,12 @@ private:
 	};
 	#define match(c) (cur()==c?(advance(),true):false)
 	#define cur() (source[pos])
-	std::string source;
-	std::string filename;
+	string source;
+	string filename;
 	int pos,line,col,bol;
 	Token* current;
 	Token* peekToken;
-	std::unordered_map<std::string,int> macros;
+	std::unordered_map<string,int> macros;
 	std::vector<CondState> cond_stack;
 	static char* mioStrndup(const char* s,int n){
 		char* buf=(char*)malloc(n+1);
@@ -129,7 +129,7 @@ private:
 			}
 		}
 	}
-	TokenKind keywordKind(const std::string& s){
+	TokenKind keywordKind(const string& s){
 		for(int i=0; keywords[i].keyword; i++){
 			if(s==keywords[i].keyword)
 				return keywords[i].kind;
@@ -142,10 +142,10 @@ private:
 		while(isalnum(cur())||cur()=='_')
 			advance();
 		int len=pos-start;
-		std::string text=source.substr(start,len);
+		string text=source.substr(start,len);
 		TokenKind kind=keywordKind(text);
 		if(kind!=TOK_IDENT){
-			return tok_new(kind,std::string(),line,startCol);
+			return tok_new(kind,string(),line,startCol);
 		}
 		char* textCopy=mioStrndup(text.c_str(),text.length());
 		Token* t=tok_new(TOK_IDENT,textCopy,line,startCol);
@@ -264,7 +264,7 @@ private:
 			advance();
 		}
 		if(cur()=='\'')advance();
-		Token* t=tok_new(TOK_CHAR_LIT,std::string(),line,startCol);
+		Token* t=tok_new(TOK_CHAR_LIT,string(),line,startCol);
 		t->char_val=c;
 		return t;
 	}
@@ -412,7 +412,7 @@ private:
 				while(isalnum(cur())||cur()=='_')advance();
 				int name_len=pos-name_start;
 				char* name_buf=mioStrndup(source.c_str()+name_start,name_len);
-				std::string name(name_buf);
+				string name(name_buf);
 				free(name_buf);
 				int macro_line=line;
 				int macro_col=col;
@@ -459,7 +459,7 @@ private:
 	Token* raw_token(){
 		while(true){
 			skipWhitespace();
-			if(cur()=='\0')return tok_new(TOK_EOF,std::string(),line,col);
+			if(cur()=='\0')return tok_new(TOK_EOF,string(),line,col);
 			int lineNum=line;
 			int colNum=col;
 			char c=advance();
@@ -476,67 +476,67 @@ private:
 				case '\'': pos--,col--;return charLit();
 				case '+': 
 					if(match('='))return tok_new(TOK_PLUS_ASSIGN,"+=",lineNum,colNum);
-					return tok_new(TOK_PLUS,std::string(),lineNum,colNum);
+					return tok_new(TOK_PLUS,string(),lineNum,colNum);
 				case '-':
 					if(match('='))return tok_new(TOK_MINUS_ASSIGN,"-=",lineNum,colNum);
-					if(match('>'))return tok_new(TOK_ARROW,std::string(),lineNum,colNum);
-					return tok_new(TOK_MINUS,std::string(),lineNum,colNum);
+					if(match('>'))return tok_new(TOK_ARROW,string(),lineNum,colNum);
+					return tok_new(TOK_MINUS,string(),lineNum,colNum);
 				case '*': 
 					if(match('='))return tok_new(TOK_STAR_ASSIGN,"*=",lineNum,colNum);
-					return tok_new(TOK_STAR,std::string(),lineNum,colNum);
+					return tok_new(TOK_STAR,string(),lineNum,colNum);
 				case '/': 
 					if(match('='))return tok_new(TOK_SLASH_ASSIGN,"/=",lineNum,colNum);
-					return tok_new(TOK_SLASH,std::string(),lineNum,colNum);
+					return tok_new(TOK_SLASH,string(),lineNum,colNum);
 				case '%': 
 					if(match('='))return tok_new(TOK_PERCENT_ASSIGN,"%=",lineNum,colNum);
-					return tok_new(TOK_PERCENT,std::string(),lineNum,colNum);
-				case '(': return tok_new(TOK_LPAREN,std::string(),lineNum,colNum);
-				case ')': return tok_new(TOK_RPAREN,std::string(),lineNum,colNum);
-				case '{': return tok_new(TOK_LBRACE,std::string(),lineNum,colNum);
-				case '}': return tok_new(TOK_RBRACE,std::string(),lineNum,colNum);
-				case '[': return tok_new(TOK_LBRACKET,std::string(),lineNum,colNum);
-				case ']': return tok_new(TOK_RBRACKET,std::string(),lineNum,colNum);
-				case ';': return tok_new(TOK_SEMICOLON,std::string(),lineNum,colNum);
+					return tok_new(TOK_PERCENT,string(),lineNum,colNum);
+				case '(': return tok_new(TOK_LPAREN,string(),lineNum,colNum);
+				case ')': return tok_new(TOK_RPAREN,string(),lineNum,colNum);
+				case '{': return tok_new(TOK_LBRACE,string(),lineNum,colNum);
+				case '}': return tok_new(TOK_RBRACE,string(),lineNum,colNum);
+				case '[': return tok_new(TOK_LBRACKET,string(),lineNum,colNum);
+				case ']': return tok_new(TOK_RBRACKET,string(),lineNum,colNum);
+				case ';': return tok_new(TOK_SEMICOLON,string(),lineNum,colNum);
 				case ':': 
 					if(match(':'))return tok_new(TOK_DOUBLE_COLON,"::",lineNum,colNum);
-					return tok_new(TOK_COLON,std::string(),lineNum,colNum);
-				case ',': return tok_new(TOK_COMMA,std::string(),lineNum,colNum);
+					return tok_new(TOK_COLON,string(),lineNum,colNum);
+				case ',': return tok_new(TOK_COMMA,string(),lineNum,colNum);
 				case '.': 
 					if(match('.')&&match('.'))return tok_new(TOK_VARARG,"...",lineNum,colNum);
-					return tok_new(TOK_DOT,std::string(),lineNum,colNum);
+					return tok_new(TOK_DOT,string(),lineNum,colNum);
 				case '=':
-					if(match('='))return tok_new(TOK_EQ,std::string(),lineNum,colNum);
-					return tok_new(TOK_ASSIGN,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_EQ,string(),lineNum,colNum);
+					return tok_new(TOK_ASSIGN,string(),lineNum,colNum);
 				case '!':
-					if(match('='))return tok_new(TOK_NEQ,std::string(),lineNum,colNum);
-					return tok_new(TOK_NOT,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_NEQ,string(),lineNum,colNum);
+					return tok_new(TOK_NOT,string(),lineNum,colNum);
 				case '<':
-					if(match('='))return tok_new(TOK_LTE,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_LTE,string(),lineNum,colNum);
 					if(match('<')){
 						if(match('='))return tok_new(TOK_LSHIFT_ASSIGN,"<<=",lineNum,colNum);
-						return tok_new(TOK_LSHIFT,std::string(),lineNum,colNum);
+						return tok_new(TOK_LSHIFT,string(),lineNum,colNum);
 					}
-					return tok_new(TOK_LT,std::string(),lineNum,colNum);
+					return tok_new(TOK_LT,string(),lineNum,colNum);
 				case '>':
-					if(match('='))return tok_new(TOK_GTE,std::string(),lineNum,colNum);
+					if(match('='))return tok_new(TOK_GTE,string(),lineNum,colNum);
 					if(match('>')){
 						if(match('='))return tok_new(TOK_RSHIFT_ASSIGN,">>=",lineNum,colNum);
-						return tok_new(TOK_RSHIFT,std::string(),lineNum,colNum);
+						return tok_new(TOK_RSHIFT,string(),lineNum,colNum);
 					}
-					return tok_new(TOK_GT,std::string(),lineNum,colNum);
+					return tok_new(TOK_GT,string(),lineNum,colNum);
 				case '&':
-					if(match('&'))return tok_new(TOK_AND,std::string(),lineNum,colNum);
+					if(match('&'))return tok_new(TOK_AND,string(),lineNum,colNum);
 					if(match('='))return tok_new(TOK_AND_ASSIGN,"&=",lineNum,colNum);
-					return tok_new(TOK_BIT_AND,std::string(),lineNum,colNum);
+					return tok_new(TOK_BIT_AND,string(),lineNum,colNum);
 				case '|':
-					if(match('|'))return tok_new(TOK_OR,std::string(),lineNum,colNum);
+					if(match('|'))return tok_new(TOK_OR,string(),lineNum,colNum);
 					if(match('='))return tok_new(TOK_OR_ASSIGN,"|=",lineNum,colNum);
-					return tok_new(TOK_BIT_OR,std::string(),lineNum,colNum);
+					return tok_new(TOK_BIT_OR,string(),lineNum,colNum);
 				case '^': 
 					if(match('='))return tok_new(TOK_XOR_ASSIGN,"^=",lineNum,colNum);
-					return tok_new(TOK_BIT_XOR,std::string(),lineNum,colNum);
-				case '~': return tok_new(TOK_BIT_NOT,std::string(),lineNum,colNum);
-				case '$': return tok_new(TOK_DOLLAR,std::string(),lineNum,colNum);
+					return tok_new(TOK_BIT_XOR,string(),lineNum,colNum);
+				case '~': return tok_new(TOK_BIT_NOT,string(),lineNum,colNum);
+				case '$': return tok_new(TOK_DOLLAR,string(),lineNum,colNum);
 				case '@':{
 					int start=pos;
 					int startCol=col;
@@ -544,11 +544,11 @@ private:
 						advance();
 					int len=pos-start;
 					char* text=mioStrndup(source.c_str()+start,len);
-					if(strcmp(text,"if")==0){free(text);return tok_new((TokenKind)IK_AT_IF,std::string(),lineNum,startCol);}
-					if(strcmp(text,"elif")==0){free(text);return tok_new((TokenKind)IK_AT_ELIF,std::string(),lineNum,startCol);}
-					if(strcmp(text,"else")==0){free(text);return tok_new((TokenKind)IK_AT_ELSE,std::string(),lineNum,startCol);}
-					if(strcmp(text,"end")==0){free(text);return tok_new((TokenKind)IK_AT_END,std::string(),lineNum,startCol);}
-					if(strcmp(text,"macro")==0){free(text);return tok_new((TokenKind)IK_AT_MACRO,std::string(),lineNum,startCol);}
+					if(strcmp(text,"if")==0){free(text);return tok_new((TokenKind)IK_AT_IF,string(),lineNum,startCol);}
+					if(strcmp(text,"elif")==0){free(text);return tok_new((TokenKind)IK_AT_ELIF,string(),lineNum,startCol);}
+					if(strcmp(text,"else")==0){free(text);return tok_new((TokenKind)IK_AT_ELSE,string(),lineNum,startCol);}
+					if(strcmp(text,"end")==0){free(text);return tok_new((TokenKind)IK_AT_END,string(),lineNum,startCol);}
+					if(strcmp(text,"macro")==0){free(text);return tok_new((TokenKind)IK_AT_MACRO,string(),lineNum,startCol);}
 						char buf[64];
 						snprintf(buf,sizeof(buf),"unknown directive '@%s'",text);
 						free(text);
@@ -568,7 +568,7 @@ private:
 		PPE_EQ,PPE_NEQ,PPE_LT,PPE_GT,PPE_LTE,PPE_GTE,
 		PPE_AND,PPE_OR,PPE_NOT,PPE_LPAREN,PPE_RPAREN
 	};
-	struct PPTok{PPKind kind;int val;std::string name;};
+	struct PPTok{PPKind kind;int val;string name;};
 	std::vector<PPTok> tokenize_pp_expr(){
 		std::vector<PPTok> tokens;
 		while(true){
@@ -579,11 +579,11 @@ private:
 				return tokens;
 			}
 			if(isalpha(c)||c=='_'){
-				std::string name;
+				string name;
 				while(isalnum(c=cur())||c=='_')name+=advance();
 				tokens.push_back({PPE_ID,0,name});
 			}else if(isdigit(c)){
-				std::string num;
+				string num;
 				while(isdigit(cur()))num+=advance();
 				tokens.push_back({PPE_INT,atoi(num.c_str()),""});
 			}else switch(advance()){
@@ -656,7 +656,7 @@ private:
 	int eval_pp_primary(const std::vector<PPTok>& ts,int& idx){
 		if(idx>=(int)ts.size())return 0;
 		if(ts[idx].kind==PPE_INT)return ts[idx++].val;
-		if(ts[idx].kind==PPE_ID){std::string name=ts[idx++].name;return get_macro_value(name);}
+		if(ts[idx].kind==PPE_ID){string name=ts[idx++].name;return get_macro_value(name);}
 		if(ts[idx].kind==PPE_LPAREN){idx++;int val=eval_pp_or(ts,idx);if(idx<(int)ts.size()&&ts[idx].kind==PPE_RPAREN)idx++;return val;}
 		return 0;
 	}

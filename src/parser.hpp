@@ -17,19 +17,20 @@ public:
 	Lexer* lexer;
 	Token* cur;
 	Token* peek;
-	std::string filename;
-	std::vector<std::string> include_paths;
-	std::vector<std::string> imported_files;
-	std::unordered_set<std::string> class_names;
-	std::unordered_map<std::string,std::unordered_map<std::string,bool>> class_virtual_methods;
-	std::unordered_map<std::string,std::string> class_base_map;
-	std::unordered_map<std::string,std::unordered_set<std::string>> class_method_names;
-	Parser(Lexer* l,const std::string& f,const std::vector<std::string>& paths):lexer(l),filename(f),include_paths(paths){
+	string filename;
+	bool in_template_param=false;
+	std::vector<string> include_paths;
+	std::vector<string> imported_files;
+	std::unordered_set<string> class_names;
+	std::unordered_map<string,std::unordered_map<string,bool>> class_virtual_methods;
+	std::unordered_map<string,string> class_base_map;
+	std::unordered_map<string,std::unordered_set<string>> class_method_names;
+	Parser(Lexer* l,const string& f,const std::vector<string>& paths):lexer(l),filename(f),include_paths(paths){
 		cur=lexer->current;
 		peek=lexer->peek();
 	}
 	~Parser(){}
-	const std::string* fn(){return g_filename_pool.get(filename);}
+	const string* fn(){return g_filename_pool.get(filename);}
 	MioType* withFn(MioType* mt){
 		if(mt&&!mt->filename) mt->filename=fn();
 		return mt;
@@ -43,11 +44,11 @@ public:
 		return program;
 	}
 private:
-	void error(const std::string& msg){
+	void error(const string& msg){
 		fprintf(stderr,"%s:%d:%d: error: %s\n",filename.c_str(),cur->line,cur->col,msg.c_str());
 		g_error_count++;
 	}
-	void error_expected(const std::string& expected){
+	void error_expected(const string& expected){
 		if(cur->kind==TOK_ERROR)
 			error(cur->lexeme);
 		else
@@ -100,11 +101,11 @@ private:
 		}
 		return false;
 	}
-	std::string normalize_path(const std::string& path){
-		std::vector<std::string> parts;
+	string normalize_path(const string& path){
+		std::vector<string> parts;
 		size_t start=0;
 		bool is_absolute=false;
-		std::string drive_prefix;
+		string drive_prefix;
 		if(path.length()>1&&path[1]==':'){
 			is_absolute=true;
 			drive_prefix=path.substr(0,2);
@@ -115,8 +116,8 @@ private:
 		}
 		while(start<path.length()){
 			size_t sep=path.find_first_of("/\\",start);
-			if(sep==std::string::npos)sep=path.length();
-			std::string part=path.substr(start,sep-start);
+			if(sep==string::npos)sep=path.length();
+			string part=path.substr(start,sep-start);
 			if(part.empty()||part=="."){
 			}else if(part==".."){
 				if(!parts.empty()&&parts.back()!="..")parts.pop_back();
@@ -126,7 +127,7 @@ private:
 			}
 			start=sep+1;
 		}
-		std::string result=drive_prefix;
+		string result=drive_prefix;
 		if(is_absolute){
 			if(!drive_prefix.empty())result+="\\";
 			else result+="/";
@@ -143,43 +144,43 @@ private:
 #endif
 		return result;
 	}
-	std::string join_path(const std::string& dir,const std::string& file){
+	string join_path(const string& dir,const string& file){
 		return normalize_path(dir+"/"+file);
 	}
-	bool file_exists(const std::string& path){
+	bool file_exists(const string& path){
 		FILE* f=fopen(path.c_str(),"rb");
 		if(f){fclose(f);return true;}
 		return false;
 	}
-	std::string read_file_content(const std::string& path){
+	string read_file_content(const string& path){
 		FILE* f=fopen(path.c_str(),"rb");
 		if(!f)return "";
 		fseek(f,0,SEEK_END);
 		long size=ftell(f);
 		fseek(f,0,SEEK_SET);
-		std::string buf(size,'\0');
+		string buf(size,'\0');
 		size_t read_bytes=fread(&buf[0],1,size,f);
 		fclose(f);
 		if(read_bytes!=(size_t)size)return "";
 		return buf;
 	}
-	bool is_imported(const std::string& path){
+	bool is_imported(const string& path){
 		for(const auto& p:imported_files)
 			if(p==path)return true;
 		return false;
 	}
-	void mark_imported(const std::string& path){
+	void mark_imported(const string& path){
 		imported_files.push_back(path);
 	}
-	std::string resolve_mio_file(const std::string& import_path){
+	string resolve_mio_file(const string& import_path){
 		size_t last_sep=filename.find_last_of("/\\");
-		std::string dir=(last_sep==std::string::npos)?".":filename.substr(0,last_sep);
+		string dir=(last_sep==string::npos)?".":filename.substr(0,last_sep);
 		if(!dir.empty()){
-			std::string candidate=join_path(dir,import_path);
+			string candidate=join_path(dir,import_path);
 			if(file_exists(candidate))return candidate;
 		}
 		for(const auto& path:include_paths){
-			std::string candidate=join_path(path,import_path);
+			string candidate=join_path(path,import_path);
 			if(file_exists(candidate))return candidate;
 		}
 		return "";
@@ -197,26 +198,26 @@ private:
 	}
 	AstNode* parse_single_import(int line,int col){
 		if(cur->kind==TOK_STRING_LIT){
-			std::string path=cur->lexeme;
+			string path=cur->lexeme;
 			advance();
-			std::string resolved=resolve_mio_file(path.length()>4&&path.substr(path.length()-4)==".mio" ? path:path+".mio");
+			string resolved=resolve_mio_file(path.length()>4&&path.substr(path.length()-4)==".mio" ? path:path+".mio");
 			if(!resolved.empty()){
 				return parse_import_file(resolved,path,line,col);
 			}
 			error("imported file '"+path+"' not found");
 			return nullptr;
 		}else{
-			std::string path=parse_import_path();
+			string path=parse_import_path();
 			if(!path.empty()){
 				return ast_new_namespace_import(path,line,col,fn());
 			}
 			return nullptr;
 		}
 	}
-	AstNode* parse_import_file(const std::string& resolved,const std::string& display_path,int line,int col){
+	AstNode* parse_import_file(const string& resolved,const string& display_path,int line,int col){
 		if(is_imported(resolved))return nullptr;
 		mark_imported(resolved);
-		std::string source=read_file_content(resolved);
+		string source=read_file_content(resolved);
 		if(source.empty()){
 			error("cannot read imported file '"+display_path+"'");
 			return nullptr;
@@ -224,8 +225,8 @@ private:
 		auto* old_lexer=lexer;
 		auto* old_cur=cur;
 		auto* old_peek=peek;
-		std::string old_filename=filename;
-		std::string norm_resolved=normalize_path(resolved);
+		string old_filename=filename;
+		string norm_resolved=normalize_path(resolved);
 		auto* new_lexer=new Lexer(source,norm_resolved,old_lexer->get_macros());
 		lexer=new_lexer;
 		filename=norm_resolved;
@@ -245,13 +246,13 @@ private:
 		filename=old_filename;
 		return block;
 	}
-	std::string parse_import_path(){
+	string parse_import_path(){
 		if(cur->kind==TOK_STRING_LIT){
-			std::string path=cur->lexeme;
+			string path=cur->lexeme;
 			advance();
 			return path;
 		}
-		std::string buf;
+		string buf;
 		while(cur->kind==TOK_IDENT){
 			buf+=cur->lexeme;
 			advance();
@@ -288,7 +289,7 @@ private:
 			case TOK_CHAR: advance(); return withFn(mio_type_new(MioTypeKind::CHAR));
 			case TOK_VOID: advance(); return withFn(mio_type_new(MioTypeKind::VOID));
 			case TOK_IDENT:{
-				std::string name=cur->lexeme;
+				string name=cur->lexeme;
 				int line=cur->line,col=cur->col;
 				advance();
 				if(match(TOK_DOUBLE_COLON)){
@@ -296,11 +297,12 @@ private:
 						error_expected("type name after '::'");
 						return withFn(mio_type_new_named(MioTypeKind::CLASS,""));
 					}
-					std::string fullName=name+"::"+cur->lexeme;
+					string fullName=name+"::"+cur->lexeme;
 					advance();
 					auto* mt=mio_type_new_named(MioTypeKind::CLASS,fullName);
 					mt->line=line;mt->col=col;
 					if(match(TOK_DOLLAR)){
+						in_template_param=true;
 						do{
 							if(is_type_token(cur->kind)){
 								mt->param_types.push_back(parse_type());
@@ -311,6 +313,7 @@ private:
 						if(!match(TOK_DOLLAR)){
 							error_expected("'$'");
 						}
+						in_template_param=false;
 					}
 					mt->filename=fn();
 					return mt;
@@ -318,7 +321,8 @@ private:
 				auto* mt=mio_type_new_named(MioTypeKind::CLASS,name);
 				mt->line=line;mt->col=col;
 				mt->filename=fn();
-				if(match(TOK_DOLLAR)){
+				if(!in_template_param&&match(TOK_DOLLAR)){
+					in_template_param=true;
 					do{
 						if(is_type_token(cur->kind)){
 							mt->param_types.push_back(parse_type());
@@ -329,6 +333,7 @@ private:
 					if(!match(TOK_DOLLAR)){
 						error_expected("'$'");
 					}
+					in_template_param=false;
 				}
 				return mt;
 			}
@@ -437,7 +442,7 @@ private:
 				return ast_new_ident("this",t->line,t->col,fn());
 			}
 			case TOK_IDENT:{
-				std::string name=t->lexeme;
+				string name=t->lexeme;
 				int line=t->line,col=t->col;
 				advance();
 				if(cur->kind==TOK_STAR&&peek->kind==TOK_LPAREN){
@@ -537,6 +542,7 @@ private:
 				if(lexer->is_template_instantiation()){
 					advance();
 					auto* call=ast_new_call(expr,expr->line,expr->col,fn());
+					in_template_param=true;
 					do{
 						if(is_type_token(cur->kind)){
 							call->call.template_args.push_back({true,parse_type(),nullptr});
@@ -547,6 +553,7 @@ private:
 					if(!match(TOK_DOLLAR)){
 						error_expected("'$'");
 					}
+					in_template_param=false;
 					if(match(TOK_LPAREN)){
 						if(!check(TOK_RPAREN)){
 							ast_call_add_arg(call,parse_expr());
@@ -600,7 +607,7 @@ private:
 			}else if(cur->kind==TOK_IDENT){
 				if(expr->kind==AstNodeKind::INT_LIT||expr->kind==AstNodeKind::FLOAT_LIT||
 					expr->kind==AstNodeKind::STRING_LIT||expr->kind==AstNodeKind::CHAR_LIT){
-					std::string suffix=cur->lexeme;
+					string suffix=cur->lexeme;
 					advance();
 					expr=ast_new_literal_op_expr(expr,suffix,expr->line,expr->col,fn());
 				}else{
@@ -748,7 +755,7 @@ private:
 	}
 	AstNode* parse_var_items(bool is_const,bool is_static,bool is_extern){
 		int line=cur->line,col=cur->col;
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident()){
 			return ast_new_int_lit(0,line,col,fn());
 		}
@@ -789,7 +796,7 @@ private:
 	AstNode* parse_type_alias(bool skip_advance=false){
 		if(!skip_advance) advance();
 		int line=cur->line,col=cur->col;
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident())return nullptr;
 		expect(TOK_ASSIGN);
 		auto* aliased=parse_type();
@@ -906,7 +913,7 @@ private:
 			case TOK_GOTO:{
 				advance();
 				int line=cur->line,col=cur->col;
-				std::string label=cur->lexeme;
+				string label=cur->lexeme;
 				if(!expect_ident()){expect(TOK_SEMICOLON);return nullptr;}
 				expect(TOK_SEMICOLON);
 				return ast_new_goto(label,line,col,fn());
@@ -914,7 +921,7 @@ private:
 			case TOK_COLON:{
 				advance();
 				int line=cur->line,col=cur->col;
-				std::string label=cur->lexeme;
+				string label=cur->lexeme;
 				if(!expect_ident())return nullptr;
 				return ast_new_label(label,line,col,fn());
 			}
@@ -950,9 +957,9 @@ private:
 		}
 		bool is_operator=false;
 		bool is_literal_operator=false;
-		std::string func_name;
-		std::string op_name;
-		std::string literal_suffix;
+		string func_name;
+		string op_name;
+		string literal_suffix;
 		if(match(TOK_OPERATOR)){
 			if(cur->kind==TOK_STRING_LIT&&cur->lexeme.empty()){
 				is_literal_operator=true;
@@ -1006,7 +1013,7 @@ private:
 					func->func_def.is_variadic=true;
 					break;
 				}
-				std::string pname=cur->lexeme;
+				string pname=cur->lexeme;
 				if(!expect_ident()){delete func;return nullptr;}
 				expect(TOK_COLON);
 				auto* ptype=parse_type();
@@ -1040,7 +1047,7 @@ private:
 		if(!is_operator&&!func->func_def.is_pure_virtual&&match(TOK_COLON)){
 			while(!check(TOK_LBRACE)&&!check(TOK_SEMICOLON)&&!check(TOK_EOF)){
 				if(cur->kind==TOK_IDENT){
-					std::string field_name=cur->lexeme;
+					string field_name=cur->lexeme;
 					advance();
 					if(match(TOK_LPAREN)){
 						auto* init_expr=parse_expr();
@@ -1070,13 +1077,13 @@ private:
 	AstNode* parse_enum_def(){
 		int line=cur->line,col=cur->col;
 		advance();
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident())return nullptr;
 		expect(TOK_LBRACE);
 		auto* e=ast_new_enum_def(name,line,col,fn());
 		if(!check(TOK_RBRACE)){
 			do{
-				std::string vname=cur->lexeme;
+				string vname=cur->lexeme;
 				if(!expect_ident())continue;
 				AstNode* init=nullptr;
 				if(match(TOK_ASSIGN))
@@ -1090,12 +1097,12 @@ private:
 	AstNode* parse_union_def(){
 		int line=cur->line,col=cur->col;
 		advance();
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident())return nullptr;
 		expect(TOK_LBRACE);
 		auto* u=ast_new_union_def(name,line,col,fn());
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
-			std::string fname=cur->lexeme;
+			string fname=cur->lexeme;
 			if(!expect_ident()){while(!check(TOK_SEMICOLON)&&!check(TOK_EOF)&&!check(TOK_RBRACE))advance();if(!check(TOK_RBRACE))advance();continue;}
 			expect(TOK_COLON);
 			auto* ftype=parse_type();
@@ -1119,14 +1126,14 @@ private:
 	AstNode* parse_class_def(bool class_consumed=false){
 		int line=cur->line,col=cur->col;
 		if(!class_consumed)advance();
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident())return nullptr;
 		if(class_names.count(name)){
 			error("class '"+name+"' is already defined");
 		}
 		class_names.insert(name);
-		std::string base_name;
-		std::string base_access;
+		string base_name;
+		string base_access;
 		if(match(TOK_LPAREN)){
 			if(cur->kind!=TOK_IDENT){
 				error("expected base class name after '('");
@@ -1152,7 +1159,7 @@ private:
 		auto* c=ast_new_class_def(name,base_name,base_access,line,col,fn());
 		class_base_map[name]=base_name;
 		Access cur_access=Access::PUBLIC;
-		std::unordered_set<std::string> field_names;
+		std::unordered_set<string> field_names;
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
 			if(match(TOK_PUBLIC)){
 				expect(TOK_COLON);
@@ -1211,7 +1218,7 @@ private:
 					}
 				}else if(match(TOK_BIT_NOT)){
 					int dline=cur->line,dcol=cur->col;
-					std::string dname=cur->lexeme;
+					string dname=cur->lexeme;
 					if(!expect_ident()){
 						continue;
 					}
@@ -1231,8 +1238,8 @@ private:
 				}else if(match(TOK_CLASS)){
 					auto* nested=parse_class_def(true);
 					if(nested){
-						std::string nested_name=nested->class_def.name;
-						if(nested_name.find("::")==std::string::npos){
+						string nested_name=nested->class_def.name;
+						if(nested_name.find("::")==string::npos){
 							nested->class_def.name=name+"::"+nested_name;
 						}
 						c->class_def.nested_classes.push_back(nested);
@@ -1244,7 +1251,7 @@ private:
 					}
 				}else if(cur->kind==TOK_OPERATOR||is_type_token(cur->kind)){
 					if(cur->kind==TOK_IDENT&&peek->kind==TOK_COLON){
-						std::string fname=cur->lexeme;
+						string fname=cur->lexeme;
 						advance();
 						if(field_names.count(fname)){
 							error("field '"+fname+"' is already defined in class '"+name+"'");
@@ -1289,7 +1296,7 @@ private:
 	AstNode* parse_namespace_def(){
 		int line=cur->line,col=cur->col;
 		advance();
-		std::string name=cur->lexeme;
+		string name=cur->lexeme;
 		if(!expect_ident())return nullptr;
 		auto* n=ast_new_namespace_def(name,line,col,fn());
 		expect(TOK_LBRACE);
@@ -1314,7 +1321,7 @@ private:
 			tp.type=nullptr;
 			tp.default_type=nullptr;
 			tp.default_val=nullptr;
-			std::string tp_name=cur->lexeme;
+			string tp_name=cur->lexeme;
 			if(!expect_ident())return nullptr;
 			tp.name=tp_name;
 			if(match(TOK_COLON)){
