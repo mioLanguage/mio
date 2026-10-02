@@ -48,7 +48,7 @@ LLD_HAS_DRIVER(macho);
 #undef VOID
 #endif
 extern int g_error_count;
-
+using std::string;
 class Compiler{
 	llvm::LLVMContext ctx;
 	std::unique_ptr<llvm::Module> mod;
@@ -945,16 +945,22 @@ class Compiler{
 	}
 	void emitGlobalCtors(){
 		if(globalCtors.empty())return;
-		auto* mainFn=mod->getFunction("main");
-		if(!mainFn||mainFn->empty())return;
 		std::sort(globalCtors.begin(),globalCtors.end(),[](auto& a,auto& b){return a.first<b.first;});
-		auto& entryBlock=mainFn->getEntryBlock();
-		llvm::IRBuilder<> builder(ctx);
-		auto* firstInst=&*entryBlock.getFirstInsertionPt();
-		builder.SetInsertPoint(firstInst);
+		auto* i32Ty=llvm::Type::getInt32Ty(ctx);
+		auto* i8PtrTy=llvm::PointerType::get(ctx,0);
+		auto* ctorTy=llvm::StructType::create(ctx,{i32Ty,i8PtrTy,i8PtrTy},"llvm.global_ctors.entry");
+		std::vector<llvm::Constant*> ctorEntries;
 		for(auto& [priority,fn]:globalCtors){
-			builder.CreateCall(fn);
+			auto* entry=llvm::ConstantStruct::get(ctorTy,{
+				llvm::ConstantInt::get(i32Ty,priority),
+				llvm::ConstantExpr::getBitCast(fn,i8PtrTy),
+				llvm::ConstantPointerNull::get(i8PtrTy)
+			});
+			ctorEntries.push_back(entry);
 		}
+		auto* arrTy=llvm::ArrayType::get(ctorTy,ctorEntries.size());
+		auto* arr=llvm::ConstantArray::get(arrTy,ctorEntries);
+		new llvm::GlobalVariable(*mod,arrTy,false,llvm::GlobalValue::AppendingLinkage,arr,"llvm.global_ctors");
 	}
 	llvm::Function* declareFunc(AstNode* def){
 		if(!def)return nullptr;
@@ -1557,6 +1563,17 @@ class Compiler{
 			llvm::Function* fn=mod->getFunction(mangledName);
 			if(!fn){
 				fn=mod->getFunction(vname);
+			}
+			if(!fn){
+				string searchClass=className;
+				while(!fn){
+					auto baseIt=classBaseMap.find(searchClass);
+					if(baseIt==classBaseMap.end()||baseIt->second.empty())break;
+					searchClass=baseIt->second;
+					string baseMangled=searchClass+"::"+vname;
+					fn=mod->getFunction(baseMangled);
+					if(!fn)fn=mod->getFunction(vname);
+				}
 			}
 			if(!fn){
 				error("internal error: virtual method '"+className+"::"+vname+"' not found for vtable");
@@ -2372,7 +2389,12 @@ class Compiler{
 				if(lt->isPointerTy()&&rt->isPointerTy()){
 					l=b.CreatePtrToInt(l,llvm::Type::getInt64Ty(ctx));
 					r=b.CreatePtrToInt(r,llvm::Type::getInt64Ty(ctx));
-					return b.CreateSDiv(b.CreateSub(l,r),llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),1));
+					llvm::Type* elemTy=llvm::Type::getInt8Ty(ctx);
+					MioType* lmt=resolveExprMioType(node->binary.left);
+					if(lmt&&lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind!=MioTypeKind::VOID)
+						elemTy=convertType(lmt->base_type);
+					uint64_t elemSize=mod->getDataLayout().getTypeAllocSize(elemTy);
+					return b.CreateSDiv(b.CreateSub(l,r),llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),elemSize));
 				}
 				return isFloat?b.CreateFSub(l,r):b.CreateSub(l,r);
 			case TOK_STAR:
@@ -2630,12 +2652,11 @@ class Compiler{
 					for(auto* cand:candidates){
 						bool match=true;
 						for(unsigned i=0;i<argTypes.size()&&i<cand->arg_size()-1;i++){
-							llvm::Type* paramTy=cand->getFunctionType()->getParamType(i+1); 
+							llvm::Type* paramTy=cand->getFunctionType()->getParamType(i+1);
 							if(argTypes[i]&&argTypes[i]!=paramTy){
-								
 								if(argTypes[i]->isPointerTy()&&paramTy->isPointerTy()){
-							if(argTypes[i]==paramTy)continue;
-						}
+									continue;
+								}
 								match=false;
 								break;
 							}
@@ -3814,7 +3835,7 @@ public:
 			ok=linkExecutable(obj_path,exe_path,static_link,link_libs,bundled_lib_path);
 			if(ok){
 				fprintf(stdout,"Generated: %s\n",exe_path.c_str());
-				std::remove(obj_path.c_str());
+				if(!release)std::remove(obj_path.c_str());
 			}else{
 				fprintf(stderr,"error: linking failed for '%s'\n",exe_path.c_str());
 			}

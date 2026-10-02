@@ -8,6 +8,7 @@
 #include<string>
 #include<vector>
 #include<unordered_map>
+using std::string;
 struct KeywordEntry{
 	const char* keyword;
 	TokenKind kind;
@@ -30,6 +31,7 @@ public:
 		tok_free(peekToken);
 	}
 	Token* next(){
+		tok_free(current);
 		current=peekToken;
 		peekToken=preprocess_token();
 		return current;
@@ -238,6 +240,10 @@ private:
 			}
 		}
 		if(cur()=='"')advance();
+		else{
+			fprintf(stderr,"error:%d:%d: unterminated string literal\n",line,startCol);
+			exit(1);
+		}
 		buffer[length]='\0';
 		Token* t=tok_new(TOK_STRING_LIT,buffer,line,startCol);
 		free(buffer);
@@ -246,10 +252,18 @@ private:
 	Token* charLit(){
 		int startCol=col;
 		advance();
+		if(cur()=='\0'){
+			fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
+			exit(1);
+		}
 		char c=cur();
 		if(c=='\\'){
 			advance();
 			char next=cur();
+			if(next=='\0'){
+				fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
+				exit(1);
+			}
 			switch(next){
 				case 'n':  c='\n';break;
 				case 't':  c='\t';break;
@@ -264,6 +278,10 @@ private:
 			advance();
 		}
 		if(cur()=='\'')advance();
+		else{
+			fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
+			exit(1);
+		}
 		Token* t=tok_new(TOK_CHAR_LIT,string(),line,startCol);
 		t->char_val=c;
 		return t;

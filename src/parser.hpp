@@ -9,6 +9,7 @@
 #include<unordered_map>
 #include<cstdio>
 static int g_error_count=0;
+using std::string;
 #include<cstdlib>
 #include<cstring>
 extern FilenamePool g_filename_pool;

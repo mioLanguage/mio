@@ -6,6 +6,7 @@
 #include<vector>
 #include<cstdio>
 #include<set>
+using std::string;
 struct FilenamePool{
 	std::set<string> pool;
 	const string* get(const string& s){
@@ -102,7 +103,7 @@ public:
 	MioType(MioType&& other) noexcept
 		: kind(other.kind),name(std::move(other.name)),
 		  array_size(other.array_size),ref_count(other.ref_count),
-		  line(other.line),col(other.col),is_const(other.is_const),
+		  line(other.line),col(other.col),filename(other.filename),is_const(other.is_const),
 		  value_args(std::move(other.value_args)),
 		  base_type(other.base_type),
 		  param_types(std::move(other.param_types)){
@@ -112,17 +113,20 @@ public:
 		if(this==&other) return *this;
 		if(base_type){ delete base_type; }
 		for(auto* p:param_types){ delete p; }
+		param_types.clear();
 		kind=other.kind;
 		name=std::move(other.name);
 		array_size=other.array_size;
 		ref_count=other.ref_count;
 		line=other.line;
 		col=other.col;
+		filename=other.filename;
 		is_const=other.is_const;
 		value_args=std::move(other.value_args);
 		base_type=other.base_type;
 		param_types=std::move(other.param_types);
 		other.base_type=nullptr;
+		other.filename=nullptr;
 		return *this;
 	}
 	const char* c_name() const{

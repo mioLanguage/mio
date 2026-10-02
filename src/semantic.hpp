@@ -6,9 +6,8 @@
 #include<vector>
 #include<unordered_map>
 #include<unordered_set>
-
+using std::string;
 extern int g_error_count;
-
 class AstCloner{
 public:
 	std::unordered_map<string,MioType*>* typeSubst;
@@ -115,37 +114,37 @@ public:
 				return cloned;
 			}
 			case AstNodeKind::IDENT_EXPR:{
-			if(exprSubst){
-				auto it=exprSubst->find(node->ident.name);
-				if(it!=exprSubst->end()){
-					return cloneNode(it->second);
+				if(exprSubst){
+					auto it=exprSubst->find(node->ident.name);
+					if(it!=exprSubst->end()){
+						return cloneNode(it->second);
+					}
 				}
+				auto* cloned=new AstNode(AstNodeKind::IDENT_EXPR,node->line,node->col,fn);
+				cloned->ident.name=node->ident.name;
+				cloned->ident.namespace_name=node->ident.namespace_name;
+				return cloned;
 			}
-			auto* cloned=new AstNode(AstNodeKind::IDENT_EXPR,node->line,node->col,fn);
-			cloned->ident.name=node->ident.name;
-			cloned->ident.namespace_name=node->ident.namespace_name;
-			return cloned;
-		}
-		case AstNodeKind::INT_LIT:{
-			auto* cloned=new AstNode(AstNodeKind::INT_LIT,node->line,node->col,fn);
-			cloned->int_lit.value=node->int_lit.value;
-			return cloned;
-		}
-		case AstNodeKind::FLOAT_LIT:{
-			auto* cloned=new AstNode(AstNodeKind::FLOAT_LIT,node->line,node->col,fn);
-			cloned->float_lit.value=node->float_lit.value;
-			return cloned;
-		}
-		case AstNodeKind::STRING_LIT:{
-			auto* cloned=new AstNode(AstNodeKind::STRING_LIT,node->line,node->col,fn);
-			cloned->string_lit.value=node->string_lit.value;
-			return cloned;
-		}
-		case AstNodeKind::BOOL_LIT:{
-			auto* cloned=new AstNode(AstNodeKind::BOOL_LIT,node->line,node->col,fn);
-			cloned->bool_lit.value=node->bool_lit.value;
-			return cloned;
-		}
+			case AstNodeKind::INT_LIT:{
+				auto* cloned=new AstNode(AstNodeKind::INT_LIT,node->line,node->col,fn);
+				cloned->int_lit.value=node->int_lit.value;
+				return cloned;
+			}
+			case AstNodeKind::FLOAT_LIT:{
+				auto* cloned=new AstNode(AstNodeKind::FLOAT_LIT,node->line,node->col,fn);
+				cloned->float_lit.value=node->float_lit.value;
+				return cloned;
+			}
+			case AstNodeKind::STRING_LIT:{
+				auto* cloned=new AstNode(AstNodeKind::STRING_LIT,node->line,node->col,fn);
+				cloned->string_lit.value=node->string_lit.value;
+				return cloned;
+			}
+			case AstNodeKind::BOOL_LIT:{
+				auto* cloned=new AstNode(AstNodeKind::BOOL_LIT,node->line,node->col,fn);
+				cloned->bool_lit.value=node->bool_lit.value;
+				return cloned;
+			}
 			case AstNodeKind::CALL_EXPR:{
 				auto* cloned=new AstNode(AstNodeKind::CALL_EXPR,node->line,node->col,fn);
 				cloned->call.callee=cloneNode(node->call.callee);
@@ -161,12 +160,12 @@ public:
 				return cloned;
 			}
 			case AstNodeKind::MEMBER_EXPR:{
-			auto* cloned=new AstNode(AstNodeKind::MEMBER_EXPR,node->line,node->col,fn);
-			cloned->member.base=cloneNode(node->member.base);
-			cloned->member.member=node->member.member;
-			cloned->member.arrow=node->member.arrow;
-			return cloned;
-		}
+				auto* cloned=new AstNode(AstNodeKind::MEMBER_EXPR,node->line,node->col,fn);
+				cloned->member.base=cloneNode(node->member.base);
+				cloned->member.member=node->member.member;
+				cloned->member.arrow=node->member.arrow;
+				return cloned;
+			}
 			case AstNodeKind::ASSIGN_EXPR:{
 				auto* cloned=new AstNode(AstNodeKind::ASSIGN_EXPR,node->line,node->col,fn);
 				cloned->assign.left=cloneNode(node->assign.left);
@@ -175,11 +174,11 @@ public:
 				return cloned;
 			}
 			case AstNodeKind::CAST_EXPR:{
-			auto* cloned=new AstNode(AstNodeKind::CAST_EXPR,node->line,node->col,fn);
-			cloned->cast_expr.target_type=cloneType(node->cast_expr.target_type);
-			cloned->cast_expr.expr=cloneNode(node->cast_expr.expr);
-			return cloned;
-		}
+				auto* cloned=new AstNode(AstNodeKind::CAST_EXPR,node->line,node->col,fn);
+				cloned->cast_expr.target_type=cloneType(node->cast_expr.target_type);
+				cloned->cast_expr.expr=cloneNode(node->cast_expr.expr);
+				return cloned;
+			}
 			case AstNodeKind::SIZEOF_EXPR:{
 				auto* cloned=new AstNode(AstNodeKind::SIZEOF_EXPR,node->line,node->col,fn);
 				cloned->sizeof_expr.target_type=cloneType(node->sizeof_expr.target_type);
@@ -201,8 +200,18 @@ public:
 			case AstNodeKind::BREAK_STMT:
 			case AstNodeKind::CONTINUE_STMT:
 				return new AstNode(node->kind,node->line,node->col,fn);
+			case AstNodeKind::GOTO_STMT:{
+				auto* cloned=new AstNode(AstNodeKind::GOTO_STMT,node->line,node->col,fn);
+				cloned->goto_stmt.label=node->goto_stmt.label;
+				return cloned;
+			}
+			case AstNodeKind::LABEL_STMT:{
+				auto* cloned=new AstNode(AstNodeKind::LABEL_STMT,node->line,node->col,fn);
+				cloned->label_stmt.label=node->label_stmt.label;
+				return cloned;
+			}
 			default:
-				return node;
+				return new AstNode(node->kind,node->line,node->col,fn);
 		}
 	}
 };
@@ -768,10 +777,14 @@ private:
 	
 	void analyzeBlock(AstNode* block){
 		if(!block) return;
-		if(block->kind==AstNodeKind::BLOCK){
+		if(block->kind==AstNodeKind::BLOCK&&block->block.is_scope){
+			auto savedLocals=locals;
+			auto savedMioTypes=localMioTypes;
 			for(auto* stmt:block->block.stmts){
 				analyzeStmt(stmt);
 			}
+			locals=savedLocals;
+			localMioTypes=savedMioTypes;
 		}else{
 			analyzeStmt(block);
 		}
@@ -1260,6 +1273,10 @@ private:
 				}
 				if(rmt&&rmt->kind==MioTypeKind::POINTER&&rmt->base_type&&rmt->base_type->kind==MioTypeKind::VOID&&node->binary.op==TOK_PLUS){
 					error(node,"cannot perform pointer arithmetic on void*");
+					return;
+				}
+				if(lmt&&lmt->kind==MioTypeKind::POINTER&&rmt&&rmt->kind==MioTypeKind::POINTER&&node->binary.op==TOK_PLUS){
+					error(node,"cannot add two pointers");
 					return;
 				}
 				break;

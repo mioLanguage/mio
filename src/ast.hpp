@@ -8,6 +8,7 @@
 #include<cstdio>
 #include<cstdlib>
 #include<cstring>
+using std::string;
 extern FilenamePool g_filename_pool;
 enum class AstNodeKind{
 	PROGRAM,

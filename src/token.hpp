@@ -5,6 +5,7 @@
 #include<cstdint>
 #include<cstdlib>
 #include<cstring>
+using std::string;
 #ifdef _WIN32
 #define mio_strdup _strdup
 #else
