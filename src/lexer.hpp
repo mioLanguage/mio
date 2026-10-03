@@ -31,7 +31,6 @@ public:
 		tok_free(peekToken);
 	}
 	Token* next(){
-		tok_free(current);
 		current=peekToken;
 		peekToken=preprocess_token();
 		return current;
@@ -203,66 +202,48 @@ private:
 	Token* stringLit(){
 		int startCol=col;
 		advance();
-		char* buffer=(char*)malloc(256);
-		if(!buffer){
-			fprintf(stderr,"fatal: out of memory\n");
-			exit(1);
-		}
-		int capacity=256;
-		int length=0;
+		string tmp;
 		while(cur()!='"'&&cur()!='\0'){
-			if(length>=capacity-1){
-				capacity*=2;
-				char* newBuffer=(char*)realloc(buffer,capacity);
-				if(!newBuffer){
-					free(buffer);
-					fprintf(stderr,"fatal: out of memory\n");
-					exit(1);
-				}
-				buffer=newBuffer;
-			}
 			if(cur()=='\\'){
 				advance();
 				char next=cur();
 				switch(next){
-					case 'n':  buffer[length++]='\n';break;
-					case 't':  buffer[length++]='\t';break;
-					case 'r':  buffer[length++]='\r';break;
-					case '\\': buffer[length++]='\\';break;
-					case '"':  buffer[length++]='"'; break;
-					case '0':  buffer[length++]='\0';break;
-					default:   buffer[length++]=next;break;
+					case 'n':  tmp+='\n';break;
+					case 't':  tmp+='\t';break;
+					case 'r':  tmp+='\r';break;
+					case '\\': tmp+='\\';break;
+					case '"':  tmp+='"'; break;
+					case '0':  tmp+='\0';break;
+					default:   tmp+=next;break;
 				}
 				advance();
 			}else{
-				buffer[length++]=cur();
+				tmp+=cur();
 				advance();
 			}
 		}
 		if(cur()=='"')advance();
 		else{
-			fprintf(stderr,"error:%d:%d: unterminated string literal\n",line,startCol);
-			exit(1);
+			fprintf(stderr,"%s:%d:%d: error: unterminated string literal\n",filename.c_str(),line,startCol);
+			return tok_new(TOK_ERROR);
 		}
-		buffer[length]='\0';
-		Token* t=tok_new(TOK_STRING_LIT,buffer,line,startCol);
-		free(buffer);
+		Token* t=tok_new(TOK_STRING_LIT,tmp,line,startCol);
 		return t;
 	}
 	Token* charLit(){
 		int startCol=col;
 		advance();
 		if(cur()=='\0'){
-			fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
-			exit(1);
+			fprintf(stderr,"%s:%d:%d: error: unterminated character literal\n",filename.c_str(),line,startCol);
+			return tok_new(TOK_ERROR);
 		}
 		char c=cur();
 		if(c=='\\'){
 			advance();
 			char next=cur();
 			if(next=='\0'){
-				fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
-				exit(1);
+				fprintf(stderr,"%s:%d:%d: error: unterminated character literal\n",filename.c_str(),line,startCol);
+				return tok_new(TOK_ERROR);
 			}
 			switch(next){
 				case 'n':  c='\n';break;
@@ -279,8 +260,8 @@ private:
 		}
 		if(cur()=='\'')advance();
 		else{
-			fprintf(stderr,"error:%d:%d: unterminated character literal\n",line,startCol);
-			exit(1);
+			fprintf(stderr,"%s:%d:%d: error: unterminated character literal\n",filename.c_str(),line,startCol);
+			return tok_new(TOK_ERROR);
 		}
 		Token* t=tok_new(TOK_CHAR_LIT,string(),line,startCol);
 		t->char_val=c;
@@ -300,7 +281,7 @@ private:
 				continue;
 			}
 			if(depth==0&&((int)t->kind==IK_AT_ELIF||(int)t->kind==IK_AT_ELSE||(int)t->kind==IK_AT_END)){
-				pos=t->line;line=t->line;col=t->col;bol=t->line;
+				line=t->line;col=t->col;
 				tok_free(t);
 				return;
 			}

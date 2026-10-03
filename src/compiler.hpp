@@ -2011,8 +2011,19 @@ class Compiler{
 			llvm::Value* idx=genExpr(node->index_expr.index);
 			if(!idx)return nullptr;
 			llvm::Type* elemTy=resolveExprType(node);
-			if(!idx->getType()->isIntegerTy(64))
-				idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+			if(!idx->getType()->isIntegerTy(64)){
+				if(idx->getType()->isIntegerTy()){
+					auto* intTy=llvm::cast<llvm::IntegerType>(idx->getType());
+					if(intTy->getBitWidth()<=32){
+						idx=b.CreateZExt(idx,llvm::Type::getInt64Ty(ctx));
+					}else{
+						idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+					}
+				}else{
+					error(node->line,node->col,"internal error: index must be an integer type");
+					return nullptr;
+				}
+			}
 			if(baseMio->kind==MioTypeKind::ARRAY){
 				if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(base)){
 					llvm::Value* zero=llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx),0);
@@ -3072,9 +3083,9 @@ class Compiler{
 		}
 		
 		if(baseMio->kind!=MioTypeKind::POINTER&&baseMio->kind!=MioTypeKind::ARRAY){
-		error(node->line,node->col,"internal error: operator[] requires a pointer or class with operator[],but got '"+mio_type_str(baseMio)+"'");
-		return nullptr;
-	}
+			error(node->line,node->col,"internal error: operator[] requires a pointer or class with operator[],but got '"+mio_type_str(baseMio)+"'");
+			return nullptr;
+		}
 		
 		
 		llvm::Value* base=genExpr(node->index_expr.base);
@@ -3088,8 +3099,18 @@ class Compiler{
 			return nullptr;
 		}
 		llvm::Type* elemTy=resolveExprType(node);
-		if(!idx->getType()->isIntegerTy(64))
-			idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+		if(!idx->getType()->isIntegerTy(64)){
+			if(idx->getType()->isIntegerTy()){
+				auto* intTy=llvm::cast<llvm::IntegerType>(idx->getType());
+				if(intTy->getBitWidth()<=32){
+					idx=b.CreateZExt(idx,llvm::Type::getInt64Ty(ctx));
+				}else{
+					idx=b.CreateSExt(idx,llvm::Type::getInt64Ty(ctx));
+				}
+			}else{
+				idx=b.CreateZExt(idx,llvm::Type::getInt64Ty(ctx));
+			}
+		}
 		llvm::Value* ptr;
 	if(baseMio->kind==MioTypeKind::ARRAY){
 		if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(base)){
@@ -3786,10 +3807,10 @@ public:
 		bool useCache=false;
 		if(release){
 			string cache_obj_path=base_name+".o";
-			struct stat st;
-			if(stat(cache_obj_path.c_str(),&st)==0){
-				struct stat src_st;
-				if(stat(input_file.c_str(),&src_st)==0){
+			mio_stat_t st;
+			if(mio_stat(cache_obj_path.c_str(),&st)==0){
+				mio_stat_t src_st;
+				if(mio_stat(input_file.c_str(),&src_st)==0){
 					if(st.st_mtime>=src_st.st_mtime){
 						useCache=true;
 						fprintf(stdout,"[cache] using cached object file '%s'\n",cache_obj_path.c_str());

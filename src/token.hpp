@@ -225,6 +225,7 @@ const string tok_name(TokenKind kind){
 		case TOK_VARARG: return "...";
 		case TOK_TEMPLATE: return "template";
 		case TOK_TYPENAME: return "typename";
+		case TOK_SIZEOF: return "sizeof";
 		default: return "UNKNOWN";
 	}
 }
@@ -235,11 +236,7 @@ Token*tok_new(TokenKind kind,const string&lexeme,int line,int col){
 		exit(1);
 	}
 	t->kind=kind;
-	if(!lexeme.empty()){
-		t->lexeme=lexeme;
-	}else{
-		t->lexeme="";
-	}
+	t->lexeme=lexeme;
 	t->line=line;
 	t->col=col;
 	return t;

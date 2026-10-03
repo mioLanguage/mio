@@ -530,6 +530,10 @@ private:
 				error_expected("expression");
 				return ast_new_int_lit(0,t->line,t->col,fn());
 			}
+			case TOK_ERROR:
+				error("got an error token");
+				advance();
+				return ast_new_int_lit(0,t->line,t->col,fn());
 			default:
 				error_expected("expression");
 				advance();

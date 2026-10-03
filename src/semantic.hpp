@@ -412,6 +412,8 @@ public:
 				for(auto* nc:node->class_def.nested_classes){
 					if(nc->kind==AstNodeKind::TYPE_ALIAS){
 						typeAliases[name+"::"+nc->type_alias.name]=mio_type_clone(nc->type_alias.aliased_type);
+					}else if(nc->kind==AstNodeKind::CLASS_DEF){
+						registerDecl(nc);
 					}
 				}
 				break;
@@ -697,6 +699,7 @@ private:
 				if(initType&&!isTypeCompatible(varType,initType)){
 					error(node,"type mismatch: variable '"+varName+"' declared as '"+mio_type_str(varType)+"', initialized with '"+mio_type_str(initType)+"'");
 				}
+				mio_type_free(initType);
 			}else{
 				MioType* inferredType=nullptr;
 				MioType* t=resolveExprMioType(initExpr);
@@ -777,14 +780,16 @@ private:
 	
 	void analyzeBlock(AstNode* block){
 		if(!block) return;
-		if(block->kind==AstNodeKind::BLOCK&&block->block.is_scope){
+		if(block->kind==AstNodeKind::BLOCK){
 			auto savedLocals=locals;
 			auto savedMioTypes=localMioTypes;
 			for(auto* stmt:block->block.stmts){
 				analyzeStmt(stmt);
 			}
-			locals=savedLocals;
-			localMioTypes=savedMioTypes;
+			if(block->block.is_scope){
+				locals=savedLocals;
+				localMioTypes=savedMioTypes;
+			}
 		}else{
 			analyzeStmt(block);
 		}
@@ -862,6 +867,7 @@ private:
 						if(initType&&!isTypeCompatible(stmt->var_decl.var_type,initType)){
 							error(stmt,"type mismatch: variable '"+stmt->var_decl.name+"' declared as '"+mio_type_str(stmt->var_decl.var_type)+"', initialized with '"+mio_type_str(initType)+"'");
 						}
+						mio_type_free(initType);
 					}
 				}
 				MioType* inferredType=stmt->var_decl.var_type;
@@ -897,6 +903,7 @@ private:
 						if(initType&&!isTypeCompatible(stmt->const_decl.var_type,initType)){
 							error(stmt,"type mismatch: constant '"+stmt->const_decl.name+"' declared as '"+mio_type_str(stmt->const_decl.var_type)+"', initialized with '"+mio_type_str(initType)+"'");
 						}
+						mio_type_free(initType);
 					}
 				}
 				MioType* inferredType=stmt->const_decl.var_type;
@@ -998,6 +1005,7 @@ private:
 						if(retType&&!isTypeCompatible(currentFuncReturnType,retType)){
 							error(stmt,"return type mismatch: expected '"+mio_type_str(currentFuncReturnType)+"', got '"+mio_type_str(retType)+"'");
 						}
+						mio_type_free(retType);
 					}
 				}else if(currentFuncReturnType&&currentFuncReturnType->kind!=MioTypeKind::VOID){
 					error(stmt,"non-void function must return a value");
@@ -1114,6 +1122,8 @@ private:
 		for(auto* nc:node->class_def.nested_classes){
 			if(nc->kind==AstNodeKind::TYPE_ALIAS){
 				checkType(nc->type_alias.aliased_type,node);
+			}else if(nc->kind==AstNodeKind::CLASS_DEF){
+				analyzeClassDef(nc);
 			}
 		}
 		currentClassName=savedClassName;
@@ -1269,14 +1279,20 @@ private:
 			case TOK_MINUS:{
 				if(lmt&&lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::VOID){
 					error(node,"cannot perform pointer arithmetic on void*");
+					mio_type_free(lmt);
+					mio_type_free(rmt);
 					return;
 				}
 				if(rmt&&rmt->kind==MioTypeKind::POINTER&&rmt->base_type&&rmt->base_type->kind==MioTypeKind::VOID&&node->binary.op==TOK_PLUS){
 					error(node,"cannot perform pointer arithmetic on void*");
+					mio_type_free(lmt);
+					mio_type_free(rmt);
 					return;
 				}
 				if(lmt&&lmt->kind==MioTypeKind::POINTER&&rmt&&rmt->kind==MioTypeKind::POINTER&&node->binary.op==TOK_PLUS){
 					error(node,"cannot add two pointers");
+					mio_type_free(lmt);
+					mio_type_free(rmt);
 					return;
 				}
 				break;
@@ -1284,6 +1300,8 @@ private:
 			default: break;
 		}
 		if(!node->type&&lmt)node->type=mio_type_clone(lmt);
+		mio_type_free(lmt);
+		mio_type_free(rmt);
 	}
 	
 	void checkUnaryExpr(AstNode* node){
@@ -1298,10 +1316,12 @@ private:
 				}
 				if(operandType->kind!=MioTypeKind::POINTER&&operandType->kind!=MioTypeKind::REFERENCE&&operandType->kind!=MioTypeKind::RVALUE_REFERENCE){
 					error(node,"cannot dereference non-pointer type '"+mio_type_str(operandType)+"'");
+					mio_type_free(operandType);
 					return;
 				}
 				if(operandType->kind==MioTypeKind::POINTER&&operandType->base_type&&operandType->base_type->kind==MioTypeKind::VOID){
 					error(node,"cannot dereference pointer to void");
+					mio_type_free(operandType);
 					return;
 				}
 				break;
@@ -1309,10 +1329,12 @@ private:
 			case TOK_BIT_AND:{
 				if(node->unary.operand->kind!=AstNodeKind::IDENT_EXPR&&node->unary.operand->kind!=AstNodeKind::MEMBER_EXPR&&node->unary.operand->kind!=AstNodeKind::INDEX_EXPR&&node->unary.operand->kind!=AstNodeKind::UNARY_EXPR){
 					error(node,"cannot take address of non-lvalue expression");
+					mio_type_free(operandType);
 					return;
 				}
 				if(node->unary.operand->kind==AstNodeKind::UNARY_EXPR&&node->unary.operand->unary.op!=TOK_STAR){
 					error(node,"cannot take address of non-lvalue expression");
+					mio_type_free(operandType);
 					return;
 				}
 				break;
@@ -1337,6 +1359,7 @@ private:
 				if(operandType) node->type=mio_type_clone(operandType);
 				break;
 		}
+		mio_type_free(operandType);
 	}
 	
 	void checkFuncPtrCall(AstNode* node,const string& calleeName,MioType* funcType){
@@ -1371,6 +1394,7 @@ private:
 			if(argType&&!isTypeCompatible(funcType->param_types[i],argType)){
 				error(node,"function pointer call argument "+std::to_string(i+1)+" type mismatch: expected '"+mio_type_str(funcType->param_types[i])+"', got '"+mio_type_str(argType)+"'");
 			}
+			mio_type_free(argType);
 		}
 		node->type=mio_type_clone(funcType->base_type);
 	}
@@ -1401,6 +1425,7 @@ private:
 						MioType* at=resolveExprMioType(node->call.args[i]);
 						string atStr=at?mio_type_str(at):"";
 						opMangled+=atStr;
+						mio_type_free(at);
 					}
 					opMangled+=")";
 					string foundOp;
@@ -1417,6 +1442,7 @@ private:
 							MioType* at=resolveExprMioType(node->call.args[i]);
 							string atStr=at?mio_type_str(at):"";
 							shortMangled+=atStr;
+							mio_type_free(at);
 						}
 						shortMangled+=")";
 						if(funcDecls.count(shortMangled))foundOp=shortMangled;
@@ -1439,6 +1465,7 @@ private:
 							for(size_t i=0;i<paramTypes.size();i++){
 								MioType* at=resolveExprMioType(node->call.args[i]);
 								string atStr=at?mio_type_str(at):"";
+								mio_type_free(at);
 								if(!canImplicitConvertStr(atStr,paramTypes[i])){allConvert=false;break;}
 							}
 							if(allConvert)implicitMatches.push_back(c);
@@ -1498,6 +1525,7 @@ private:
 								if(i>0)mangled+=",";
 								MioType* at=resolveExprMioType(node->call.args[i]);
 								mangled+=at?mio_type_str(at):"";
+								mio_type_free(at);
 							}
 							mangled+=")";
 							if(funcDecls.count(mangled))exactMatches.push_back(ctorName);
@@ -1508,6 +1536,7 @@ private:
 									for(size_t i=0;i<paramTypes.size();i++){
 										MioType* at=resolveExprMioType(node->call.args[i]);
 										string atStr=at?mio_type_str(at):"";
+										mio_type_free(at);
 										if(!canImplicitConvertStr(atStr,paramTypes[i])){allConvert=false;break;}
 									}
 									if(allConvert)implicitMatches.push_back(ctorName);
@@ -1533,6 +1562,7 @@ private:
 								if(i>0)mangled+=",";
 								MioType* at=resolveExprMioType(node->call.args[i]);
 								mangled+=at?mio_type_str(at):"";
+								mio_type_free(at);
 							}
 							mangled+=")";
 							node->call.resolved_op_method=mangled;
@@ -1879,6 +1909,7 @@ private:
 			if(!isTypeCompatible(paramType,argType)){
 				error(node,"argument "+std::to_string(i+1)+" type mismatch: expected '"+mio_type_str(paramType)+"', got '"+mio_type_str(argType)+"'");
 			}
+			mio_type_free(argType);
 		}
 		if(funcDef->func_def.return_type&&!node->type){
 			node->type=mio_type_clone(funcDef->func_def.return_type);
@@ -1924,7 +1955,18 @@ private:
 		if((eScalar&&aPtr)||(ePtr&&aScalar)) return true;
 		return false;
 	}
-	
+	bool isIntegerType(MioType* t){
+		if(!t) return true;
+		switch(t->kind){
+			case MioTypeKind::I8:case MioTypeKind::I16:case MioTypeKind::I32:case MioTypeKind::I64:case MioTypeKind::I128:
+			case MioTypeKind::U8:case MioTypeKind::U16:case MioTypeKind::U32:case MioTypeKind::U64:case MioTypeKind::U128:
+			case MioTypeKind::USIZE:case MioTypeKind::ISIZE:
+			case MioTypeKind::CHAR:case MioTypeKind::BOOL:
+			case MioTypeKind::ENUM:
+				return true;
+			default: return false;
+		}
+	}
 	void checkIndexExpr(AstNode* node){
 		if(!node||!node->index_expr.base||!node->index_expr.index) return;
 		checkExpr(node->index_expr.base);
@@ -1935,6 +1977,7 @@ private:
 				string className=resolveClassName(baseMio->name);
 				MioType* idxMio=resolveExprMioType(node->index_expr.index);
 				string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio,node);
+				mio_type_free(idxMio);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator[]");
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -1958,6 +2001,7 @@ private:
 				string className=resolveClassName(baseMio->base_type->name);
 				MioType* idxMio=resolveExprMioType(node->index_expr.index);
 				string opMethod=findOperatorMethod(className,TOK_LBRACKET,idxMio,node);
+				mio_type_free(idxMio);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator[]");
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -1977,9 +2021,16 @@ private:
 						node->type=mio_type_clone(defIt->second->func_def.return_type);
 					}
 				}
+			}else if(baseMio->kind==MioTypeKind::ARRAY||baseMio->kind==MioTypeKind::POINTER){
+				MioType* idxMio=resolveExprMioType(node->index_expr.index);
+				if(idxMio&&!isIntegerType(idxMio)){
+					error(node,"array/pointer index must be an integer type, got '"+mio_type_str(idxMio)+"'");
+				}
+				mio_type_free(idxMio);
 			}else if(baseMio->kind!=MioTypeKind::ARRAY&&baseMio->kind!=MioTypeKind::POINTER){
 				error(node,"operator[] requires array or pointer type");
 			}
+			mio_type_free(baseMio);
 		}
 	}
 	
@@ -2117,6 +2168,7 @@ private:
 			if(rmt&&!isTypeCompatible(lmt,rmt)){
 				error(node,"assignment type mismatch: expected '"+mio_type_str(lmt)+"', got '"+mio_type_str(rmt)+"'");
 			}
+			mio_type_free(rmt);
 		}
 		if(node->assign.op!=TOK_ASSIGN){
 			string className;
@@ -2127,6 +2179,7 @@ private:
 			if(!className.empty()){
 				MioType* rmt=resolveExprMioType(node->assign.right);
 				string opMethod=findOperatorMethod(className,node->assign.op,rmt,node);
+				mio_type_free(rmt);
 				if(opMethod.empty()){
 					error(node,"class '"+className+"' does not support operator"+tok_name(node->assign.op));
 					node->type=mio_type_new(MioTypeKind::I32);
@@ -2139,12 +2192,14 @@ private:
 			case TOK_MINUS_ASSIGN:{
 				if(lmt&&lmt->kind==MioTypeKind::POINTER&&lmt->base_type&&lmt->base_type->kind==MioTypeKind::VOID){
 					error(node,"cannot perform pointer arithmetic on void*");
+					mio_type_free(lmt);
 					return;
 				}
 				break;
 			}
 			default: break;
 		}
+		mio_type_free(lmt);
 	}
 	
 	void checkCastExpr(AstNode* node){
@@ -2661,21 +2716,28 @@ private:
 			while(t&&t->kind==MioTypeKind::REFERENCE){
 				t=t->base_type;
 			}
-			return t;
+			return t?mio_type_clone(t):nullptr;
 		}
 		switch(node->kind){
 			case AstNodeKind::UNARY_EXPR:
 				if(node->unary.op==TOK_BIT_AND){
 					MioType* inner=resolveExprMioType(node->unary.operand);
-					return inner?mio_type_new_pointer(inner):nullptr;
+					if(!inner) return nullptr;
+					MioType* r=mio_type_new_pointer(inner);
+					mio_type_free(inner);
+					return r;
 				}
 				if(node->unary.op==TOK_STAR){
 					MioType* inner=resolveExprMioType(node->unary.operand);
-					if(inner&&inner->kind==MioTypeKind::POINTER) return inner->base_type;
-					if(inner&&inner->kind==MioTypeKind::REFERENCE) return inner->base_type;
+					if(!inner) return nullptr;
+					if(inner->kind==MioTypeKind::POINTER||inner->kind==MioTypeKind::REFERENCE){
+						MioType* bt=inner->base_type?mio_type_clone(inner->base_type):nullptr;
+						mio_type_free(inner);
+						return bt;
+					}
+					mio_type_free(inner);
 					return nullptr;
 				}
-				return resolveExprMioType(node->unary.operand);
 			case AstNodeKind::BINARY_EXPR:{
 				switch(node->binary.op){
 					case TOK_EQ: case TOK_NEQ: case TOK_LT: case TOK_GT: case TOK_LTE: case TOK_GTE:
@@ -2683,9 +2745,9 @@ private:
 						return mio_type_new(MioTypeKind::BOOL);
 					default:{
 						MioType* lt=resolveExprMioType(node->binary.left);
-						if(lt) return mio_type_clone(lt);
+						if(lt){ MioType* r=mio_type_clone(lt); mio_type_free(lt); return r; }
 						MioType* rt=resolveExprMioType(node->binary.right);
-						if(rt) return mio_type_clone(rt);
+						if(rt){ MioType* r=mio_type_clone(rt); mio_type_free(rt); return r; }
 						return nullptr;
 					}
 				}
@@ -2693,11 +2755,13 @@ private:
 			case AstNodeKind::INDEX_EXPR:{
 				MioType* baseMio=resolveExprMioType(node->index_expr.base);
 				if(!baseMio) return nullptr;
+				MioType* elemType=nullptr;
 				if(baseMio->kind==MioTypeKind::POINTER&&baseMio->base_type)
-					return mio_type_clone(baseMio->base_type);
-				if(baseMio->kind==MioTypeKind::ARRAY&&baseMio->base_type)
-					return mio_type_clone(baseMio->base_type);
-				return nullptr;
+					elemType=mio_type_clone(baseMio->base_type);
+				else if(baseMio->kind==MioTypeKind::ARRAY&&baseMio->base_type)
+					elemType=mio_type_clone(baseMio->base_type);
+				mio_type_free(baseMio);
+				return elemType;
 			}
 			case AstNodeKind::INT_LIT: return mio_type_new(MioTypeKind::I32);
 			case AstNodeKind::FLOAT_LIT: return mio_type_new(MioTypeKind::F64);
