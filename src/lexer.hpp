@@ -2,7 +2,6 @@
 #define MIO_LEXER_HPP
 #include"token.hpp"
 #include<cstdlib>
-#include<cstring>
 #include<cctype>
 #include<cstdio>
 #include<string>
@@ -83,28 +82,13 @@ private:
 	Token* peekToken;
 	std::unordered_map<string,int> macros;
 	std::vector<CondState> cond_stack;
-	static char* mioStrndup(const char* s,int n){
-		char* buf=(char*)malloc(n+1);
-		if(!buf){
-			fprintf(stderr,"fatal: out of memory\n");
-			exit(1);
-		}
-		memcpy(buf,s,n);
-		buf[n]='\0';
-		return buf;
-	}
 	static const KeywordEntry keywords[];
 	char advance(){
 		char c=source[pos];
 		if(c=='\0')return c;
 		pos++;
-		if(c=='\n'){
-			line++;
-			col=1;
-			bol=pos;
-		}else{
-			col++;
-		}
+		if(c=='\n')line++,col=1,bol=pos;
+		else col++;
 		return c;
 	}
 	void skipWhitespace(){
@@ -148,9 +132,7 @@ private:
 		if(kind!=TOK_IDENT){
 			return tok_new(kind,string(),line,startCol);
 		}
-		char* textCopy=mioStrndup(text.c_str(),text.length());
-		Token* t=tok_new(TOK_IDENT,textCopy,line,startCol);
-		free(textCopy);
+		Token* t=tok_new(TOK_IDENT,text,line,startCol);
 		return t;
 	}
 	Token* number(){
@@ -182,21 +164,30 @@ private:
 				advance();
 				while(isdigit(cur()))advance();
 			}
+			if((cur()=='e'||cur()=='E')){
+				int save=pos;
+				int saveCol=col;
+				advance();
+				if(cur()=='+'||cur()=='-')advance();
+				if(isdigit(cur())){
+					isFloat=true;
+					while(isdigit(cur()))advance();
+				}else pos=save,col=saveCol;
+			}
 		}
 		int len=pos-start;
-		char* text=mioStrndup(source.c_str()+start,len);
+		string text=source.substr(start,len);
 		Token* t;
 		if(isFloat){
 			t=tok_new(TOK_FLOAT_LIT,text,line,startCol);
-			t->float_val=atof(text);
+			t->float_val=atof(text.c_str());
 		}else{
 			t=tok_new(TOK_INT_LIT,text,line,startCol);
-			if(isHex)t->int_val=strtoull(text,nullptr,16);
-			else if(isBin)t->int_val=strtoull(text+2,nullptr,2);
-			else if(isOct)t->int_val=strtoull(text+2,nullptr,8);
-			else t->int_val=strtoull(text,nullptr,10);
+			if(isHex)t->int_val=strtoull(text.c_str(),nullptr,16);
+			else if(isBin)t->int_val=strtoull(text.c_str()+2,nullptr,2);
+			else if(isOct)t->int_val=strtoull(text.c_str()+2,nullptr,8);
+			else t->int_val=strtoull(text.c_str(),nullptr,10);
 		}
-		free(text);
 		return t;
 	}
 	Token* stringLit(){
@@ -410,28 +401,46 @@ private:
 				}
 				while(isalnum(cur())||cur()=='_')advance();
 				int name_len=pos-name_start;
-				char* name_buf=mioStrndup(source.c_str()+name_start,name_len);
-				string name(name_buf);
-				free(name_buf);
+				string name=source.substr(name_start,name_len);
 				int macro_line=line;
 				int macro_col=col;
 				while(cur()==' '||cur()=='\t'||cur()=='\r')advance();
 				int ival=1;
 				if(cur()!='\0'&&cur()!='\n'){
 					int val_start=pos;
+					if(cur()=='-'||cur()=='+')advance();
 					if(isdigit(cur())){
-						while(isdigit(cur()))advance();
+						if(cur()=='0'&&(source[pos+1]=='x'||source[pos+1]=='X'||source[pos+1]=='b'||source[pos+1]=='B'||source[pos+1]=='o'||source[pos+1]=='O')){
+							advance();
+							advance();
+							while(isalnum(cur()))advance();
+						}else{
+							while(isdigit(cur()))advance();
+						}
 					}else if(isalpha(cur())||cur()=='_'){
 						while(isalnum(cur())||cur()=='_')advance();
-						ival=1;
 					}else{
 						while(cur()!='\n'&&cur()!='\0')advance();
 					}
 					int val_len=pos-val_start;
-					if(val_len>0&&isdigit(source[val_start])){
-						char* val_buf=mioStrndup(source.c_str()+val_start,val_len);
-						ival=atoi(val_buf);
-						free(val_buf);
+					while(cur()!='\n'&&cur()!='\0')advance();
+					if(val_len>0){
+						string val=source.substr(val_start,val_len);
+						bool neg=false;
+						if(!val.empty()&&(val[0]=='-'||val[0]=='+')){
+							neg=(val[0]=='-');
+							val=val.substr(1);
+						}
+						int base=10;
+						if(val.size()>1&&val[0]=='0'){
+							if(val[1]=='x'||val[1]=='X')base=16;
+							else if(val[1]=='b'||val[1]=='B')base=2;
+							else if(val[1]=='o'||val[1]=='O')base=8;
+						}
+						if(base!=10)val=val.substr(2);
+						if(!val.empty()&&isdigit(val[0]))
+							ival=(int)strtol(val.c_str(),nullptr,base);
+						if(neg)ival=-ival;
 					}
 				}
 				if(macros.find(name)!=macros.end()){
@@ -542,16 +551,13 @@ private:
 					while(isalnum(cur())||cur()=='_')
 						advance();
 					int len=pos-start;
-					char* text=mioStrndup(source.c_str()+start,len);
-					if(strcmp(text,"if")==0){free(text);return tok_new((TokenKind)IK_AT_IF,string(),lineNum,startCol);}
-					if(strcmp(text,"elif")==0){free(text);return tok_new((TokenKind)IK_AT_ELIF,string(),lineNum,startCol);}
-					if(strcmp(text,"else")==0){free(text);return tok_new((TokenKind)IK_AT_ELSE,string(),lineNum,startCol);}
-					if(strcmp(text,"end")==0){free(text);return tok_new((TokenKind)IK_AT_END,string(),lineNum,startCol);}
-					if(strcmp(text,"macro")==0){free(text);return tok_new((TokenKind)IK_AT_MACRO,string(),lineNum,startCol);}
-						char buf[64];
-						snprintf(buf,sizeof(buf),"unknown directive '@%s'",text);
-						free(text);
-						return tok_new(TOK_ERROR,buf,lineNum,colNum);
+					string text=source.substr(start,len);
+					if(text=="if")return tok_new((TokenKind)IK_AT_IF,string(),lineNum,startCol);
+					if(text=="elif")return tok_new((TokenKind)IK_AT_ELIF,string(),lineNum,startCol);
+					if(text=="else")return tok_new((TokenKind)IK_AT_ELSE,string(),lineNum,startCol);
+					if(text=="end")return tok_new((TokenKind)IK_AT_END,string(),lineNum,startCol);
+					if(text=="macro")return tok_new((TokenKind)IK_AT_MACRO,string(),lineNum,startCol);
+					return tok_new(TOK_ERROR,"unknown directive '@"+text+"'",lineNum,colNum);
 					}
 				default:{
 					char buf[64];
@@ -676,6 +682,7 @@ const KeywordEntry Lexer::keywords[]={
 	{"this",TOK_THIS},
 	{"template",TOK_TEMPLATE},{"typename",TOK_TYPENAME},
 	{"sizeof",TOK_SIZEOF},
+	{"as",TOK_AS},
 	{"i8",TOK_I8},{"i16",TOK_I16},{"i32",TOK_I32},{"i64",TOK_I64},{"i128",TOK_I128},
 	{"u8",TOK_U8},{"u16",TOK_U16},{"u32",TOK_U32},{"u64",TOK_U64},{"u128",TOK_U128},
 	{"usize",TOK_USIZE},{"isize",TOK_ISIZE},

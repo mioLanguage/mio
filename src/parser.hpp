@@ -53,7 +53,7 @@ private:
 		if(cur->kind==TOK_ERROR)
 			error(cur->lexeme);
 		else
-			error("expected  '"+expected+"',got '"+tok_name(cur->kind)+"'");
+			error("expected  '"+expected+"',got '"+tok_name(cur)+"'");
 	}
 	void advance(){
 		cur=lexer->next();
@@ -85,7 +85,7 @@ private:
 			case TOK_I8:case TOK_I16:case TOK_I32:case TOK_I64:case TOK_I128:
 			case TOK_U8:case TOK_U16:case TOK_U32:case TOK_U64:case TOK_U128:
 			case TOK_USIZE:case TOK_ISIZE:case TOK_F32:case TOK_F64:case TOK_BOOL:case TOK_CHAR:
-			case TOK_VOID:case TOK_TEMPLATE:case TOK_TYPENAME:case TOK_SIZEOF:
+			case TOK_VOID:case TOK_TEMPLATE:case TOK_TYPENAME:case TOK_SIZEOF:case TOK_AS:
 				return true;
 			default: return false;
 		}
@@ -96,7 +96,7 @@ private:
 			return true;
 		}
 		if(is_keyword_token(cur->kind)){
-			error("keyword '"+tok_name(cur->kind)+"' cannot be used as an identifier");
+			error("keyword '"+tok_name(cur)+"' cannot be used as an identifier");
 		}else{
 			error_expected("identifier");
 		}
@@ -307,8 +307,10 @@ private:
 						do{
 							if(is_type_token(cur->kind)){
 								mt->param_types.push_back(parse_type());
+								mt->arg_order.push_back('T');
 							}else{
 								mt->value_args.push_back(parse_expr());
+								mt->arg_order.push_back('V');
 							}
 						}while(match(TOK_COMMA));
 						if(!match(TOK_DOLLAR)){
@@ -327,8 +329,10 @@ private:
 					do{
 						if(is_type_token(cur->kind)){
 							mt->param_types.push_back(parse_type());
+							mt->arg_order.push_back('T');
 						}else{
 							mt->value_args.push_back(parse_expr());
+							mt->arg_order.push_back('V');
 						}
 					}while(match(TOK_COMMA));
 					if(!match(TOK_DOLLAR)){
@@ -590,7 +594,7 @@ private:
 			}else if(match(TOK_DOT)){
 				if(cur->kind!=TOK_IDENT){
 					if(is_keyword_token(cur->kind)){
-						error("keyword '"+tok_name(cur->kind)+"' cannot be used as a member name");
+						error("keyword '"+tok_name(cur)+"' cannot be used as a member name");
 					}else{
 						error_expected("identifier after '.'");
 					}
@@ -601,7 +605,7 @@ private:
 			}else if(match(TOK_ARROW)){
 				if(cur->kind!=TOK_IDENT){
 					if(is_keyword_token(cur->kind)){
-						error("keyword '"+tok_name(cur->kind)+"' cannot be used as a member name");
+						error("keyword '"+tok_name(cur)+"' cannot be used as a member name");
 					}else{
 						error_expected("identifier after '->'");
 					}
@@ -639,12 +643,12 @@ private:
 		}
 	}
 	AstNode* parse_multiplicative(){
-		auto* left=parse_unary();
+		auto* left=parse_as();
 		while(true){
 			TokenKind op=cur->kind;
 			if(op==TOK_STAR||op==TOK_SLASH||op==TOK_PERCENT){
 				advance();
-				left=ast_new_binary(left,op,parse_unary(),left->line,left->col,fn());
+				left=ast_new_binary(left,op,parse_as(),left->line,left->col,fn());
 			}else{
 				break;
 			}
@@ -731,6 +735,14 @@ private:
 		auto* left=parse_logical_and();
 		while(match(TOK_OR))
 			left=ast_new_binary(left,TOK_OR,parse_logical_and(),left->line,left->col,fn());
+		return left;
+	}
+	AstNode* parse_as(){
+		auto* left=parse_unary();
+		while(match(TOK_AS)){
+			MioType* targetType=parse_type();
+			left=ast_new_cast(targetType,left,left->line,left->col,fn());
+		}
 		return left;
 	}
 	AstNode* parse_assignment(){
@@ -979,8 +991,8 @@ private:
 				advance();
 			}else{
 				is_operator=true;
-				func_name="operator"+tok_name(cur->kind);
-				op_name=tok_name(cur->kind);
+				func_name="operator"+tok_name(cur);
+				op_name=tok_name(cur);
 				if(cur->kind==TOK_LBRACKET){
 					advance();
 					expect(TOK_RBRACKET);
@@ -998,7 +1010,7 @@ private:
 		}else if(cur->kind==TOK_LPAREN){
 			func_name=return_type->name.empty()?"constructor":return_type->name;
 		}else if(is_keyword_token(cur->kind)){
-			error("keyword '"+tok_name(cur->kind)+"' cannot be used as a function name");
+			error("keyword '"+tok_name(cur)+"' cannot be used as a function name");
 			mio_type_free(return_type);
 			return nullptr;
 		}else{
@@ -1065,7 +1077,7 @@ private:
 						error("expected '(' or '=' after field name '"+field_name+"' in initializer list");
 					}
 				}else{
-					error("expected field name in initializer list,got '"+tok_name(cur->kind)+"'");
+					error("expected field name in initializer list,got '"+tok_name(cur)+"'");
 					advance();
 				}
 				if(!match(TOK_COMMA))break;
@@ -1151,7 +1163,7 @@ private:
 			}
 			if(match(TOK_COLON)){
 				if(cur->kind==TOK_PUBLIC||cur->kind==TOK_PRIVATE||cur->kind==TOK_PROTECTED){
-					base_access=tok_name(cur->kind);
+					base_access=tok_name(cur);
 					advance();
 				}else{
 					error("expected 'public','private',or 'protected' after ':' in base class declaration");
@@ -1286,10 +1298,10 @@ private:
 						}
 					}
 				}else if(is_keyword_token(cur->kind)){
-					error("keyword '"+tok_name(cur->kind)+"' cannot be used as a class member name");
+					error("keyword '"+tok_name(cur)+"' cannot be used as a class member name");
 					advance();
 				}else{
-					error("expected field,method,or access specifier in class '"+name+"',got '"+tok_name(cur->kind)+"'");
+					error("expected field,method,or access specifier in class '"+name+"',got '"+tok_name(cur)+"'");
 					advance();
 				}
 			}

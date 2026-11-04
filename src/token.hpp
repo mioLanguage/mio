@@ -4,14 +4,8 @@
 #include<cstdio>
 #include<cstdint>
 #include<cstdlib>
-#include<cstring>
 using std::string;
-#ifdef _WIN32
-#define mio_strdup _strdup
-#else
-#define mio_strdup strdup
-#endif
-typedef enum{
+enum TokenKind{
 	TOK_EOF=0,
 	TOK_ERROR,
 	TOK_IDENT,
@@ -110,8 +104,9 @@ typedef enum{
 	TOK_TEMPLATE,
 	TOK_TYPENAME,
 	TOK_SIZEOF,
-}TokenKind;
-typedef struct{
+	TOK_AS,
+};
+struct Token{
 	TokenKind kind;
 	string lexeme;
 	int line;
@@ -122,8 +117,7 @@ typedef struct{
 		char char_val;
 		bool bool_val;
 	};
-}Token;
-const string tok_name(TokenKind kind);
+};
 Token*tok_new(TokenKind kind,const string&lexeme=string(),int line=0,int col=0);
 void tok_free(Token*tok);
 const string tok_name(TokenKind kind){
@@ -226,9 +220,11 @@ const string tok_name(TokenKind kind){
 		case TOK_TEMPLATE: return "template";
 		case TOK_TYPENAME: return "typename";
 		case TOK_SIZEOF: return "sizeof";
+		case TOK_AS: return "as";
 		default: return "UNKNOWN";
 	}
 }
+const string tok_name(Token*tok){return tok->kind==TOK_IDENT?tok->lexeme:tok_name(tok->kind);}
 Token*tok_new(TokenKind kind,const string&lexeme,int line,int col){
 	Token*t=new Token();
 	if(!t){

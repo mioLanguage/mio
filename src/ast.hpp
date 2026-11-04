@@ -256,132 +256,131 @@ public:
 		MioType* aliased_type;
 	} type_alias;
 	AstNode(AstNodeKind k,int l,int c,const string* fn=nullptr):kind(k),type(nullptr),filename(fn),line(l),col(c){}
-	~AstNode();
-};
-inline AstNode::~AstNode(){
-	mio_type_free(type);
-	switch(kind){
-		case AstNodeKind::PROGRAM:
-			for(auto*n:program.nodes)delete n;
+	~AstNode(){
+		mio_type_free(type);
+		switch(kind){
+			case AstNodeKind::PROGRAM:
+				for(auto*n:program.nodes)delete n;
+				break;
+			case AstNodeKind::IMPORT:
+				break;
+			case AstNodeKind::VAR_DECL:
+				mio_type_free(var_decl.var_type);
+				delete var_decl.init;
+				break;
+			case AstNodeKind::CONST_DECL:
+				mio_type_free(const_decl.var_type);
+				delete const_decl.init;
+				break;
+			case AstNodeKind::FUNC_DEF:
+				mio_type_free(func_def.return_type);
+				for(auto& p:func_def.params){mio_type_free(p.type);delete p.default_val;}
+				delete func_def.body;
+				for(auto& f:func_def.init_list)delete f.expr;
+				break;
+			case AstNodeKind::ENUM_DEF:
+				for(auto& v:enum_def.variants)delete v.init;
+				break;
+			case AstNodeKind::UNION_DEF:
+				for(auto& f:union_def.fields)mio_type_free(f.type);
+				break;
+			case AstNodeKind::CLASS_DEF:
+				for(auto& f:class_def.fields){
+				mio_type_free(f.type);
+				delete f.init;
+			}
+			for(auto*m:class_def.methods)delete m;
+			for(auto* ctor:class_def.constructors)delete ctor;
+			delete class_def.destructor;
+			for(auto* nc:class_def.nested_classes)delete nc;
 			break;
-		case AstNodeKind::IMPORT:
-			break;
-		case AstNodeKind::VAR_DECL:
-			mio_type_free(var_decl.var_type);
-			delete var_decl.init;
-			break;
-		case AstNodeKind::CONST_DECL:
-			mio_type_free(const_decl.var_type);
-			delete const_decl.init;
-			break;
-		case AstNodeKind::FUNC_DEF:
-			mio_type_free(func_def.return_type);
-			for(auto& p:func_def.params){mio_type_free(p.type);delete p.default_val;}
-			delete func_def.body;
-			for(auto& f:func_def.init_list)delete f.expr;
-			break;
-		case AstNodeKind::ENUM_DEF:
-			for(auto& v:enum_def.variants)delete v.init;
-			break;
-		case AstNodeKind::UNION_DEF:
-			for(auto& f:union_def.fields)mio_type_free(f.type);
-			break;
-		case AstNodeKind::CLASS_DEF:
-			for(auto& f:class_def.fields){
-			mio_type_free(f.type);
-			delete f.init;
+			case AstNodeKind::BLOCK:
+				for(auto*s:block.stmts)delete s;
+				break;
+			case AstNodeKind::IF_STMT:
+				delete if_stmt.cond;
+				delete if_stmt.then_body;
+				delete if_stmt.else_body;
+				break;
+			case AstNodeKind::WHILE_STMT:
+				delete while_stmt.cond;
+				delete while_stmt.body;
+				break;
+			case AstNodeKind::FOR_STMT:
+				delete for_stmt.init;
+				delete for_stmt.cond;
+				delete for_stmt.update;
+				delete for_stmt.body;
+				break;
+			case AstNodeKind::GOTO_STMT:
+				break;
+			case AstNodeKind::LABEL_STMT:
+				break;
+			case AstNodeKind::RETURN_STMT:
+				delete return_stmt.value;
+				break;
+			case AstNodeKind::EXPR_STMT:
+				delete expr_stmt.expr;
+				break;
+			case AstNodeKind::BINARY_EXPR:
+				delete binary.left;
+				delete binary.right;
+				break;
+			case AstNodeKind::UNARY_EXPR:
+				delete unary.operand;
+				break;
+			case AstNodeKind::CALL_EXPR:
+				delete call.callee;
+				for(auto*a:call.args)delete a;
+				for(auto& t:call.template_args){
+					if(t.is_type)mio_type_free(t.type_val);
+					else delete t.expr_val;
+				}
+				break;
+			case AstNodeKind::INDEX_EXPR:
+				delete index_expr.base;
+				delete index_expr.index;
+				break;
+			case AstNodeKind::MEMBER_EXPR:
+				delete member.base;
+				break;
+			case AstNodeKind::IDENT_EXPR:
+				break;
+			case AstNodeKind::STRING_LIT:
+				break;
+			case AstNodeKind::ARRAY_LIT:
+				for(auto*e:array_lit.elements)delete e;
+				break;
+			case AstNodeKind::CAST_EXPR:
+				mio_type_free(cast_expr.target_type);
+				delete cast_expr.expr;
+				break;
+			case AstNodeKind::ASSIGN_EXPR:
+				delete assign.left;
+				delete assign.right;
+				break;
+			case AstNodeKind::TEMPLATE_DEF:
+				for(auto& tp:template_def.type_params){
+					mio_type_free(tp.type);
+					mio_type_free(tp.default_type);
+					delete tp.default_val;
+				}
+				delete template_def.def;
+				break;
+			case AstNodeKind::SIZEOF_EXPR:
+				mio_type_free(sizeof_expr.target_type);
+				break;
+			case AstNodeKind::LITERAL_OP_EXPR:
+				delete literal_op.operand;
+				break;
+			case AstNodeKind::TYPE_ALIAS:
+				mio_type_free(type_alias.aliased_type);
+				break;
+			default:
+				break;
 		}
-		for(auto*m:class_def.methods)delete m;
-		for(auto* ctor:class_def.constructors)delete ctor;
-		delete class_def.destructor;
-		for(auto* nc:class_def.nested_classes)delete nc;
-		break;
-		case AstNodeKind::BLOCK:
-			for(auto*s:block.stmts)delete s;
-			break;
-		case AstNodeKind::IF_STMT:
-			delete if_stmt.cond;
-			delete if_stmt.then_body;
-			delete if_stmt.else_body;
-			break;
-		case AstNodeKind::WHILE_STMT:
-			delete while_stmt.cond;
-			delete while_stmt.body;
-			break;
-		case AstNodeKind::FOR_STMT:
-			delete for_stmt.init;
-			delete for_stmt.cond;
-			delete for_stmt.update;
-			delete for_stmt.body;
-			break;
-		case AstNodeKind::GOTO_STMT:
-			break;
-		case AstNodeKind::LABEL_STMT:
-			break;
-		case AstNodeKind::RETURN_STMT:
-			delete return_stmt.value;
-			break;
-		case AstNodeKind::EXPR_STMT:
-			delete expr_stmt.expr;
-			break;
-		case AstNodeKind::BINARY_EXPR:
-			delete binary.left;
-			delete binary.right;
-			break;
-		case AstNodeKind::UNARY_EXPR:
-			delete unary.operand;
-			break;
-		case AstNodeKind::CALL_EXPR:
-			delete call.callee;
-			for(auto*a:call.args)delete a;
-			for(auto& t:call.template_args){
-				if(t.is_type)mio_type_free(t.type_val);
-				else delete t.expr_val;
-			}
-			break;
-		case AstNodeKind::INDEX_EXPR:
-			delete index_expr.base;
-			delete index_expr.index;
-			break;
-		case AstNodeKind::MEMBER_EXPR:
-			delete member.base;
-			break;
-		case AstNodeKind::IDENT_EXPR:
-			break;
-		case AstNodeKind::STRING_LIT:
-			break;
-		case AstNodeKind::ARRAY_LIT:
-			for(auto*e:array_lit.elements)delete e;
-			break;
-		case AstNodeKind::CAST_EXPR:
-			mio_type_free(cast_expr.target_type);
-			delete cast_expr.expr;
-			break;
-		case AstNodeKind::ASSIGN_EXPR:
-			delete assign.left;
-			delete assign.right;
-			break;
-		case AstNodeKind::TEMPLATE_DEF:
-			for(auto& tp:template_def.type_params){
-				mio_type_free(tp.type);
-				mio_type_free(tp.default_type);
-				delete tp.default_val;
-			}
-			delete template_def.def;
-			break;
-		case AstNodeKind::SIZEOF_EXPR:
-			mio_type_free(sizeof_expr.target_type);
-			break;
-		case AstNodeKind::LITERAL_OP_EXPR:
-			delete literal_op.operand;
-			break;
-		case AstNodeKind::TYPE_ALIAS:
-			mio_type_free(type_alias.aliased_type);
-			break;
-		default:
-			break;
 	}
-}
+};
 inline AstNode*ast_new(AstNodeKind kind,int line,int col,const string* fn){
 	return new AstNode(kind,line,col,fn);
 }
@@ -393,11 +392,6 @@ inline void ast_program_add(AstNode*program,AstNode*node){
 }
 inline void ast_block_add(AstNode*block,AstNode*stmt){
 	block->block.stmts.push_back(stmt);
-}
-inline AstNode*ast_new_import(const string& path,int line,int col,const string* fn){
-	auto*n=new AstNode(AstNodeKind::IMPORT,line,col,fn);
-	n->import.path=path;
-	return n;
 }
 inline AstNode*ast_new_var_decl(const string& name,MioType*type,AstNode*init,bool is_static,bool is_extern,int line,int col,const string* fn){
 	auto*n=new AstNode(AstNodeKind::VAR_DECL,line,col,fn);

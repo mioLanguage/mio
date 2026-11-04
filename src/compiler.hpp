@@ -126,10 +126,42 @@ class Compiler{
 				}
 			case MioTypeKind::CLASS:{
 				if(!mt->name.empty()){
-					if(!mt->param_types.empty()){
-						string instName=mt->name;
-						for(auto* pt:mt->param_types)
-							instName+="_"+mio_type_str(pt);
+					if(mt->name.find('$')!=string::npos){
+						auto cit0=classTypes.find(mt->name);
+						if(cit0!=classTypes.end())
+							return cit0->second;
+						if(classTypes.count(mt->name))
+							return classTypes[mt->name];
+						return llvm::StructType::create(ctx,mt->name);
+					}
+					if(!mt->param_types.empty()||!mt->value_args.empty()){
+						string instName=mt->name+"$";
+						{
+							size_t ti=0,vi=0;bool firstArg=true;
+							auto app=[&](const string& s){
+								if(!firstArg)instName+=",";
+								instName+=s;
+								firstArg=false;
+							};
+							if(mt->arg_order.empty()){
+								for(auto* pt:mt->param_types)app(mio_type_str(pt));
+								for(auto* va:mt->value_args)app(ast_value_str(va));
+							}else{
+								for(char c:mt->arg_order){
+									if(c=='T'){
+										if(ti<mt->param_types.size())app(mio_type_str(mt->param_types[ti]));
+										ti++;
+									}else{
+										if(vi<mt->value_args.size())app(ast_value_str(mt->value_args[vi]));
+										vi++;
+									}
+								}
+							}
+						}
+						instName+="$";
+						auto cit=classTypes.find(instName);
+						if(cit!=classTypes.end())
+							return cit->second;
 						if(classTypes.count(instName))
 							return classTypes[instName];
 						llvm::StructType* fwdSt=llvm::StructType::create(ctx,instName);
@@ -277,9 +309,13 @@ class Compiler{
 				if(node->type)return convertType(node->type);
 				string sn;
 				if(node->member.base->type){
-					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
-						sn=node->member.base->type->base_type->name;
-					else if(!node->member.base->type->name.empty())
+					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type){
+						MioType* inner=node->member.base->type->base_type;
+						if(!inner->name.empty())
+							sn=inner->name;
+						else if(inner->kind==MioTypeKind::POINTER&&inner->base_type&&!inner->base_type->name.empty())
+							sn=inner->base_type->name;
+					}else if(!node->member.base->type->name.empty())
 						sn=node->member.base->type->name;
 				}
 				if(sn.empty()&&node->member.base->kind==AstNodeKind::IDENT_EXPR){
@@ -493,10 +529,6 @@ class Compiler{
 		}
 		return "";
 	}
-	template<typename T>
-	bool existsInMap(const string& name,const std::unordered_map<string,T>& map){
-		return map.find(name)!=map.end();
-	}
 	llvm::StructType* findStructType(const string& name){
 		if(name.empty())return nullptr;
 		if(name.find("::")!=string::npos){
@@ -551,57 +583,11 @@ class Compiler{
 				break;
 			}
 			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts){
-					genDecl(stmt);
-				}
 				break;
 			default:break;
 		}
 	}
 	
-	void declareTypesForward(AstNode* node){
-		if(!node)return;
-		switch(node->kind){
-			case AstNodeKind::CLASS_DEF:{
-				string mangled=mangleName(node->class_def.name);
-				if(classTypes.count(mangled))break;
-				auto* st=llvm::StructType::create(ctx,mangled);
-				classTypes[mangled]=st;
-				forwardDeclaredClasses.insert(mangled);
-				break;
-			}
-			case AstNodeKind::UNION_DEF:{
-				string mangled=mangleName(node->union_def.name);
-				if(classTypes.count(mangled))break;
-				auto* st=llvm::StructType::create(ctx,mangled);
-				classTypes[mangled]=st;
-				break;
-			}
-			case AstNodeKind::BLOCK:
-				for(auto* stmt:node->block.stmts){
-					declareTypesForward(stmt);
-				}
-				break;
-			case AstNodeKind::NAMESPACE_DEF:{
-				string savedNs=currentNamespace;
-				if(!currentNamespace.empty())
-					currentNamespace=currentNamespace+"::"+node->namespace_def.name;
-				else
-					currentNamespace=node->namespace_def.name;
-				for(auto* decl:node->namespace_def.body){
-					declareTypesForward(decl);
-				}
-				currentNamespace=savedNs;
-				break;
-			}
-			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts){
-					declareTypesForward(stmt);
-				}
-				break;
-			default:break;
-		}
-	}
 	void declareFuncForward(AstNode* node){
 		if(!node)return;
 		switch(node->kind){
@@ -626,9 +612,6 @@ class Compiler{
 				break;
 			}
 			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts){
-					declareFuncForward(stmt);
-				}
 				break;
 			default:break;
 		}
@@ -685,8 +668,6 @@ class Compiler{
 				break;
 			}
 			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts)
-					declareAll(stmt);
 				break;
 			default:break;
 		}
@@ -725,8 +706,6 @@ class Compiler{
 				break;
 			}
 			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts)
-					genBodies(stmt);
 				break;
 			default:break;
 		}
@@ -2036,11 +2015,15 @@ class Compiler{
 				llvm::Value* base=genLValue(node->member.base);
 				if(!base)base=genExpr(node->member.base);
 				if(!base)return nullptr;
-		string className;
+				string className;
 				if(node->member.base->type){
-					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
-						className=node->member.base->type->base_type->name;
-					else if(!node->member.base->type->name.empty())
+					if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type){
+						MioType* inner=node->member.base->type->base_type;
+						if(!inner->name.empty())
+							className=inner->name;
+						else if(inner->kind==MioTypeKind::POINTER&&inner->base_type&&!inner->base_type->name.empty())
+							className=inner->base_type->name;
+					}else if(!node->member.base->type->name.empty())
 						className=node->member.base->type->name;
 				}
 				if(className.empty()&&node->member.base->kind==AstNodeKind::IDENT_EXPR){
@@ -2079,13 +2062,16 @@ class Compiler{
 						return nullptr;
 					}
 				}
+				bool lvalueLoadedFromAlloca=false;
+				if(auto* lai=llvm::dyn_cast<llvm::AllocaInst>(base)){
+					if(lai->getAllocatedType()->isPointerTy())lvalueLoadedFromAlloca=true;
+				}
 				bool lvalueBaseIsPointer=false;
 				if(node->member.base->type&&node->member.base->type->kind==MioTypeKind::POINTER){
-					if(node->member.base->kind==AstNodeKind::IDENT_EXPR){
-						lvalueBaseIsPointer=false;
-					}else{
-						lvalueBaseIsPointer=true;
-					}
+					bool lvAlreadyDeref=lvalueLoadedFromAlloca;
+					if(node->member.base->kind==AstNodeKind::UNARY_EXPR
+						&&node->member.base->unary.op==TOK_BIT_AND)lvAlreadyDeref=true;
+					lvalueBaseIsPointer=!lvAlreadyDeref;
 				}else if(node->member.base->kind==AstNodeKind::MEMBER_EXPR){
 					string lvalueBaseClassName;
 					if(node->member.base->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->member.base->ident.name=="this"){
@@ -2743,20 +2729,12 @@ class Compiler{
 			auto* base=node->call.callee->member.base;
 			string method=node->call.callee->member.member;
 			string className;
-			if(base->type&&!base->type->name.empty()){
-				className=base->type->name;
-				if(!base->type->param_types.empty()){
-					for(auto* pt:base->type->param_types)
-						className+="_"+mio_type_str(pt);
-				}
-				if(base->type->kind==MioTypeKind::POINTER&&base->type->base_type&&!base->type->base_type->name.empty()){
-					className=base->type->base_type->name;
-					if(!base->type->base_type->param_types.empty()){
-						className=base->type->base_type->name;
-						for(auto* pt:base->type->base_type->param_types)
-							className+="_"+mio_type_str(pt);
-					}
-				}
+			MioType* mt0=base->type;
+			while(mt0&&(mt0->kind==MioTypeKind::POINTER||mt0->kind==MioTypeKind::REFERENCE||mt0->kind==MioTypeKind::RVALUE_REFERENCE)){
+				mt0=mt0->base_type;
+			}
+			if(mt0&&(mt0->kind==MioTypeKind::CLASS||mt0->kind==MioTypeKind::UNION||mt0->kind==MioTypeKind::ENUM)&&!mt0->name.empty()){
+				className=mt0->name;
 			}
 			else if(base->kind==AstNodeKind::IDENT_EXPR){
 				if(base->ident.name=="this"&&!currentClassName.empty()){
@@ -3153,9 +3131,13 @@ class Compiler{
 		}
 		string className;
 		if(node->member.base->type){
-			if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type&&!node->member.base->type->base_type->name.empty())
-				className=node->member.base->type->base_type->name;
-			else if(!node->member.base->type->name.empty())
+			if(node->member.base->type->kind==MioTypeKind::POINTER&&node->member.base->type->base_type){
+				MioType* inner=node->member.base->type->base_type;
+				if(!inner->name.empty())
+					className=inner->name;
+				else if(inner->kind==MioTypeKind::POINTER&&inner->base_type&&!inner->base_type->name.empty())
+					className=inner->base_type->name;
+			}else if(!node->member.base->type->name.empty())
 				className=node->member.base->type->name;
 		}
 		if(className.empty()&&node->member.base->kind==AstNodeKind::IDENT_EXPR){
@@ -3187,13 +3169,21 @@ class Compiler{
 			}
 			
 			llvm::Value* ptr=base;
+			bool loadedFromAlloca=false;
 			if(auto* ai=llvm::dyn_cast<llvm::AllocaInst>(ptr)){
-				if(ai->getAllocatedType()->isPointerTy())
+				if(ai->getAllocatedType()->isPointerTy()){
 					ptr=b.CreateLoad(ai->getAllocatedType(),ptr);
+					loadedFromAlloca=true;
+				}
 			}
 			bool baseIsPointer=false;
 			if(node->member.base->type&&node->member.base->type->kind==MioTypeKind::POINTER){
-				baseIsPointer=true;
+				bool alreadyDeref=loadedFromAlloca;
+				if(node->member.base->kind==AstNodeKind::UNARY_EXPR
+					&&node->member.base->unary.op==TOK_BIT_AND)alreadyDeref=true;
+				if(!alreadyDeref){
+					baseIsPointer=true;
+				}
 			}else if(node->member.base->kind==AstNodeKind::MEMBER_EXPR){
 				string baseClassName;
 				if(node->member.base->member.base->kind==AstNodeKind::IDENT_EXPR&&node->member.base->member.base->ident.name=="this"){
@@ -3465,9 +3455,6 @@ public:
 				break;
 			}
 			case AstNodeKind::IMPORT:
-				for(auto* stmt:node->block.stmts){
-					declareClassForward(stmt);
-				}
 				break;
 			default:break;
 		}

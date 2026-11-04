@@ -54,6 +54,7 @@ public:
 	MioType* base_type;
 	std::vector<MioType*> param_types;
 	std::vector<AstNode*> value_args;
+	std::vector<char> arg_order;
 	bool is_const;
 	bool is_variadic;
 	MioType(MioTypeKind k): kind(k),array_size(0),ref_count(0),line(0),col(0),filename(nullptr),base_type(nullptr),is_const(false),is_variadic(false) {}
@@ -74,6 +75,7 @@ public:
 		is_const=other.is_const;
 		is_variadic=other.is_variadic;
 		value_args=other.value_args;
+		arg_order=other.arg_order;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -94,6 +96,7 @@ public:
 		is_const=other.is_const;
 		is_variadic=other.is_variadic;
 		value_args=other.value_args;
+		arg_order=other.arg_order;
 		base_type=other.base_type ? new MioType(*other.base_type):nullptr;
 		for(auto* p:other.param_types){
 			param_types.push_back(new MioType(*p));
@@ -103,10 +106,12 @@ public:
 	MioType(MioType&& other) noexcept
 		: kind(other.kind),name(std::move(other.name)),
 		  array_size(other.array_size),ref_count(other.ref_count),
-		  line(other.line),col(other.col),filename(other.filename),is_const(other.is_const),
-		  value_args(std::move(other.value_args)),
+		  line(other.line),col(other.col),filename(other.filename),
 		  base_type(other.base_type),
-		  param_types(std::move(other.param_types)){
+		  param_types(std::move(other.param_types)),
+		  value_args(std::move(other.value_args)),
+		  arg_order(std::move(other.arg_order)),
+		  is_const(other.is_const),is_variadic(other.is_variadic){
 		other.base_type=nullptr;
 	}
 	MioType& operator=(MioType&& other) noexcept{
@@ -123,6 +128,7 @@ public:
 		filename=other.filename;
 		is_const=other.is_const;
 		value_args=std::move(other.value_args);
+		arg_order=std::move(other.arg_order);
 		base_type=other.base_type;
 		param_types=std::move(other.param_types);
 		other.base_type=nullptr;
