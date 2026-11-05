@@ -404,17 +404,17 @@ namespace std {
 	# ============================================================
 	template$T:typename$
 	*T allocate(n: u64) {
-		return malloc(n * sizeof(T)) as *T;
+		return (*T)(malloc(n*sizeof(T)));
 	}
 	template$T:typename$
 	void deallocate(ptr: *T) {
 		if(ptr != 0) {
-			free(ptr as *char);
+			free(ptr);
 		}
 	}
 	template$T:typename$
 	*T reallocate(ptr: *T,n: u64) {
-		return realloc(ptr as *char,n * sizeof(T)) as *T;
+		return (*T)(realloc(ptr,n*sizeof(T)));
 	}
 
 	# ============================================================

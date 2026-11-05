@@ -44,6 +44,7 @@ enum class AstNodeKind{
 	CHAR_LIT,
 	ARRAY_LIT,
 	CAST_EXPR,
+	TYPE_EXPR,
 	ASSIGN_EXPR,
 	TEMPLATE_DEF,
 	SIZEOF_EXPR,
@@ -234,6 +235,9 @@ public:
 		AstNode*expr;
 	} cast_expr;
 	struct{
+		MioType*type;
+	} type_expr;
+	struct{
 		AstNode*left,*right;
 		TokenKind op;
 		string resolved_op_method;
@@ -354,6 +358,9 @@ public:
 			case AstNodeKind::CAST_EXPR:
 				mio_type_free(cast_expr.target_type);
 				delete cast_expr.expr;
+				break;
+			case AstNodeKind::TYPE_EXPR:
+				mio_type_free(type_expr.type);
 				break;
 			case AstNodeKind::ASSIGN_EXPR:
 				delete assign.left;
@@ -575,6 +582,11 @@ inline AstNode*ast_new_cast(MioType*type,AstNode*expr,int line,int col,const str
 	auto*n=new AstNode(AstNodeKind::CAST_EXPR,line,col,fn);
 	n->cast_expr.target_type=type;
 	n->cast_expr.expr=expr;
+	return n;
+}
+inline AstNode*ast_new_type_expr(MioType*type,int line,int col,const string* fn){
+	auto*n=new AstNode(AstNodeKind::TYPE_EXPR,line,col,fn);
+	n->type_expr.type=type;
 	return n;
 }
 inline AstNode*ast_new_assign(AstNode*left,TokenKind op,AstNode*right,int line,int col,const string* fn){

@@ -69,6 +69,12 @@ public:
 		current=saved_current;peekToken=saved_peek;
 		return result;
 	}
+	void save_lexer_state(int&sp,int&sl,int&sc,int&sb,Token*&scur,Token*&spek)const{
+		sp=pos;sl=line;sc=col;sb=bol;scur=current;spek=peekToken;
+	}
+	void restore_lexer_state(int sp,int sl,int sc,int sb,Token* scur,Token* spek){
+		pos=sp;line=sl;col=sc;bol=sb;current=scur;peekToken=spek;
+	}
 private:
 	enum InternalKind:int{
 		IK_AT_IF=1000,IK_AT_ELIF,IK_AT_ELSE,IK_AT_END,IK_AT_MACRO
@@ -682,7 +688,6 @@ const KeywordEntry Lexer::keywords[]={
 	{"this",TOK_THIS},
 	{"template",TOK_TEMPLATE},{"typename",TOK_TYPENAME},
 	{"sizeof",TOK_SIZEOF},
-	{"as",TOK_AS},
 	{"i8",TOK_I8},{"i16",TOK_I16},{"i32",TOK_I32},{"i64",TOK_I64},{"i128",TOK_I128},
 	{"u8",TOK_U8},{"u16",TOK_U16},{"u32",TOK_U32},{"u64",TOK_U64},{"u128",TOK_U128},
 	{"usize",TOK_USIZE},{"isize",TOK_ISIZE},

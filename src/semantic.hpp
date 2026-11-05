@@ -177,6 +177,11 @@ public:
 				cloned->cast_expr.expr=cloneNode(node->cast_expr.expr);
 				return cloned;
 			}
+			case AstNodeKind::TYPE_EXPR:{
+				auto* cloned=new AstNode(AstNodeKind::TYPE_EXPR,node->line,node->col,fn);
+				cloned->type_expr.type=cloneType(node->type_expr.type);
+				return cloned;
+			}
 			case AstNodeKind::SIZEOF_EXPR:{
 				auto* cloned=new AstNode(AstNodeKind::SIZEOF_EXPR,node->line,node->col,fn);
 				cloned->sizeof_expr.target_type=cloneType(node->sizeof_expr.target_type);
@@ -1168,6 +1173,10 @@ private:
 			case AstNodeKind::STRING_LIT:
 				node->type=mio_type_new_pointer(mio_type_new(MioTypeKind::CHAR));
 				break;
+			case AstNodeKind::TYPE_EXPR:
+				checkType(node->type_expr.type,node);
+				node->type=mio_type_new(MioTypeKind::VOID);
+				break;
 			case AstNodeKind::SIZEOF_EXPR:
 				if(node->sizeof_expr.target_type)
 					checkType(node->sizeof_expr.target_type,node);
@@ -1408,6 +1417,57 @@ private:
 	}
 	void checkCallExpr(AstNode* node){
 		if(!node||!node->call.callee) return;
+		{
+			int ptrLevel=0;
+			AstNode* callee=node->call.callee;
+			while(callee->kind==AstNodeKind::UNARY_EXPR&&callee->unary.op==TOK_STAR&&callee->unary.operand){
+				ptrLevel++;
+				callee=callee->unary.operand;
+			}
+			if(ptrLevel>0&&callee->kind==AstNodeKind::TYPE_EXPR){
+				if(node->call.args.size()!=1){
+					error(node,"type cast expects exactly 1 argument");
+					return;
+				}
+				MioType* innerType=callee->type_expr.type;
+				callee->type_expr.type=nullptr;
+				MioType* targetType=innerType;
+				for(int i=0;i<ptrLevel;i++)
+					targetType=mio_type_new_pointer(targetType);
+				AstNode* arg=node->call.args[0];
+				delete node->call.callee;
+				node->kind=AstNodeKind::CAST_EXPR;
+				node->cast_expr.target_type=targetType;
+				node->cast_expr.expr=arg;
+				checkCastExpr(node);
+				return;
+			}
+		}
+		if(node->call.callee->kind==AstNodeKind::TYPE_EXPR){
+			MioType* mt=node->call.callee->type_expr.type;
+			bool isClass=mt&&mt->kind==MioTypeKind::CLASS;
+			if(!isClass&&node->call.args.size()!=1){
+				error(node,"type cast expects exactly 1 argument");
+				return;
+			}
+			if(!isClass){
+				MioType* targetType=mt;
+				node->call.callee->type_expr.type=nullptr;
+				AstNode* arg=node->call.args[0];
+				delete node->call.callee;
+				node->kind=AstNodeKind::CAST_EXPR;
+				node->cast_expr.target_type=targetType;
+				node->cast_expr.expr=arg;
+				checkCastExpr(node);
+				return;
+			}
+			string typeName=mt->name;
+			mio_type_free(mt);
+			node->call.callee->type_expr.type=nullptr;
+			auto* ident=ast_new_ident(typeName,node->call.callee->line,node->call.callee->col,node->call.callee->filename);
+			delete node->call.callee;
+			node->call.callee=ident;
+		}
 		checkExpr(node->call.callee);
 		for(auto* arg:node->call.args)
 			checkExpr(arg);

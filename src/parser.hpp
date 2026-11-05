@@ -23,8 +23,8 @@ public:
 	std::vector<string> include_paths;
 	std::vector<string> imported_files;
 	std::unordered_set<string> class_names;
+	std::vector<TemplateParam>* current_type_params=nullptr;
 	std::unordered_map<string,std::unordered_map<string,bool>> class_virtual_methods;
-	std::unordered_map<string,string> class_base_map;
 	std::unordered_map<string,std::unordered_set<string>> class_method_names;
 	Parser(Lexer* l,const string& f,const std::vector<string>& paths):lexer(l),filename(f),include_paths(paths){
 		cur=lexer->current;
@@ -85,7 +85,7 @@ private:
 			case TOK_I8:case TOK_I16:case TOK_I32:case TOK_I64:case TOK_I128:
 			case TOK_U8:case TOK_U16:case TOK_U32:case TOK_U64:case TOK_U128:
 			case TOK_USIZE:case TOK_ISIZE:case TOK_F32:case TOK_F64:case TOK_BOOL:case TOK_CHAR:
-			case TOK_VOID:case TOK_TEMPLATE:case TOK_TYPENAME:case TOK_SIZEOF:case TOK_AS:
+			case TOK_VOID:case TOK_TEMPLATE:case TOK_TYPENAME:case TOK_SIZEOF:
 				return true;
 			default: return false;
 		}
@@ -450,6 +450,34 @@ private:
 				string name=t->lexeme;
 				int line=t->line,col=t->col;
 				advance();
+				bool is_type_param=false;
+				if(current_type_params){
+					for(auto& tp:*current_type_params){
+						if(tp.is_type&&tp.name==name){is_type_param=true;break;}
+					}
+				}
+				if(is_type_param){
+					auto* mt=mio_type_new_named(MioTypeKind::CLASS,name);
+					mt->line=line;mt->col=col;
+					mt->filename=fn();
+					if(!in_template_param&&match(TOK_DOLLAR)){
+						in_template_param=true;
+						do{
+							if(is_type_token(cur->kind)){
+								mt->param_types.push_back(parse_type());
+								mt->arg_order.push_back('T');
+							}else{
+								mt->value_args.push_back(parse_expr());
+								mt->arg_order.push_back('V');
+							}
+						}while(match(TOK_COMMA));
+						if(!match(TOK_DOLLAR)){
+							error_expected("'$'");
+						}
+						in_template_param=false;
+					}
+					return ast_new_type_expr(mt,line,col,fn());
+				}
 				if(cur->kind==TOK_STAR&&peek->kind==TOK_LPAREN){
 					advance();
 					advance();
@@ -499,15 +527,19 @@ private:
 				expect(TOK_RBRACE);
 				return arr;
 			}
-			case TOK_I32:case TOK_I64:case TOK_I128:
-			case TOK_U32:case TOK_U64:case TOK_U128:
+			case TOK_I8:case TOK_I16:case TOK_I32:case TOK_I64:case TOK_I128:
+			case TOK_U8:case TOK_U16:case TOK_U32:case TOK_U64:case TOK_U128:
 			case TOK_F32:case TOK_F64:
-			case TOK_BOOL:case TOK_CHAR:{
+			case TOK_BOOL:case TOK_CHAR:case TOK_USIZE:case TOK_ISIZE:{
 				MioTypeKind k;
 				switch(t->kind){
+					case TOK_I8: k=MioTypeKind::I8;break;
+					case TOK_I16: k=MioTypeKind::I16;break;
 					case TOK_I32: k=MioTypeKind::I32;break;
 					case TOK_I64: k=MioTypeKind::I64;break;
 					case TOK_I128: k=MioTypeKind::I128;break;
+					case TOK_U8: k=MioTypeKind::U8;break;
+					case TOK_U16: k=MioTypeKind::U16;break;
 					case TOK_U32: k=MioTypeKind::U32;break;
 					case TOK_U64: k=MioTypeKind::U64;break;
 					case TOK_U128: k=MioTypeKind::U128;break;
@@ -515,6 +547,8 @@ private:
 					case TOK_F64: k=MioTypeKind::F64;break;
 					case TOK_BOOL: k=MioTypeKind::BOOL;break;
 					case TOK_CHAR: k=MioTypeKind::CHAR;break;
+					case TOK_USIZE: k=MioTypeKind::USIZE;break;
+					case TOK_ISIZE: k=MioTypeKind::ISIZE;break;
 					default: k=MioTypeKind::CLASS;break;
 				}
 				advance();
@@ -531,8 +565,7 @@ private:
 					expect(TOK_RPAREN);
 					return ast_new_cast(mio_type_new(k),expr,t->line,t->col,fn());
 				}
-				error_expected("expression");
-				return ast_new_int_lit(0,t->line,t->col,fn());
+				return ast_new_type_expr(mio_type_new(k),t->line,t->col,fn());
 			}
 			case TOK_ERROR:
 				error("got an error token");
@@ -643,12 +676,12 @@ private:
 		}
 	}
 	AstNode* parse_multiplicative(){
-		auto* left=parse_as();
+		auto* left=parse_unary();
 		while(true){
 			TokenKind op=cur->kind;
 			if(op==TOK_STAR||op==TOK_SLASH||op==TOK_PERCENT){
 				advance();
-				left=ast_new_binary(left,op,parse_as(),left->line,left->col,fn());
+				left=ast_new_binary(left,op,parse_unary(),left->line,left->col,fn());
 			}else{
 				break;
 			}
@@ -735,14 +768,6 @@ private:
 		auto* left=parse_logical_and();
 		while(match(TOK_OR))
 			left=ast_new_binary(left,TOK_OR,parse_logical_and(),left->line,left->col,fn());
-		return left;
-	}
-	AstNode* parse_as(){
-		auto* left=parse_unary();
-		while(match(TOK_AS)){
-			MioType* targetType=parse_type();
-			left=ast_new_cast(targetType,left,left->line,left->col,fn());
-		}
 		return left;
 	}
 	AstNode* parse_assignment(){
@@ -1148,7 +1173,7 @@ private:
 		if(class_names.count(name)){
 			error("class '"+name+"' is already defined");
 		}
-		class_names.insert(name);
+		if(!class_consumed)class_names.insert(name);
 		string base_name;
 		string base_access;
 		if(match(TOK_LPAREN)){
@@ -1174,7 +1199,6 @@ private:
 		}
 		expect(TOK_LBRACE);
 		auto* c=ast_new_class_def(name,base_name,base_access,line,col,fn());
-		class_base_map[name]=base_name;
 		Access cur_access=Access::PUBLIC;
 		std::unordered_set<string> field_names;
 		while(!check(TOK_RBRACE)&&!check(TOK_EOF)){
@@ -1375,9 +1399,10 @@ private:
 			error_expected("'$' after template parameters");
 			return nullptr;
 		}
-		auto savedClassNames=class_names;
+		auto* saved_current_type_params=current_type_params;
+		current_type_params=&type_params;
 		auto* def=parse_decl();
-		class_names=savedClassNames;
+		current_type_params=saved_current_type_params;
 		if(!def){
 			error("expected declaration after template");
 			return nullptr;

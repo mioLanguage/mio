@@ -104,7 +104,6 @@ enum TokenKind{
 	TOK_TEMPLATE,
 	TOK_TYPENAME,
 	TOK_SIZEOF,
-	TOK_AS,
 };
 struct Token{
 	TokenKind kind;
@@ -220,7 +219,6 @@ const string tok_name(TokenKind kind){
 		case TOK_TEMPLATE: return "template";
 		case TOK_TYPENAME: return "typename";
 		case TOK_SIZEOF: return "sizeof";
-		case TOK_AS: return "as";
 		default: return "UNKNOWN";
 	}
 }
