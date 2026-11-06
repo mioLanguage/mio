@@ -23,7 +23,6 @@ public:
 	std::vector<string> include_paths;
 	std::vector<string> imported_files;
 	std::unordered_set<string> class_names;
-	std::vector<TemplateParam>* current_type_params=nullptr;
 	std::unordered_map<string,std::unordered_map<string,bool>> class_virtual_methods;
 	std::unordered_map<string,std::unordered_set<string>> class_method_names;
 	Parser(Lexer* l,const string& f,const std::vector<string>& paths):lexer(l),filename(f),include_paths(paths){
@@ -450,34 +449,6 @@ private:
 				string name=t->lexeme;
 				int line=t->line,col=t->col;
 				advance();
-				bool is_type_param=false;
-				if(current_type_params){
-					for(auto& tp:*current_type_params){
-						if(tp.is_type&&tp.name==name){is_type_param=true;break;}
-					}
-				}
-				if(is_type_param){
-					auto* mt=mio_type_new_named(MioTypeKind::CLASS,name);
-					mt->line=line;mt->col=col;
-					mt->filename=fn();
-					if(!in_template_param&&match(TOK_DOLLAR)){
-						in_template_param=true;
-						do{
-							if(is_type_token(cur->kind)){
-								mt->param_types.push_back(parse_type());
-								mt->arg_order.push_back('T');
-							}else{
-								mt->value_args.push_back(parse_expr());
-								mt->arg_order.push_back('V');
-							}
-						}while(match(TOK_COMMA));
-						if(!match(TOK_DOLLAR)){
-							error_expected("'$'");
-						}
-						in_template_param=false;
-					}
-					return ast_new_type_expr(mt,line,col,fn());
-				}
 				if(cur->kind==TOK_STAR&&peek->kind==TOK_LPAREN){
 					advance();
 					advance();
@@ -565,7 +536,7 @@ private:
 					expect(TOK_RPAREN);
 					return ast_new_cast(mio_type_new(k),expr,t->line,t->col,fn());
 				}
-				return ast_new_type_expr(mio_type_new(k),t->line,t->col,fn());
+				return ast_new_ident(tok_name(t->kind),t->line,t->col,fn());
 			}
 			case TOK_ERROR:
 				error("got an error token");
@@ -1399,10 +1370,7 @@ private:
 			error_expected("'$' after template parameters");
 			return nullptr;
 		}
-		auto* saved_current_type_params=current_type_params;
-		current_type_params=&type_params;
 		auto* def=parse_decl();
-		current_type_params=saved_current_type_params;
 		if(!def){
 			error("expected declaration after template");
 			return nullptr;

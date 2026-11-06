@@ -118,8 +118,19 @@ public:
 						return cloneNode(it->second);
 					}
 				}
+				string name=node->ident.name;
+				if(typeSubst){
+					auto it=typeSubst->find(name);
+					if(it!=typeSubst->end()){
+						MioType* sub=it->second;
+						if(sub->kind==MioTypeKind::CLASS)
+							name=sub->name;
+						else
+							name=mio_type_str(sub);
+					}
+				}
 				auto* cloned=new AstNode(AstNodeKind::IDENT_EXPR,node->line,node->col,fn);
-				cloned->ident.name=node->ident.name;
+				cloned->ident.name=name;
 				cloned->ident.namespace_name=node->ident.namespace_name;
 				return cloned;
 			}
@@ -175,11 +186,6 @@ public:
 				auto* cloned=new AstNode(AstNodeKind::CAST_EXPR,node->line,node->col,fn);
 				cloned->cast_expr.target_type=cloneType(node->cast_expr.target_type);
 				cloned->cast_expr.expr=cloneNode(node->cast_expr.expr);
-				return cloned;
-			}
-			case AstNodeKind::TYPE_EXPR:{
-				auto* cloned=new AstNode(AstNodeKind::TYPE_EXPR,node->line,node->col,fn);
-				cloned->type_expr.type=cloneType(node->type_expr.type);
 				return cloned;
 			}
 			case AstNodeKind::SIZEOF_EXPR:{
@@ -1173,10 +1179,6 @@ private:
 			case AstNodeKind::STRING_LIT:
 				node->type=mio_type_new_pointer(mio_type_new(MioTypeKind::CHAR));
 				break;
-			case AstNodeKind::TYPE_EXPR:
-				checkType(node->type_expr.type,node);
-				node->type=mio_type_new(MioTypeKind::VOID);
-				break;
 			case AstNodeKind::SIZEOF_EXPR:
 				if(node->sizeof_expr.target_type)
 					checkType(node->sizeof_expr.target_type,node);
@@ -1419,54 +1421,55 @@ private:
 		if(!node||!node->call.callee) return;
 		{
 			int ptrLevel=0;
-			AstNode* callee=node->call.callee;
-			while(callee->kind==AstNodeKind::UNARY_EXPR&&callee->unary.op==TOK_STAR&&callee->unary.operand){
+			AstNode* leaf=node->call.callee;
+			while(leaf->kind==AstNodeKind::UNARY_EXPR&&leaf->unary.op==TOK_STAR&&leaf->unary.operand){
 				ptrLevel++;
-				callee=callee->unary.operand;
+				leaf=leaf->unary.operand;
 			}
-			if(ptrLevel>0&&callee->kind==AstNodeKind::TYPE_EXPR){
-				if(node->call.args.size()!=1){
-					error(node,"type cast expects exactly 1 argument");
+			if(leaf->kind==AstNodeKind::IDENT_EXPR){
+				string name=leaf->ident.name;
+				bool prim=(name=="i8"||name=="i16"||name=="i32"||name=="i64"||name=="i128"||name=="u8"||name=="u16"||name=="u32"||name=="u64"||name=="u128"||name=="usize"||name=="isize"||name=="f32"||name=="f64"||name=="bool"||name=="char"||name=="void");
+				if(ptrLevel>0||prim){
+					if(node->call.args.size()!=1){
+						error(node,"type cast expects exactly 1 argument");
+						return;
+					}
+					MioType* target=nullptr;
+					if(prim){
+						if(name=="i8")target=mio_type_new(MioTypeKind::I8);
+						else if(name=="i16")target=mio_type_new(MioTypeKind::I16);
+						else if(name=="i32")target=mio_type_new(MioTypeKind::I32);
+						else if(name=="i64")target=mio_type_new(MioTypeKind::I64);
+						else if(name=="i128")target=mio_type_new(MioTypeKind::I128);
+						else if(name=="u8")target=mio_type_new(MioTypeKind::U8);
+						else if(name=="u16")target=mio_type_new(MioTypeKind::U16);
+						else if(name=="u32")target=mio_type_new(MioTypeKind::U32);
+						else if(name=="u64")target=mio_type_new(MioTypeKind::U64);
+						else if(name=="u128")target=mio_type_new(MioTypeKind::U128);
+						else if(name=="usize")target=mio_type_new(MioTypeKind::USIZE);
+						else if(name=="isize")target=mio_type_new(MioTypeKind::ISIZE);
+						else if(name=="f32")target=mio_type_new(MioTypeKind::F32);
+						else if(name=="f64")target=mio_type_new(MioTypeKind::F64);
+						else if(name=="bool")target=mio_type_new(MioTypeKind::BOOL);
+						else if(name=="char")target=mio_type_new(MioTypeKind::CHAR);
+						else if(name=="void")target=mio_type_new(MioTypeKind::VOID);
+					}else if(classTypes.count(name)){
+						target=mio_type_new_named(MioTypeKind::CLASS,name);
+					}else{
+						error(node,"unknown type "+name);
+						return;
+					}
+					for(int i=0;i<ptrLevel;i++)
+						target=mio_type_new_pointer(target);
+					AstNode* arg=node->call.args[0];
+					delete node->call.callee;
+					node->kind=AstNodeKind::CAST_EXPR;
+					node->cast_expr.target_type=target;
+					node->cast_expr.expr=arg;
+					checkCastExpr(node);
 					return;
 				}
-				MioType* innerType=callee->type_expr.type;
-				callee->type_expr.type=nullptr;
-				MioType* targetType=innerType;
-				for(int i=0;i<ptrLevel;i++)
-					targetType=mio_type_new_pointer(targetType);
-				AstNode* arg=node->call.args[0];
-				delete node->call.callee;
-				node->kind=AstNodeKind::CAST_EXPR;
-				node->cast_expr.target_type=targetType;
-				node->cast_expr.expr=arg;
-				checkCastExpr(node);
-				return;
 			}
-		}
-		if(node->call.callee->kind==AstNodeKind::TYPE_EXPR){
-			MioType* mt=node->call.callee->type_expr.type;
-			bool isClass=mt&&mt->kind==MioTypeKind::CLASS;
-			if(!isClass&&node->call.args.size()!=1){
-				error(node,"type cast expects exactly 1 argument");
-				return;
-			}
-			if(!isClass){
-				MioType* targetType=mt;
-				node->call.callee->type_expr.type=nullptr;
-				AstNode* arg=node->call.args[0];
-				delete node->call.callee;
-				node->kind=AstNodeKind::CAST_EXPR;
-				node->cast_expr.target_type=targetType;
-				node->cast_expr.expr=arg;
-				checkCastExpr(node);
-				return;
-			}
-			string typeName=mt->name;
-			mio_type_free(mt);
-			node->call.callee->type_expr.type=nullptr;
-			auto* ident=ast_new_ident(typeName,node->call.callee->line,node->call.callee->col,node->call.callee->filename);
-			delete node->call.callee;
-			node->call.callee=ident;
 		}
 		checkExpr(node->call.callee);
 		for(auto* arg:node->call.args)

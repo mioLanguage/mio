@@ -69,12 +69,6 @@ public:
 		current=saved_current;peekToken=saved_peek;
 		return result;
 	}
-	void save_lexer_state(int&sp,int&sl,int&sc,int&sb,Token*&scur,Token*&spek)const{
-		sp=pos;sl=line;sc=col;sb=bol;scur=current;spek=peekToken;
-	}
-	void restore_lexer_state(int sp,int sl,int sc,int sb,Token* scur,Token* spek){
-		pos=sp;line=sl;col=sc;bol=sb;current=scur;peekToken=spek;
-	}
 private:
 	enum InternalKind:int{
 		IK_AT_IF=1000,IK_AT_ELIF,IK_AT_ELSE,IK_AT_END,IK_AT_MACRO
