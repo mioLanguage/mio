@@ -1745,6 +1745,43 @@ class Compiler{
 					}
 					if(val->getType()!=ty)val=b.CreateBitCast(val,ty);
 				}
+				b.CreateStore(val,alloca);
+			}else if(mt&&mt->kind==MioTypeKind::CLASS&&(initExpr->kind==AstNodeKind::IDENT_EXPR||initExpr->kind==AstNodeKind::MEMBER_EXPR)){
+				MioType* initMT=resolveExprMioType(initExpr);
+				if(initMT&&initMT->kind==MioTypeKind::CLASS&&initMT->name==mt->name){
+					string className=mt->name;
+					auto pos=className.rfind("::");
+					string shortName=(pos!=string::npos)?className.substr(pos+2):className;
+					string copyCtorName=className+"::"+shortName+"("+className+")";
+					llvm::Function* copyCtor=mod->getFunction(copyCtorName);
+					if(copyCtor){
+						llvm::Value* srcVal=genExpr(initExpr);
+						if(!srcVal){
+							error(decl->line,decl->col,"failed to generate initializer for '"+name+"'");
+							return;
+						}
+						auto* paramTy=copyCtor->getFunctionType()->getParamType(1);
+						if(srcVal->getType()!=paramTy)
+							srcVal=genCastValue(srcVal,paramTy);
+						b.CreateCall(copyCtor,{alloca,srcVal});
+					}else{
+						val=genExpr(initExpr);
+						if(!val){
+							error(decl->line,decl->col,"failed to generate initializer for '"+name+"'");
+							return;
+						}
+						if(val->getType()!=ty)val=genCastValue(val,ty);
+						b.CreateStore(val,alloca);
+					}
+				}else{
+					val=genExpr(initExpr);
+					if(!val){
+						error(decl->line,decl->col,"failed to generate initializer for '"+name+"'");
+						return;
+					}
+					if(val->getType()!=ty)val=genCastValue(val,ty);
+					b.CreateStore(val,alloca);
+				}
 			}else{
 				val=genExpr(initExpr);
 				if(!val){
@@ -1752,8 +1789,8 @@ class Compiler{
 					return;
 				}
 				if(val->getType()!=ty)val=genCastValue(val,ty);
+				b.CreateStore(val,alloca);
 			}
-			b.CreateStore(val,alloca);
 		}
 		if(mt&&mt->kind==MioTypeKind::CLASS){
 			auto dit=classDestructorMap.find(mt->name);
